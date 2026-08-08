@@ -2,26 +2,41 @@ package workspacefs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/hecatehq/hecate/internal/localfs"
+)
+
+var (
+	ErrNotStableRegularFile  = errors.New("workspace path is not a stable regular file")
+	ErrSymlinkComponent      = errors.New("workspace path uses a symlink component")
+	ErrStableReadUnsupported = errors.New("stable no-follow workspace reads are unsupported on this platform")
 )
 
 // FS is the canonical path resolver for Hecate-controlled workspace file
 // operations. It rejects traversal and existing symlink components so callers
 // do not each need to reimplement workspace-boundary checks.
 type FS struct {
-	root string
+	root           string
+	stableRoot     string
+	stableRootInfo fs.FileInfo
+	inspector      *localfs.Inspector
+
+	beforeStableDirectoryPostVerify func(string)
 }
 
 type DirEntry struct {
-	Name  string
-	Type  fs.FileMode
-	IsDir bool
-	Size  int64
+	Name             string
+	Type             fs.FileMode
+	IsDir            bool
+	Size             int64
+	TraversalBlocked bool
 }
 
 func New(root string) (*FS, error) {
@@ -33,7 +48,42 @@ func New(root string) (*FS, error) {
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
-	return &FS{root: root}, nil
+	stableRoot := root
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		stableRoot = filepath.Clean(resolved)
+	}
+	return &FS{root: root, stableRoot: stableRoot}, nil
+}
+
+// NewPinned returns a workspace filesystem whose stable reads remain bound to
+// the directory identity observed at construction. It is intended for
+// multi-step read-only reviews that must refuse a workspace-root replacement
+// between inventory and preview.
+func NewPinned(root string) (*FS, error) {
+	inspector, err := localfs.NewInspector()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	if err := inspector.EnsurePath(root); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	fSys, err := New(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := inspector.EnsurePath(fSys.stableRoot); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	info, err := os.Stat(fSys.stableRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("workspace root is not a directory")
+	}
+	fSys.stableRootInfo = info
+	fSys.inspector = inspector
+	return fSys, nil
 }
 
 func (fsys *FS) Root() string {
@@ -92,25 +142,130 @@ func (fsys *FS) Open(relativePath string) (*os.File, string, error) {
 	return file, path, err
 }
 
-// OpenReadNonBlocking opens a workspace path for inspection and returns
-// metadata from that same opened handle. On Unix the nonblocking flag prevents
-// a concurrent regular-file-to-FIFO replacement from trapping a task in
-// open(2); regular files and directories retain ordinary read semantics.
+// OpenReadNonBlocking opens a regular file or directory for inspection and
+// returns metadata from that same stable handle. Special files are rejected
+// from metadata alone, before their device/FIFO open path can run.
 func (fsys *FS) OpenReadNonBlocking(relativePath string) (*os.File, fs.FileInfo, string, error) {
 	path, err := fsys.Resolve(relativePath)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	rootDir, rel, err := fsys.openRootRelative(path)
+	local := filepath.FromSlash(relativePath)
+	if relativePath == "" || !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != relativePath {
+		return nil, nil, "", fmt.Errorf("unsafe relative workspace path %q", relativePath)
+	}
+	stableRoot := fsys.stableRoot
+	if stableRoot == "" {
+		stableRoot = fsys.root
+	}
+	inspector, err := fsys.localInspector()
 	if err != nil {
 		return nil, nil, "", err
 	}
-	defer rootDir.Close()
-	file, info, err := openRootReadNonBlocking(rootDir, rel)
+	if err := inspector.EnsurePath(filepath.Join(stableRoot, local)); err != nil {
+		return nil, nil, "", fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	rootDir, err := os.OpenRoot(stableRoot)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	before, lstatErr := rootDir.Lstat(local)
+	rootInfo, rootInfoErr := rootDir.Stat(".")
+	_ = rootDir.Close()
+	if lstatErr != nil {
+		return nil, nil, "", lstatErr
+	}
+	if before.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, "", ErrSymlinkComponent
+	}
+	if fsys.stableRootInfo != nil && (rootInfoErr != nil || !os.SameFile(fsys.stableRootInfo, rootInfo)) {
+		return nil, nil, "", ErrNotStableRegularFile
+	}
+	if before.Mode().IsRegular() {
+		file, info, _, openErr := fsys.OpenStableRegularRead(relativePath)
+		return file, info, path, openErr
+	}
+	if !before.IsDir() {
+		return nil, nil, "", ErrNotStableRegularFile
+	}
+	file, info, openedRootInfo, openErr := openStableDirectoryRead(stableRoot, local)
+	if openErr != nil {
+		return nil, nil, "", openErr
+	}
+	if err := localfs.EnsureBoundedFile(file); err != nil {
+		_ = file.Close()
+		return nil, nil, "", fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	if fsys.stableRootInfo != nil && (openedRootInfo == nil || !os.SameFile(fsys.stableRootInfo, openedRootInfo)) {
+		_ = file.Close()
+		return nil, nil, "", ErrNotStableRegularFile
 	}
 	return file, info, path, nil
+}
+
+// OpenStableRegularRead opens a workspace-relative regular file without
+// following its final symlink and verifies that the opened handle still names
+// the entry inspected through the workspace root. It is intended for bounded
+// passive previews where FIFOs, devices, sockets, symlinks, and replacement
+// races must never become readable content.
+func (fsys *FS) OpenStableRegularRead(relativePath string) (*os.File, fs.FileInfo, string, error) {
+	if fsys == nil {
+		return nil, nil, "", fmt.Errorf("workspace filesystem is not configured")
+	}
+	local := filepath.FromSlash(relativePath)
+	if relativePath == "" || !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != relativePath {
+		return nil, nil, "", fmt.Errorf("unsafe relative workspace path %q", relativePath)
+	}
+	stableRoot := fsys.stableRoot
+	if stableRoot == "" {
+		stableRoot = fsys.root
+	}
+	inspector, err := fsys.localInspector()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if err := inspector.EnsurePath(filepath.Join(stableRoot, local)); err != nil {
+		return nil, nil, "", fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	file, info, openedRootInfo, err := openStableRegularRead(stableRoot, local)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if fsys.stableRootInfo != nil && (openedRootInfo == nil || !os.SameFile(fsys.stableRootInfo, openedRootInfo)) {
+		_ = file.Close()
+		return nil, nil, "", ErrNotStableRegularFile
+	}
+	return file, info, filepath.Join(fsys.root, local), nil
+}
+
+func (fsys *FS) localInspector() (*localfs.Inspector, error) {
+	if fsys != nil && fsys.inspector != nil {
+		return fsys.inspector, nil
+	}
+	inspector, err := localfs.NewInspector()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
+	return inspector, nil
+}
+
+// ReopenStableRegularRead reopens relativePath through the same stable-read
+// boundary and requires it to name the original inode and metadata. Callers use
+// this after a bounded read so a pathname replacement cannot make stale bytes
+// look like the current workspace entry.
+func (fsys *FS) ReopenStableRegularRead(relativePath string, original fs.FileInfo) (*os.File, fs.FileInfo, error) {
+	if original == nil {
+		return nil, nil, ErrNotStableRegularFile
+	}
+	file, current, _, err := fsys.OpenStableRegularRead(relativePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !os.SameFile(original, current) || current.Mode() != original.Mode() || current.Size() != original.Size() || !current.ModTime().Equal(original.ModTime()) {
+		_ = file.Close()
+		return nil, nil, ErrNotStableRegularFile
+	}
+	return file, current, nil
 }
 
 func (fsys *FS) ReadDir(relativePath string) ([]DirEntry, string, error) {
@@ -207,6 +362,9 @@ func (fsys *FS) WalkDir(relativePath string, visit func(absPath, relPath string,
 // addition to the workspace root so a deep tree cannot exhaust the process
 // descriptor limit. Directory visitation order is intentionally unspecified.
 func (fsys *FS) WalkDirContext(ctx context.Context, relativePath string, visit func(absPath, relPath string, entry DirEntry) error) error {
+	if fsys == nil {
+		return fmt.Errorf("workspace filesystem is not configured")
+	}
 	if visit == nil {
 		return nil
 	}
@@ -216,16 +374,47 @@ func (fsys *FS) WalkDirContext(ctx context.Context, relativePath string, visit f
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	startPath, err := fsys.Resolve(relativePath)
-	if err != nil {
-		return err
+	local := filepath.FromSlash(relativePath)
+	if relativePath == "" || !filepath.IsLocal(local) || filepath.ToSlash(filepath.Clean(local)) != relativePath {
+		return fmt.Errorf("unsafe relative workspace path %q", relativePath)
 	}
-	rootDir, startRel, err := fsys.openRootRelative(startPath)
-	if err != nil {
-		return err
+	stableRoot := fsys.stableRoot
+	if stableRoot == "" {
+		stableRoot = fsys.root
 	}
-	defer rootDir.Close()
-	return fsys.walkRootDir(ctx, rootDir, startRel, visit)
+	// Preserve the general WalkDir contract for a file or special-file start
+	// path without weakening recursive directory traversal. The API file-tree
+	// route always starts at "."; this compatibility branch performs metadata
+	// only and rejects existing symlink components before its nonblocking open.
+	if local != "." {
+		if err := localfs.EnsureBoundedPath(filepath.Join(stableRoot, local)); err != nil {
+			return fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+		}
+		if err := RejectExistingSymlinkComponents(stableRoot, local); err != nil {
+			return err
+		}
+		rootDir, err := os.OpenRoot(stableRoot)
+		if err != nil {
+			return err
+		}
+		info, openErr := rootDir.Lstat(local)
+		rootInfo, rootInfoErr := rootDir.Stat(".")
+		_ = rootDir.Close()
+		if openErr != nil {
+			return openErr
+		}
+		if fsys.stableRootInfo != nil && (rootInfoErr != nil || !os.SameFile(fsys.stableRootInfo, rootInfo)) {
+			return ErrNotStableRegularFile
+		}
+		if !info.IsDir() {
+			visitErr := visit(filepath.Join(fsys.root, local), local, dirEntryFromFileInfo(filepath.Base(local), info))
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return visitErr
+		}
+	}
+	return fsys.walkRootDir(ctx, stableRoot, local, visit)
 }
 
 // SafeJoin resolves relativePath beneath root and rejects path traversal and
@@ -290,7 +479,7 @@ func RejectExistingSymlinkComponents(root, relativePath string) error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("workspace path uses symlink component %q", filepath.Join(root, current))
+			return fmt.Errorf("%w %q", ErrSymlinkComponent, filepath.Join(root, current))
 		}
 	}
 	return nil
@@ -307,13 +496,17 @@ func readDirFromRoot(rootDir *os.Root, rel string) ([]fs.DirEntry, error) {
 
 const walkDirBatchSize = 256
 
-func (fsys *FS) walkRootDir(ctx context.Context, rootDir *os.Root, rel string, visit func(absPath, relPath string, entry DirEntry) error) error {
+func (fsys *FS) walkRootDir(ctx context.Context, stableRoot, rel string, visit func(absPath, relPath string, entry DirEntry) error) error {
 	type pendingDirectory struct {
 		rel        string
 		isRoot     bool
 		needsVisit bool
 	}
 
+	inspector, err := fsys.localInspector()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+	}
 	pending := []pendingDirectory{{rel: rel, isRoot: true, needsVisit: true}}
 	for len(pending) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -323,17 +516,48 @@ func (fsys *FS) walkRootDir(ctx context.Context, rootDir *os.Root, rel string, v
 		current := pending[last]
 		pending = pending[:last]
 
-		dir, info, err := openRootReadNonBlocking(rootDir, current.rel)
-		if err != nil {
-			return err
-		}
 		name := filepath.Base(current.rel)
 		absPath := filepath.Join(fsys.root, current.rel)
+		stableAbsPath := filepath.Join(stableRoot, current.rel)
 		if current.rel == "." {
 			name = "."
 			absPath = fsys.root
+			stableAbsPath = stableRoot
+		}
+		if err := inspector.EnsurePath(stableAbsPath); err != nil {
+			return fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+		}
+		dir, info, openedRootInfo, err := openStableDirectoryRead(stableRoot, current.rel)
+		if err != nil {
+			return err
+		}
+		if fsys.stableRootInfo != nil && (openedRootInfo == nil || !os.SameFile(fsys.stableRootInfo, openedRootInfo)) {
+			dir.Close()
+			return ErrNotStableRegularFile
+		}
+		if err := localfs.EnsureBoundedFile(dir); err != nil {
+			dir.Close()
+			return fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
 		}
 		entry := dirEntryFromFileInfo(name, info)
+		verifyCurrentDirectory := func() error {
+			if fsys.beforeStableDirectoryPostVerify != nil {
+				fsys.beforeStableDirectoryPostVerify(current.rel)
+			}
+			verifyDir, verifyInfo, verifyRootInfo, verifyErr := openStableDirectoryRead(stableRoot, current.rel)
+			if verifyErr != nil {
+				return verifyErr
+			}
+			if err := localfs.EnsureBoundedFile(verifyDir); err != nil {
+				_ = verifyDir.Close()
+				return fmt.Errorf("%w: %v", ErrStableReadUnsupported, err)
+			}
+			_ = verifyDir.Close()
+			if !os.SameFile(info, verifyInfo) || (fsys.stableRootInfo != nil && (verifyRootInfo == nil || !os.SameFile(fsys.stableRootInfo, verifyRootInfo))) {
+				return ErrNotStableRegularFile
+			}
+			return nil
+		}
 		if current.needsVisit {
 			visitErr := visit(absPath, current.rel, entry)
 			if err := ctx.Err(); err != nil {
@@ -370,21 +594,30 @@ func (fsys *FS) walkRootDir(ctx context.Context, rootDir *os.Root, rel string, v
 					return err
 				}
 				childRel := filepath.Join(current.rel, child.Name())
-				childEntry := dirEntryFromDirEntry(child)
-				visitErr := visit(filepath.Join(fsys.root, childRel), childRel, childEntry)
+				childAbs := filepath.Join(fsys.root, childRel)
+				childStableAbs := filepath.Join(stableRoot, childRel)
+				boundedChild := inspector.EnsurePath(childStableAbs) == nil
+				childEntry := DirEntry{Name: child.Name(), Type: child.Type(), IsDir: child.IsDir(), TraversalBlocked: !boundedChild}
+				if boundedChild {
+					childEntry = dirEntryFromDirEntry(child)
+				}
+				visitErr := visit(childAbs, childRel, childEntry)
 				if err := ctx.Err(); err != nil {
 					dir.Close()
 					return err
 				}
 				switch {
 				case visitErr == nil:
-					if childEntry.IsDir {
+					if childEntry.IsDir && boundedChild {
 						childDirectories = append(childDirectories, pendingDirectory{rel: childRel})
 					}
 				case visitErr == filepath.SkipDir:
 					continue
 				default:
 					dir.Close()
+					if verifyErr := verifyCurrentDirectory(); verifyErr != nil {
+						return verifyErr
+					}
 					return visitErr
 				}
 			}
@@ -399,8 +632,21 @@ func (fsys *FS) walkRootDir(ctx context.Context, rootDir *os.Root, rel string, v
 			}
 			break
 		}
+		if err := verifyCurrentDirectory(); err != nil {
+			return err
+		}
 		for index := len(childDirectories) - 1; index >= 0; index-- {
 			pending = append(pending, childDirectories[index])
+		}
+	}
+	if fsys.stableRootInfo != nil {
+		rootDir, rootInfo, _, err := openStableDirectoryRead(stableRoot, ".")
+		if err != nil {
+			return err
+		}
+		_ = rootDir.Close()
+		if !os.SameFile(fsys.stableRootInfo, rootInfo) {
+			return ErrNotStableRegularFile
 		}
 	}
 	return nil

@@ -295,6 +295,14 @@ func (s *SQLiteStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		}
 		where = append(where, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
 	}
+	if len(filter.ExcludeStatuses) > 0 {
+		placeholders := make([]string, 0, len(filter.ExcludeStatuses))
+		for _, status := range filter.ExcludeStatuses {
+			args = append(args, status)
+			placeholders = append(placeholders, "?")
+		}
+		where = append(where, fmt.Sprintf("status NOT IN (%s)", strings.Join(placeholders, ", ")))
+	}
 	if filter.OrderByID && filter.AfterID != "" {
 		args = append(args, filter.AfterID)
 		where = append(where, "id > ?")

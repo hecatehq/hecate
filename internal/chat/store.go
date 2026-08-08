@@ -322,6 +322,11 @@ type Store interface {
 	Create(ctx context.Context, session Session) (Session, error)
 	Get(ctx context.Context, id string) (Session, bool, error)
 	List(ctx context.Context) ([]Session, error)
+	// ListWorkspaceOwnerSummaries returns a bounded, ID-ordered page containing
+	// only sessions or messages that may still own active work. It must not
+	// hydrate transcript bodies. Unknown non-empty statuses are candidates so a
+	// rolling-version downgrade cannot hide future active states.
+	ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error)
 	Delete(ctx context.Context, id string) error
 	DeleteByProjectID(ctx context.Context, projectID string) error
 	UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error)
@@ -337,6 +342,38 @@ type Store interface {
 	// workspace rebinding must never leave those three durable projections
 	// disagreeing about which workspace Review should inspect.
 	LinkTaskRun(ctx context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error)
+}
+
+// WorkspaceOwnerSummary is the minimum durable chat state needed to decide
+// whether a workspace has an active owner. ActiveMessageStatus is empty when
+// no persisted message is in a known active or unknown non-terminal state.
+type WorkspaceOwnerSummary struct {
+	ID                  string
+	Workspace           string
+	Status              string
+	ActiveMessageStatus string
+}
+
+func IsActiveWorkStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending", "queued", "running", "in_progress", "awaiting_approval":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPotentialWorkspaceOwnerStatus is the fail-closed durable-admission view of
+// a chat status. Unlike interactive busy rendering, it treats an unknown
+// non-empty value as active so older binaries cannot discard work owned by a
+// newer status introduced during a rolling upgrade.
+func IsPotentialWorkspaceOwnerStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "", "idle", "completed", "failed", "cancelled":
+		return false
+	default:
+		return true
+	}
 }
 
 func ReconcileInterruptedTurns(ctx context.Context, store Store, now time.Time) (int, error) {
@@ -490,6 +527,36 @@ func (s *MemoryStore) List(_ context.Context) ([]Session, error) {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
+	return items, nil
+}
+
+func (s *MemoryStore) ListWorkspaceOwnerSummaries(_ context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("workspace owner summary limit must be positive")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]WorkspaceOwnerSummary, 0, min(limit, len(s.sessions)))
+	for id, session := range s.sessions {
+		if id <= afterID {
+			continue
+		}
+		summary := WorkspaceOwnerSummary{ID: session.ID, Workspace: session.Workspace, Status: session.Status}
+		for index := len(session.Messages) - 1; index >= 0; index-- {
+			if IsPotentialWorkspaceOwnerStatus(session.Messages[index].Status) {
+				summary.ActiveMessageStatus = session.Messages[index].Status
+				break
+			}
+		}
+		if !IsPotentialWorkspaceOwnerStatus(summary.Status) && !IsPotentialWorkspaceOwnerStatus(summary.ActiveMessageStatus) {
+			continue
+		}
+		items = append(items, summary)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	if len(items) > limit {
+		items = items[:limit]
+	}
 	return items, nil
 }
 

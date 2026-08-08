@@ -3,8 +3,8 @@
 package codeintel
 
 import (
+	"errors"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -28,7 +28,7 @@ func TestSourceCacheRejectsFIFOWithoutBlocking(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		if !errors.Is(err, workspacefs.ErrNotStableRegularFile) {
 			t.Fatalf("FIFO error = %v, want regular-file rejection", err)
 		}
 	case <-time.After(time.Second):

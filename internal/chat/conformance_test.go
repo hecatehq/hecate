@@ -89,4 +89,8 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreTaskRunLinkAtomic(t, factory(t))
 	})
+	t.Run(name+"/WorkspaceOwnerSummaries", func(t *testing.T) {
+		t.Parallel()
+		runStoreWorkspaceOwnerSummaries(t, factory(t))
+	})
 }

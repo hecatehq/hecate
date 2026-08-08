@@ -229,9 +229,10 @@ type ScheduledRunStore interface {
 }
 
 type RunFilter struct {
-	TaskID   string
-	Statuses []string
-	Limit    int
+	TaskID          string
+	Statuses        []string
+	ExcludeStatuses []string
+	Limit           int
 	// OrderByID switches to stable id-ascending order for cursor scans.
 	// AfterID is exclusive and is only applied with OrderByID.
 	OrderByID bool

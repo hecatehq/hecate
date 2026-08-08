@@ -25,7 +25,7 @@ func TestReadFileToolRejectsFIFOWithoutBlocking(t *testing.T) {
 	}()
 	select {
 	case text := <-done:
-		if !strings.Contains(text, "not a regular file") {
+		if !strings.Contains(text, "not a stable regular file") {
 			t.Fatalf("readFileTool() text = %q, want non-regular-file rejection", text)
 		}
 	case <-time.After(time.Second):

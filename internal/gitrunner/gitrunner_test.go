@@ -172,6 +172,9 @@ func TestLocalRunner_SnapshotDiffReturnsExactRevision(t *testing.T) {
 	if !strings.HasPrefix(first.Revision, "sha256:") || len(first.Revision) != len("sha256:")+sha256.Size*2 {
 		t.Fatalf("revision = %q, want typed SHA-256 digest", first.Revision)
 	}
+	if !strings.HasPrefix(first.DiscardRevision, "workspace-sha256:") || first.DiscardRevision == first.Revision {
+		t.Fatalf("discard revision = %q, want distinct workspace-bound digest", first.DiscardRevision)
+	}
 	if got := strings.Join(first.Paths, "\x00"); got != "README.md" {
 		t.Fatalf("snapshot paths = %q, want byte-exact README path", got)
 	}
@@ -190,6 +193,536 @@ func TestLocalRunner_SnapshotDiffReturnsExactRevision(t *testing.T) {
 	}
 	if second.Revision == first.Revision {
 		t.Fatalf("revision stayed %q after trailing-whitespace drift", first.Revision)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewSeparatesStagedUnstagedAndUntrackedLayers(t *testing.T) {
+	dir := initRepo(t)
+	for path, content := range map[string]string{
+		"mixed.txt":  "mixed before\n",
+		"staged.txt": "staged before\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "add", "--", "mixed.txt", "staged.txt"); err != nil {
+		t.Fatalf("git add fixtures: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "review fixtures"); err != nil {
+		t.Fatalf("git commit fixtures: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("staged after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mixed.txt"), []byte("mixed staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "add", "--", "staged.txt", "mixed.txt"); err != nil {
+		t.Fatalf("git add staged edits: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mixed.txt"), []byte("mixed working tree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\nworking tree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("new file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if !snapshot.Complete {
+		t.Fatalf("review snapshot = %+v, want complete", snapshot)
+	}
+	if !equalExactPaths(snapshot.Staged.Paths, []string{"mixed.txt", "staged.txt"}) {
+		t.Fatalf("staged paths = %#v", snapshot.Staged.Paths)
+	}
+	if !equalExactPaths(snapshot.Unstaged.Paths, []string{"README.md", "mixed.txt"}) {
+		t.Fatalf("unstaged paths = %#v", snapshot.Unstaged.Paths)
+	}
+	if len(snapshot.Untracked) != 1 || snapshot.Untracked[0] != (ReviewUntrackedEntry{Path: "untracked.txt", Kind: "file"}) {
+		t.Fatalf("untracked paths = %#v", snapshot.Untracked)
+	}
+	if !strings.Contains(snapshot.Staged.Diff, "+staged after") || !strings.Contains(snapshot.Unstaged.Diff, "+mixed working tree") {
+		t.Fatalf("review patches = staged %q, unstaged %q", snapshot.Staged.Diff, snapshot.Unstaged.Diff)
+	}
+	if _, err := runner.SnapshotDiff(context.Background(), dir, 64*1024); !errors.Is(err, ErrStagedChangesUnsupported) {
+		t.Fatalf("SnapshotDiff error = %v, want staged discard refusal", err)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewRejectsSameStatusContentDrift(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, "README.md")
+	runner := NewLocalRunner()
+	if err := os.WriteFile(path, []byte("staged one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(t.Context(), dir, "add", "README.md"); err != nil {
+		t.Fatalf("git add staged one: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(path, []byte("working one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.beforeReviewVerification = func() {
+		if err := os.WriteFile(path, []byte("staged two\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := runner.Run(t.Context(), dir, "add", "README.md"); err != nil {
+			t.Fatalf("git add staged two: %v: %s", err, result.Stderr)
+		}
+		if err := os.WriteFile(path, []byte("working two\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := runner.SnapshotReview(t.Context(), dir, 64*1024)
+	if !errors.Is(err, ErrReviewSnapshotChanged) {
+		t.Fatalf("SnapshotReview error = %v, want same-status content drift refusal", err)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewFileTreatsPathspecMagicAsLiteral(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filenames cannot contain a colon")
+	}
+	dir := initRepo(t)
+	const name = ":(literal)real.txt"
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", dir, "--literal-pathspecs", "add", "--", name).CombinedOutput(); err != nil {
+		t.Fatalf("git add literal path: %v: %s", err, output)
+	}
+	if output, err := exec.Command("git", "-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "literal path").CombinedOutput(); err != nil {
+		t.Fatalf("git commit literal path: %v: %s", err, output)
+	}
+	if err := os.WriteFile(path, []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	layer, status, found, err := NewLocalRunner().SnapshotReviewFile(t.Context(), dir, name, 256*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReviewFile: %v", err)
+	}
+	if !found || !layer.Complete || !equalExactPaths(layer.Paths, []string{name}) || status.Path != name || !strings.Contains(layer.Diff, "+after") {
+		t.Fatalf("literal path review = layer %+v status %+v found %v", layer, status, found)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewMarksIntentToAddIncompleteAndBlocksDiscard(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, "intent.txt")
+	if err := os.WriteFile(path, []byte("intent content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "add", "-N", "--", "intent.txt"); err != nil {
+		t.Fatalf("git add -N: %v: %s", err, result.Stderr)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if snapshot.Complete || !equalExactPaths(snapshot.Unstaged.Paths, []string{"intent.txt"}) {
+		t.Fatalf("intent-to-add review = %+v, want visible incomplete working-tree layer", snapshot)
+	}
+	if len(snapshot.Hidden) != 1 || snapshot.Hidden[0] != (IndexVisibilityEntry{Path: "intent.txt", Kind: "intent_to_add"}) {
+		t.Fatalf("hidden entries = %#v, want intent_to_add", snapshot.Hidden)
+	}
+	if _, err := runner.SnapshotDiff(context.Background(), dir, 64*1024); !errors.Is(err, ErrStagedChangesUnsupported) {
+		t.Fatalf("SnapshotDiff error = %v, want intent-to-add discard refusal", err)
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != "intent content\n" {
+		t.Fatalf("intent file changed during review: %q, %v", content, err)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewReportsIndexVisibilityFlagsAndBlocksDiscard(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		flag string
+		kind string
+	}{
+		{name: "assume_unchanged", flag: "--assume-unchanged", kind: "assume_unchanged"},
+		{name: "skip_worktree", flag: "--skip-worktree", kind: "skip_worktree"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := initRepo(t)
+			runner := NewLocalRunner()
+			if result, err := runner.Run(context.Background(), dir, "update-index", tc.flag, "--", "README.md"); err != nil {
+				t.Fatalf("git update-index: %v: %s", err, result.Stderr)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hidden edit\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+			if err != nil {
+				t.Fatalf("SnapshotReview: %v", err)
+			}
+			if snapshot.Complete || len(snapshot.Hidden) != 1 || snapshot.Hidden[0].Path != "README.md" || snapshot.Hidden[0].Kind != tc.kind {
+				t.Fatalf("review = %+v, want incomplete %s entry", snapshot, tc.kind)
+			}
+			if _, err := runner.SnapshotDiff(context.Background(), dir, 64*1024); !errors.Is(err, ErrIndexVisibilityUnsupported) {
+				t.Fatalf("SnapshotDiff error = %v, want index visibility refusal", err)
+			}
+		})
+	}
+}
+
+func TestLocalRunner_SnapshotReviewKeepsOversizedTrackedLayerVisibleButIncomplete(t *testing.T) {
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(strings.Repeat("changed\n", 128)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := NewLocalRunner().SnapshotReview(context.Background(), dir, 64)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if snapshot.Complete || snapshot.Unstaged.Complete || snapshot.Unstaged.Diff != "" || !equalExactPaths(snapshot.Unstaged.Paths, []string{"README.md"}) {
+		t.Fatalf("oversized review = %+v, want incomplete README metadata without a patch prefix", snapshot)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewKeepsKnownEmptyLayerCompleteAtExactBudget(t *testing.T) {
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("staged only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "add", "--", "README.md"); err != nil {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+	baseline, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("baseline SnapshotReview: %v", err)
+	}
+	if len(baseline.Staged.Diff) == 0 || len(baseline.Unstaged.Paths) != 0 {
+		t.Fatalf("baseline review = %+v", baseline)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, int64(len(baseline.Staged.Diff)))
+	if err != nil {
+		t.Fatalf("exact-budget SnapshotReview: %v", err)
+	}
+	if !snapshot.Unstaged.Complete || len(snapshot.Unstaged.Paths) != 0 || !snapshot.Complete {
+		t.Fatalf("exact-budget review = %+v, want known-empty working layer complete", snapshot)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewHonorsEffectiveExternalExcludes(t *testing.T) {
+	dir := initRepo(t)
+	excludes := filepath.Join(t.TempDir(), "global-ignore")
+	if err := os.WriteFile(excludes, []byte(".env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "config", "core.excludesFile", excludes); err != nil {
+		t.Fatalf("configure excludesFile: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TOKEN=must-not-preview\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if len(snapshot.Untracked) != 0 || len(snapshot.Status) != 0 {
+		t.Fatalf("review exposed effectively ignored file: %+v", snapshot)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewResolvesRelativeExternalExcludesFromWorkTree(t *testing.T) {
+	dir := initRepo(t)
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	excludes := filepath.Join(filepath.Dir(dir), "global-ignore")
+	if err := os.WriteFile(excludes, []byte("secret.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "config", "core.excludesFile", "../global-ignore"); err != nil {
+		t.Fatalf("configure relative excludesFile: %v: %s", err, result.Stderr)
+	}
+	for _, path := range []string{"secret.txt", "visible.txt"} {
+		if err := os.WriteFile(filepath.Join(nested, path), []byte("private\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), nested, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if len(snapshot.Untracked) != 1 || snapshot.Untracked[0].Path != "visible.txt" {
+		t.Fatalf("nested untracked entries = %#v, want only visible.txt", snapshot.Untracked)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewSnapshotsDefaultGlobalExcludes(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	excludes := filepath.Join(home, ".config", "git", "ignore")
+	if err := os.MkdirAll(filepath.Dir(excludes), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(excludes, []byte("hidden.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"hidden.txt", "visible.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte("private\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := NewLocalRunner().SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if len(snapshot.Untracked) != 1 || snapshot.Untracked[0].Path != "visible.txt" {
+		t.Fatalf("untracked entries = %#v, want only visible.txt", snapshot.Untracked)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewDoesNotReenableDefaultExcludesAfterExplicitOverride(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	defaultExcludes := filepath.Join(home, ".config", "git", "ignore")
+	if err := os.MkdirAll(filepath.Dir(defaultExcludes), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultExcludes, []byte("default-only.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	explicitExcludes := filepath.Join(t.TempDir(), "explicit-ignore")
+	if err := os.WriteFile(explicitExcludes, []byte("explicit-only.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "config", "core.excludesFile", explicitExcludes); err != nil {
+		t.Fatalf("configure excludesFile: %v: %s", err, result.Stderr)
+	}
+	for _, path := range []string{"default-only.txt", "explicit-only.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte("private\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if len(snapshot.Untracked) != 1 || snapshot.Untracked[0].Path != "default-only.txt" {
+		t.Fatalf("untracked entries = %#v, want explicit override to leave default-only.txt visible", snapshot.Untracked)
+	}
+}
+
+func TestLocalRunner_ReadOnlyViewKeepsDefaultExcludesSnapshotStable(t *testing.T) {
+	dir := initRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	excludes := filepath.Join(home, ".config", "git", "ignore")
+	if err := os.MkdirAll(filepath.Dir(excludes), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(excludes, []byte("hidden-before.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"hidden-before.txt", "hidden-after.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte("private\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := NewLocalRunner()
+	view, err := runner.NewReadOnlyView(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer view.Close()
+	if err := os.WriteFile(excludes, []byte("hidden-after.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := view.captureReviewStatus(context.Background(), 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseReviewStatusPaths(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.untracked) != 1 || parsed.untracked[0].Path != "hidden-after.txt" {
+		t.Fatalf("snapshotted untracked entries = %#v, want only hidden-after.txt", parsed.untracked)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewFiltersExternalExcludesBeforeInventoryLimit(t *testing.T) {
+	dir := initRepo(t)
+	excludes := filepath.Join(t.TempDir(), "global-ignore")
+	if err := os.WriteFile(excludes, []byte("ignored-*\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "config", "core.excludesFile", excludes); err != nil {
+		t.Fatalf("configure excludesFile: %v: %s", err, result.Stderr)
+	}
+	for index := 0; index < 100; index++ {
+		path := filepath.Join(dir, fmt.Sprintf("ignored-%03d", index))
+		if err := os.WriteFile(path, []byte("private\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 128)
+	if err != nil {
+		t.Fatalf("SnapshotReview with bounded ignored tree: %v", err)
+	}
+	if len(snapshot.Untracked) != 0 || len(snapshot.Status) != 0 || !snapshot.Complete {
+		t.Fatalf("review exposed or counted externally ignored tree: %+v", snapshot)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewClassifiesEmbeddedRepositoryWithoutRecursing(t *testing.T) {
+	dir := initRepo(t)
+	embedded := filepath.Join(dir, "embedded")
+	if err := os.Mkdir(embedded, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", embedded, "init", "-b", "main").Run(); err != nil {
+		t.Fatalf("init embedded repository: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(embedded, "private.txt"), []byte("nested content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := NewLocalRunner().SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if len(snapshot.Untracked) != 1 || snapshot.Untracked[0] != (ReviewUntrackedEntry{Path: "embedded", Kind: "nested_repository"}) {
+		t.Fatalf("untracked entries = %#v, want opaque embedded repository", snapshot.Untracked)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewShowsTrackedSubmoduleButBlocksDiscard(t *testing.T) {
+	source := initRepo(t)
+	dir := initRepo(t)
+	if output, err := exec.Command(
+		"git", "-C", dir, "-c", "protocol.file.allow=always",
+		"submodule", "add", "--", source, "dependency",
+	).CombinedOutput(); err != nil {
+		t.Fatalf("git submodule add: %v: %s", err, output)
+	}
+	if output, err := exec.Command(
+		"git", "-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+		"commit", "-am", "add dependency",
+	).CombinedOutput(); err != nil {
+		t.Fatalf("commit submodule: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dependency", "README.md"), []byte("dirty submodule\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := NewLocalRunner()
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if !snapshot.Complete || !equalExactPaths(snapshot.Unstaged.Paths, []string{"dependency"}) || !strings.Contains(snapshot.Unstaged.Diff, "Subproject commit") {
+		t.Fatalf("submodule review = %+v, want visible complete working-tree evidence", snapshot)
+	}
+	if _, err := runner.SnapshotDiff(context.Background(), dir, 64*1024); !errors.Is(err, ErrSubmoduleChangesUnsupported) {
+		t.Fatalf("SnapshotDiff error = %v, want submodule discard refusal", err)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewSurfacesUnmergedStateWithoutParsingCombinedPatch(t *testing.T) {
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "checkout", "-b", "other"); err != nil {
+		t.Fatalf("checkout other: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("other\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "other"); err != nil {
+		t.Fatalf("commit other: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "checkout", "main"); err != nil {
+		t.Fatalf("checkout main: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "main"); err != nil {
+		t.Fatalf("commit main: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "merge", "other"); err == nil || result.ExitCode == 0 {
+		t.Fatalf("merge result = %+v, %v, want conflict", result, err)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview with conflict: %v", err)
+	}
+	if snapshot.Complete || len(snapshot.Hidden) != 1 || snapshot.Hidden[0] != (IndexVisibilityEntry{Path: "README.md", Kind: "unmerged"}) {
+		t.Fatalf("conflicted review = %+v", snapshot)
+	}
+	if snapshot.Staged.Diff != "" || snapshot.Unstaged.Diff != "" {
+		t.Fatalf("conflicted review projected combined patch: %+v", snapshot)
+	}
+	if snapshot.Staged.IncompleteReason != "unmerged_state" || snapshot.Unstaged.IncompleteReason != "unmerged_state" {
+		t.Fatalf("conflicted review reasons = staged %q unstaged %q, want unmerged_state", snapshot.Staged.IncompleteReason, snapshot.Unstaged.IncompleteReason)
+	}
+}
+
+func TestLocalRunner_ReadOnlyViewForcesCompleteStatChecks(t *testing.T) {
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	for key, value := range map[string]string{
+		"core.ignorestat": "true",
+		"core.trustctime": "false",
+		"core.checkstat":  "minimal",
+	} {
+		if result, err := runner.Run(context.Background(), dir, "config", key, value); err != nil {
+			t.Fatalf("configure %s: %v: %s", key, err, result.Stderr)
+		}
+	}
+	path := filepath.Join(dir, "README.md")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("HELLO\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if !strings.Contains(snapshot.Unstaged.Diff, "+HELLO") {
+		t.Fatalf("review missed same-size rewrite under weak repository stat config: %+v", snapshot)
 	}
 }
 
@@ -470,6 +1003,112 @@ func TestLocalRunner_SnapshotDiffFailsClosedWhenPatchIsTruncated(t *testing.T) {
 	}
 }
 
+func TestLocalRunner_SnapshotReviewRejectsTemporaryDirectoryInsideWorktree(t *testing.T) {
+	dir := initRepo(t)
+	t.Setenv("TMPDIR", dir)
+
+	_, err := NewLocalRunner().SnapshotReview(t.Context(), dir, 64*1024)
+	if err == nil || !strings.Contains(err.Error(), "overlaps the inspected worktree") {
+		t.Fatalf("SnapshotReview error = %v, want overlapping temporary-directory refusal", err)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "hecate-git-read-") {
+			t.Fatalf("temporary passive Git directory leaked into worktree: %s", entry.Name())
+		}
+	}
+}
+
+func TestLocalRunner_SnapshotReviewRejectsRelativeTemporaryDirectoryInsideWorktree(t *testing.T) {
+	dir := initRepo(t)
+	t.Chdir(dir)
+	t.Setenv("TMPDIR", ".")
+
+	_, err := NewLocalRunner().SnapshotReview(t.Context(), dir, 64*1024)
+	if err == nil || !strings.Contains(err.Error(), "overlaps the inspected worktree") {
+		t.Fatalf("SnapshotReview error = %v, want relative overlapping temporary-directory refusal", err)
+	}
+}
+
+func TestLocalRunner_SnapshotDiffRejectsNonUTF8PatchPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filenames are UTF-16")
+	}
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	name := "invalid-" + string([]byte{0xff}) + ".txt"
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Skipf("filesystem does not permit a non-UTF-8 filename: %v", err)
+	}
+	if result, err := runner.Run(t.Context(), dir, "add", "--", name); err != nil {
+		t.Fatalf("git add invalid path: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(t.Context(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "invalid path fixture"); err != nil {
+		t.Fatalf("git commit invalid path: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(path, []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runner.SnapshotDiff(t.Context(), dir, 64*1024)
+	if !errors.Is(err, ErrDiffSnapshotInvalid) {
+		t.Fatalf("SnapshotDiff error = %v, want ErrDiffSnapshotInvalid", err)
+	}
+}
+
+func TestLocalRunner_SnapshotDiffRejectsTrackedHardlinkTopology(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hardlink mode semantics differ on Windows")
+	}
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	externalPath := filepath.Join(filepath.Dir(dir), "outside-hardlink.txt")
+	if err := os.WriteFile(externalPath, []byte("shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkedPath := filepath.Join(dir, "linked.txt")
+	if err := os.Link(externalPath, linkedPath); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	if result, err := runner.Run(t.Context(), dir, "add", "--", "linked.txt"); err != nil {
+		t.Fatalf("git add hardlink: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(t.Context(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "hardlink fixture"); err != nil {
+		t.Fatalf("git commit hardlink: %v: %s", err, result.Stderr)
+	}
+	if err := os.Chmod(linkedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runner.SnapshotDiff(t.Context(), dir, 64*1024)
+	if !errors.Is(err, ErrTrackedPathTopologyUnsafe) {
+		t.Fatalf("SnapshotDiff error = %v, want ErrTrackedPathTopologyUnsafe", err)
+	}
+	info, statErr := os.Stat(externalPath)
+	if statErr != nil {
+		t.Fatalf("stat external hardlink: %v", statErr)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("external hardlink mode = %v; want untouched 0755", info.Mode().Perm())
+	}
+}
+
+func TestValidateTrackedPathTopologyHonorsContextAndEntryLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := validateTrackedPathTopology(ctx, t.TempDir(), []string{"note.txt"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled topology validation error = %v, want context.Canceled", err)
+	}
+	paths := make([]string, trackedPathTopologyMaxEntries+1)
+	if err := validateTrackedPathTopology(t.Context(), t.TempDir(), paths); !errors.Is(err, ErrTrackedPathTopologyUnsafe) {
+		t.Fatalf("oversized topology validation error = %v, want ErrTrackedPathTopologyUnsafe", err)
+	}
+}
+
 func TestLocalRunner_StatusPorcelainFailsClosedWhenOutputIsTruncated(t *testing.T) {
 	dir := initRepo(t)
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("changed\n"), 0o644); err != nil {
@@ -650,6 +1289,169 @@ func TestLocalRunner_ReverseApplySnapshotFencesConcurrentGitAddDuringApply(t *te
 	}
 }
 
+func TestLocalRunner_ReverseApplySnapshotReportsCommittedCleanupFailure(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte("reviewed change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	snapshot, err := runner.SnapshotDiff(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotDiff: %v", err)
+	}
+	runner.releaseIndexMutationLease = func(lease *indexMutationLease) error {
+		if err := lease.Release(); err != nil {
+			return err
+		}
+		return errors.New("injected cleanup failure")
+	}
+
+	result, err := runner.ReverseApplySnapshot(context.Background(), dir, snapshot, []string{"README.md"})
+	if result.ExitCode != 0 || !errors.Is(err, ErrDiffSnapshotApplied) {
+		t.Fatalf("ReverseApplySnapshot = result %+v error %v, want committed cleanup warning", result, err)
+	}
+	assertFileContent(t, path, "hello\n")
+	if _, statErr := os.Stat(filepath.Join(dir, ".git", "index.lock")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("injected cleanup failure left real Git index lock: %v", statErr)
+	}
+}
+
+func TestLocalRunner_ReverseApplySnapshotRejectsReplacedWorkspaceRoot(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "workspace")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	if result, err := runner.Run(context.Background(), dir, "init", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v: %s", err, result.Stderr)
+	}
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "add", "README.md"); err != nil {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"); err != nil {
+		t.Fatalf("git commit: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(path, []byte("reviewed change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := runner.SnapshotDiff(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "original")
+	runner.beforeReverseApply = func() {
+		if err := os.Rename(dir, moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := runner.Run(context.Background(), dir, "init", "-b", "main"); err != nil {
+			t.Fatalf("replacement git init: %v: %s", err, result.Stderr)
+		}
+		replacement := filepath.Join(dir, "README.md")
+		if err := os.WriteFile(replacement, []byte("hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := runner.Run(context.Background(), dir, "add", "README.md"); err != nil {
+			t.Fatalf("replacement git add: %v: %s", err, result.Stderr)
+		}
+		if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"); err != nil {
+			t.Fatalf("replacement git commit: %v: %s", err, result.Stderr)
+		}
+		if err := os.WriteFile(replacement, []byte("reviewed change\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = runner.ReverseApplySnapshot(context.Background(), dir, snapshot, []string{"README.md"})
+	if !errors.Is(err, ErrDiffSnapshotNotApplicable) {
+		t.Fatalf("ReverseApplySnapshot error = %v, want replaced-root conflict", err)
+	}
+	assertFileContent(t, filepath.Join(dir, "README.md"), "reviewed change\n")
+	assertFileContent(t, filepath.Join(moved, "README.md"), "reviewed change\n")
+	replacementSnapshot, snapshotErr := runner.SnapshotDiff(context.Background(), dir, 64*1024)
+	if snapshotErr != nil {
+		t.Fatalf("replacement SnapshotDiff: %v", snapshotErr)
+	}
+	if replacementSnapshot.Revision != snapshot.Revision || replacementSnapshot.DiscardRevision == snapshot.DiscardRevision {
+		t.Fatalf("replacement revisions = legacy %q discard %q, want same display digest and distinct root-bound discard token", replacementSnapshot.Revision, replacementSnapshot.DiscardRevision)
+	}
+	if _, statErr := os.Stat(filepath.Join(moved, ".git", "index.lock")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("replaced-root conflict leaked pinned Git index lock: %v", statErr)
+	}
+}
+
+func TestLocalRunner_ReverseApplySnapshotClassifiesPostPreflightFailureAsOutcomeUnknown(t *testing.T) {
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("notes before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "add", "notes.md"); err != nil {
+		t.Fatalf("git add: %v: %s", err, result.Stderr)
+	}
+	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "notes"); err != nil {
+		t.Fatalf("git commit: %v: %s", err, result.Stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("README changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("notes changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := runner.SnapshotDiff(context.Background(), dir, 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.applyReversePatch = func(context.Context, *ReadOnlyView, string, []string) (Result, error) {
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return Result{ExitCode: 1}, errors.New("injected failure after first path")
+	}
+
+	_, err = runner.ReverseApplySnapshot(context.Background(), dir, snapshot, []string{"README.md", "notes.md"})
+	if !errors.Is(err, ErrDiffSnapshotOutcomeUnknown) || errors.Is(err, ErrDiffSnapshotNotApplicable) {
+		t.Fatalf("ReverseApplySnapshot error = %v, want outcome unknown", err)
+	}
+	assertFileContent(t, filepath.Join(dir, "README.md"), "hello\n")
+	assertFileContent(t, filepath.Join(dir, "notes.md"), "notes changed\n")
+}
+
+func TestLocalRunner_ReverseApplySnapshotReportsOutcomeUnknownWithCleanupFailure(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte("reviewed change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewLocalRunner()
+	snapshot, err := runner.SnapshotDiff(t.Context(), dir, 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.applyReversePatch = func(context.Context, *ReadOnlyView, string, []string) (Result, error) {
+		return Result{ExitCode: 1}, errors.New("injected apply failure")
+	}
+	runner.releaseIndexMutationLease = func(lease *indexMutationLease) error {
+		if err := lease.Release(); err != nil {
+			return err
+		}
+		return errors.New("injected cleanup failure")
+	}
+
+	_, err = runner.ReverseApplySnapshot(t.Context(), dir, snapshot, []string{"README.md"})
+	if !errors.Is(err, ErrDiffSnapshotOutcomeUnknown) || !errors.Is(err, ErrDiffSnapshotCleanupFailed) || errors.Is(err, ErrDiffSnapshotApplied) {
+		t.Fatalf("ReverseApplySnapshot error = %v, want outcome-unknown plus cleanup-failed without confirmed apply", err)
+	}
+}
+
 func TestLocalRunner_ReverseApplySnapshotRejectsOverlappingLaterEditAtomically(t *testing.T) {
 	dir := initRepo(t)
 	runner := NewLocalRunner()
@@ -779,6 +1581,13 @@ func TestLocalRunner_ReverseApplySnapshotRejectsSelectedPathAbsentFromPatch(t *t
 		t.Fatalf("ReverseApplySnapshot error = %v, want ErrDiffSnapshotInvalid", err)
 	}
 	assertFileContent(t, path, "changed\n")
+}
+
+func TestReverseApplyPathsRejectsNonUTF8Path(t *testing.T) {
+	_, err := reverseApplyPaths([]string{"invalid-" + string([]byte{0xff})})
+	if !errors.Is(err, ErrDiffSnapshotInvalid) {
+		t.Fatalf("reverseApplyPaths error = %v, want ErrDiffSnapshotInvalid", err)
+	}
 }
 
 func TestLocalRunner_ReverseApplySnapshotPreservesWhitespaceOnlyFilename(t *testing.T) {
@@ -933,6 +1742,63 @@ func TestSanitizedEnvDropsProviderSecrets(t *testing.T) {
 	}
 }
 
+func TestSanitizedEnvForWindowsPreservesNativeHomeCaseInsensitively(t *testing.T) {
+	env := sanitizedEnvForOS([]string{
+		"Path=C:\\Tools",
+		"userprofile=C:\\Users\\Agent",
+		"HomeDrive=C:",
+		"homepath=\\Users\\Agent",
+		"OPENAI_API_KEY=secret",
+	}, "windows")
+
+	got := strings.Join(env, "\n")
+	for _, want := range []string{"Path=C:\\Tools", "userprofile=C:\\Users\\Agent", "HomeDrive=C:", "homepath=\\Users\\Agent"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sanitized Windows env = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "secret") {
+		t.Fatalf("sanitized Windows env leaked secret: %q", got)
+	}
+}
+
+func TestDefaultGitExcludesPathForWindowsHomeFallbacks(t *testing.T) {
+	workspace := t.TempDir()
+	cases := []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{
+			name: "XDG takes precedence",
+			env:  []string{"XDG_CONFIG_HOME=/xdg", "HOME=/home", "USERPROFILE=/profile"},
+			want: filepath.Join("/xdg", "git", "ignore"),
+		},
+		{
+			name: "HOME takes precedence over USERPROFILE",
+			env:  []string{"HOME=/home", "USERPROFILE=/profile"},
+			want: filepath.Join("/home", ".config", "git", "ignore"),
+		},
+		{
+			name: "USERPROFILE fallback is case insensitive",
+			env:  []string{"userprofile=/profile"},
+			want: filepath.Join("/profile", ".config", "git", "ignore"),
+		},
+		{
+			name: "drive and path fallback",
+			env:  []string{"HOMEDRIVE=/volume", "HOMEPATH=/users/agent"},
+			want: filepath.Join("/volume", "users", "agent", ".config", "git", "ignore"),
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := defaultGitExcludesPathForOS(workspace, test.env, "windows"); got != test.want {
+				t.Fatalf("defaultGitExcludesPathForOS() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestLocalRunner_RunLimitedReadOnlyUsesReadOnlyOfflineWrapper(t *testing.T) {
 	reset := sandbox.SetWrapperForTesting(sandbox.WrapperBwrap)
 	defer reset()
@@ -1077,6 +1943,24 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 	text := string(config)
 	if !strings.Contains(text, `autocrlf = "input"`) || !strings.Contains(text, `ignorecase = "true"`) || !strings.Contains(text, `longpaths = "true"`) {
 		t.Fatalf("passive config = %q, want normalized safe core settings", text)
+	}
+}
+
+func TestReadOnlyViewRejectsAlternateObjectDatabase(t *testing.T) {
+	dir := initRepo(t)
+	objectInfo := filepath.Join(dir, ".git", "objects", "info")
+	if err := os.MkdirAll(objectInfo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(objectInfo, "alternates"), []byte(t.TempDir()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	view, err := NewLocalRunner().NewReadOnlyView(context.Background(), dir)
+	if view != nil {
+		_ = view.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "does not support alternate object databases") {
+		t.Fatalf("NewReadOnlyView error = %v, want alternate-object refusal", err)
 	}
 }
 
@@ -1231,6 +2115,77 @@ func TestReadBoundedOptionalFileRejectsNonRegularAndOversizedFiles(t *testing.T)
 		if elapsed := time.Since(started); elapsed > time.Second {
 			t.Fatalf("FIFO metadata refusal took %v, want nonblocking open", elapsed)
 		}
+	}
+}
+
+func TestReadBoundedOptionalFileRejectsAtomicReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exclude")
+	replacement := filepath.Join(dir, "replacement")
+	if err := os.WriteFile(path, []byte("ignored/**\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacement, []byte("ignored/**\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := readBoundedOptionalFileWithHook(path, 1024, func() {
+		if removeErr := os.Remove(path); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		if renameErr := os.Rename(replacement, path); renameErr != nil {
+			t.Fatal(renameErr)
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed while it was read") {
+		t.Fatalf("replacement read error = %v, want stable-snapshot refusal", err)
+	}
+}
+
+func TestReadBoundedOptionalFileRejectsReplacementAfterVerificationRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exclude")
+	replacement := filepath.Join(dir, "replacement")
+	if err := os.WriteFile(path, []byte("ignored/**\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacement, []byte("ignored/**\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := readBoundedOptionalFileWithHooks(path, 1024, nil, func() {
+		if removeErr := os.Remove(path); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		if renameErr := os.Rename(replacement, path); renameErr != nil {
+			t.Fatal(renameErr)
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed while it was read") {
+		t.Fatalf("replacement read error = %v, want final pathname refusal", err)
+	}
+}
+
+func TestReadBoundedOptionalFileRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	link := filepath.Join(dir, "metadata")
+	if err := os.WriteFile(target, []byte("ignored/**\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	if _, err := readBoundedOptionalFile(link, 1024); err == nil {
+		t.Fatal("symlink metadata read succeeded, want no-follow refusal")
+	}
+}
+
+func TestReadBoundedOptionalFileHonorsPreCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := readBoundedOptionalFileContext(ctx, filepath.Join(t.TempDir(), "metadata"), 1024); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled metadata read error = %v, want context.Canceled", err)
 	}
 }
 

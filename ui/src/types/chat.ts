@@ -314,24 +314,99 @@ export type ChatChangedFilesResponse = {
   data: ChatChangedFileRecord[];
 };
 
-export type ChatWorkspaceDiffRecord = {
+export type ChatWorkspaceReviewLayerKind = "staged" | "working_tree" | "untracked";
+
+export type ChatWorkspaceReviewPreviewKind =
+  | "text_diff"
+  | "text"
+  | "binary"
+  | "too_large"
+  | "symlink"
+  | "special"
+  | "nested_repository"
+  | "conflict"
+  | "unavailable"
+  | (string & {});
+
+export type ChatWorkspaceReviewPreviewRecord = {
+  kind: ChatWorkspaceReviewPreviewKind;
+  content?: string;
+  reason?: string;
+};
+
+export type ChatWorkspaceReviewFileRecord = {
+  id: string;
+  layer: ChatWorkspaceReviewLayerKind | (string & {});
+  path: string;
+  additions: number;
+  deletions: number;
+  status: string;
+  size_bytes?: number;
+  preview: ChatWorkspaceReviewPreviewRecord;
+};
+
+export type ChatWorkspaceReviewLayerRecord = {
+  kind: ChatWorkspaceReviewLayerKind | (string & {});
+  complete: boolean;
+  omitted_count?: number;
+  files: ChatWorkspaceReviewFileRecord[];
+};
+
+export type ChatWorkspaceReviewIssueRecord = {
+  kind: string;
+  path: string;
+};
+
+export type ChatWorkspaceDiscardRecord = {
+  available: boolean;
+  revision?: string;
+  reason?: string;
+};
+
+type ChatWorkspaceDiffBaseRecord = {
   workspace?: string;
-  revision: string;
+  revision?: string;
   diff_stat?: string;
   diff?: string;
   has_changes: boolean;
   files: ChatChangedFileRecord[];
 };
 
+// Current gateways return a fixed, layered review. The legacy branch remains
+// representable while older desktop/web frontends roll through an update.
+export type ChatWorkspaceLayeredDiffRecord = ChatWorkspaceDiffBaseRecord & {
+  review_complete: boolean;
+  review_issues?: ChatWorkspaceReviewIssueRecord[];
+  review_issues_omitted_count?: number;
+  layers: ChatWorkspaceReviewLayerRecord[];
+  discard: ChatWorkspaceDiscardRecord;
+};
+
+export type ChatWorkspaceLegacyDiffRecord = ChatWorkspaceDiffBaseRecord & {
+  review_complete?: never;
+  review_issues?: never;
+  layers?: never;
+  discard?: never;
+};
+
+export type ChatWorkspaceDiffRecord =
+  | ChatWorkspaceLayeredDiffRecord
+  | ChatWorkspaceLegacyDiffRecord;
+
 export type ChatWorkspaceDiffResponse = {
   object: string;
   data: ChatWorkspaceDiffRecord;
+  discard_result?: {
+    outcome: "applied" | "outcome_unknown" | (string & {});
+    refresh_required?: boolean;
+    cleanup_failed?: boolean;
+  };
 };
 
 export type ChatWorkspaceFileRecord = {
   path: string;
   name: string;
-  kind: "file" | "directory";
+  kind: "file" | "directory" | "unavailable";
   status?: string;
   size_bytes?: number;
 };

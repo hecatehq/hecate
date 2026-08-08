@@ -9,7 +9,7 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 - [Gateway request flow](#gateway-request-flow)
 - [Dictation flow](#dictation-flow)
 - [Chat attachment flow](#chat-attachment-flow)
-- [Workspace mutation coordination](#workspace-mutation-coordination)
+- [Workspace review and mutation coordination](#workspace-review-and-mutation-coordination)
 - [Task runtime flow](#task-runtime-flow)
 - [What the orchestrator owns](#what-the-orchestrator-owns)
 - [Agent-loop model-call cycle](#agent-loop-model-call-cycle)
@@ -281,17 +281,28 @@ removal proof, including across later turns. The bounded adapter stderr capture
 exists only for startup failures; a successful initial session/model/config
 setup zeroes and disables that sink before prompt dispatch.
 
-## Workspace mutation coordination
+## Workspace review and mutation coordination
 
-Chat workspace discard crosses the Chat, task-runtime, External Agent, patch,
-terminal, and Git boundaries. API composition creates one
-`workspacecoord.Registry` and shares it with every Hecate-owned writer in the
-process. The registry resolves workspace aliases to canonical paths and treats
-equal and ancestor/descendant roots as overlapping; sibling roots remain
-independent.
+Live Workspace review is Hecate execution state, not portable coordination
+intent. Hecate owns its Git inventory, bounded previews, discard capability,
+writer supervision, and telemetry; Cairnline does not persist or mirror any of
+them. The same review contract applies to native Hecate tasks and every
+supervised External Agent.
 
 ```mermaid
-flowchart LR
+flowchart TB
+    ReviewRequest["GET live Workspace review"] --> Passive["GitRunner passive view<br/>snapshot ignores, index flags, and status"]
+    Passive --> Stability{"Inventory stable<br/>across capture?"}
+    Stability -->|"no after retry"| ReviewConflict["409; refresh after writers settle"]
+    Stability -->|"yes"| Layers["Fixed read-only layers<br/>staged / working_tree / untracked"]
+    Layers --> Previews["Opaque entry ids + bounded inline previews<br/>private, no-store"]
+    Layers --> Capability{"Exact complete unstaged tracked<br/>DiffSnapshot available?"}
+    Capability -->|"no"| Closed["discard.available = false"]
+    Capability -->|"yes"| Token["discard.revision<br/>exact mutation precondition"]
+    Previews --> ReviewResponse["Layered review response"]
+    Closed --> ReviewResponse
+    Token --> ReviewResponse
+
     subgraph Writers["Hecate-owned workspace writers"]
         Task["Task provisioning / start / execution<br/>and native terminals through drain"]
         ACP["External Agent turn<br/>and ACP terminal through drain"]
@@ -309,47 +320,88 @@ flowchart LR
     Patch --> WriterLease
     Terminal --> WriterLease
 
-    Discard["Chat workspace discard"] --> Session["Close and drain<br/>session lifecycle"]
+    Token -. "operator confirms" .-> Discard["POST discard<br/>strict body + selected working-tree paths"]
+    Discard --> Initial["Validate exact live DiffSnapshot<br/>and expected revision"]
+    Initial -->|"not exact / staged / hidden / incomplete"| Refuse["409 or 422; no mutation"]
+    Initial -->|"exact match"| Session["Close and drain<br/>session lifecycle"]
     Session --> Exclusive
     WriterLease -. "active overlap blocks" .-> Exclusive
     Exclusive -. "blocks or delays new overlap" .-> WriterLease
 
-    Exclusive --> Owners["Reread session and scan<br/>durable active tasks / chats"]
-    Owners --> Staged{"Scoped staged changes?"}
-    Staged -->|"yes"| Refuse["422; no revision<br/>unstage and review again"]
-    Staged -->|"no"| Snapshot["Exact raw scoped index → worktree patch<br/>+ SHA-256 revision"]
-    Snapshot --> IndexLock["Reserve Git index lock<br/>recheck staged state + index baseline"]
-    IndexLock --> Apply["Conditional reverse apply<br/>of selected paths"]
+    Exclusive --> Owners["Reread canonical session and scan<br/>durable active tasks / chats"]
+    Owners --> Snapshot["Recapture exact index → worktree patch<br/>recheck hidden + staged state"]
+    Snapshot -->|"changed / incomplete"| MutationConflict["409; no selected file changed"]
+    Snapshot --> IndexLock["Reserve Git index lock<br/>recheck visibility + staged state"]
+    IndexLock -->|"busy / hidden / staged drift"| MutationConflict
+    IndexLock --> Preflight["Recheck baseline + root identity<br/>reverse-apply --check"]
+    Preflight -->|"baseline / overlapping drift"| MutationConflict
+    Preflight -->|"passes"| Apply["Mutating conditional reverse apply<br/>of selected paths"]
     Apply -->|"success"| Preserve["Unrelated and non-overlapping<br/>edits preserved"]
-    Apply -->|"index busy / staged / overlapping drift"| Conflict["409; no selected file changed"]
+    Apply -->|"failure after preflight"| OutcomeUnknown["200 outcome_unknown<br/>refresh + inspect selected files"]
 ```
 
-The discard path closes and drains the owning `agentChatLive` lifecycle before
-it tries the workspace closure, then rereads durable state after both admission
-domains are closed. A complete task-run scan catches queued or recovered
-non-terminal work that is not represented by a currently executing writer
-lease; the chat scan catches another active session on the same overlapping
-root. With those checks held, GitRunner checks the scoped index before issuing
-authority. Any staged-only or mixed staged/unstaged change returns
-`422 invalid_request` without a revision; the operator must unstage and review
-again. This prevents a staged-only workspace from appearing clean and prevents
-mixed state from authorizing only its visible layer. When no scoped staged
-change exists, GitRunner recaptures the complete raw unstaged tracked patch
-(index → worktree) through its passive view and compares the exact revision the
-operator reviewed. Untracked files are outside this discard contract. Selected
-changes are removed by reverse-applying those patch bytes, not by restoring a
-path from `HEAD` or generating a new mutation patch.
+`SnapshotReview` is read-only evidence and deliberately carries no mutation
+precondition. It returns distinct staged (HEAD → index), working-tree (index →
+worktree), and untracked layers. Effective external Git excludes are copied
+into the passive view before inventory, hidden index flags and unmerged paths become
+bounded issues, and path sets are checked against status captured before and
+after the tracked patches. A staged-only or mixed workspace therefore remains
+reviewable instead of returning `422`. Opaque entry ids distinguish one path in
+multiple layers but never authorize a write.
+
+Tracked patches and untracked regular text are projected inline under a shared
+4 MiB response-content budget; an untracked body is capped at 256 KiB. Binary,
+oversized, symlink, special-file, nested-repository, conflict, and unavailable
+states stay explicit. Tracked Gitlinks use `nested_repository` with
+`reason=gitlink` and cannot authorize discard. WorkspaceFS reads untracked
+content from a pinned root without following path components. Both Unix and
+Windows refuse hardlinks; Unix additionally refuses cross-device entries,
+while Windows confines traversal with `os.Root`. Every live review/discard
+response is `private, no-store`.
+Remote operators may receive raw bounded untracked text, but paths, content,
+and revisions never become telemetry values.
+
+Discard authority comes from a separate exact, complete raw unstaged tracked
+`DiffSnapshot`. Only `data.discard.revision` exposes it. The layered review,
+opaque ids, and legacy top-level `revision` / `diff` / `files` projection are
+not independent authority. Staged changes, intent-to-add, assume-unchanged,
+skip-worktree, unmerged paths, incomplete or truncated working-tree previews,
+and Gitlinks close discard. Staged and untracked layers remain read-only, and
+untracked-file deletion is outside this contract. The mutation endpoint accepts
+one known-field JSON object up to 1 MiB.
+
+The discard path validates the live exact snapshot before mutation, closes and
+drains the owning `agentChatLive` lifecycle, acquires the workspace closure,
+and rereads durable state after both admission domains are closed. A complete
+task-run scan catches queued or recovered non-terminal work that is not
+represented by a currently executing writer lease; the chat scan catches
+another active session on the same overlapping root. With those checks held,
+GitRunner recaptures the exact scoped index-to-worktree patch and compares the
+discard revision. Selected changes are removed by reverse-applying those bytes,
+not by restoring a path from `HEAD` or generating a new mutation patch.
+
+After the final owner checks, discard switches to a bounded server-owned
+context so client disconnect cannot interrupt mutation. GitRunner carries the
+reviewed workspace-directory identity into the mutation, pins index-lock
+cleanup across directory renames, rechecks root identity and the index
+baseline, and runs a non-mutating reverse-apply preflight. A preflight failure
+is a no-mutation conflict; a failure from the real apply is conservatively an
+`outcome_unknown` response that forces refresh and inspection. Completed apply
+with lock-cleanup failure is also surfaced to the operator and cannot advertise
+new discard authority.
 
 The registry is deliberately process-local. It does not exclude another Hecate
 replica or an external editor. Before mutation, GitRunner additionally reserves
-Git's conventional index lock, rechecks staged state, and proves that the
-reviewed patch's old side still applies to the live index baseline. This
-excludes cooperating Git index writers but not direct filesystem or
-non-cooperating index writes. A committed baseline change or overlapping later
-worktree edit makes the entire selected operation return `409`, while unrelated
-and non-overlapping edits survive. The durable scan, transient index
-reservation, and conditional apply reduce different risks; none should be
-removed or described as distributed atomic coordination.
+Git's conventional index lock, rechecks workspace identity, visibility, and
+staged state, and proves that the reviewed patch's old side still applies to
+the live index baseline.
+This excludes cooperating Git index writers but not direct filesystem or
+non-cooperating index writes. A committed baseline change or ordinary
+overlapping edit caught by preflight returns `409`; a real-apply failure is an
+explicit unknown outcome because files may already have changed. Unrelated and
+non-overlapping edits survive. The durable scan, root checks, transient index
+reservation, preflight, and conditional apply reduce different risks; none
+should be removed or described as distributed atomic coordination.
 
 ## Task runtime flow
 

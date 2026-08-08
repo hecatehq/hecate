@@ -104,15 +104,14 @@ func OTelHTTPSpanMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 
 		// r.Pattern is populated by http.ServeMux during dispatch
-		// (Go 1.22+), so we can only read it AFTER next.ServeHTTP.
-		// Fall back to URL.Path for routes that didn't go through a
-		// pattern-aware mux (e.g. notfound handler).
-		route := r.Pattern
-		if route == "" {
-			route = r.URL.Path
+		// (Go 1.22+), so we can only read it AFTER next.ServeHTTP. An
+		// unmatched URL is operator-controlled data and must not become a
+		// telemetry route value.
+		route := httpRoutePattern(r.Pattern)
+		if route != "" {
+			span.SetAttributes(semconv.HTTPRouteKey.String(route))
 		}
 		span.SetAttributes(
-			semconv.HTTPRouteKey.String(route),
 			semconv.HTTPResponseStatusCodeKey.Int(rw.status),
 		)
 		if rw.status >= 500 {
@@ -127,18 +126,37 @@ func LoggingMiddleware(logger *slog.Logger) middleware {
 			start := time.Now()
 			rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
-
-			telemetry.Info(logger, r.Context(), "http.server.request",
+			attrs := []slog.Attr{
 				slog.String("event.name", "http.server.request"),
 				slog.String(telemetry.AttrTraceID, rw.Header().Get("X-Trace-Id")),
 				slog.String(telemetry.AttrSpanID, rw.Header().Get("X-Span-Id")),
 				slog.String("http.request.method", r.Method),
-				slog.String("url.path", r.URL.Path),
 				slog.Int("http.response.status_code", rw.status),
 				slog.Int64(telemetry.AttrHecateHTTPDurationMS, time.Since(start).Milliseconds()),
-			)
+			}
+			if route := httpRoutePattern(r.Pattern); route != "" {
+				attrs = append(attrs, slog.String("http.route", route))
+			}
+			telemetry.Info(logger, r.Context(), "http.server.request", attrs...)
 		})
 	}
+}
+
+func httpRoutePattern(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return ""
+	}
+	if _, remainder, ok := strings.Cut(pattern, " "); ok {
+		pattern = strings.TrimSpace(remainder)
+	}
+	if strings.HasPrefix(pattern, "/") {
+		return pattern
+	}
+	if slash := strings.IndexByte(pattern, '/'); slash >= 0 {
+		return pattern[slash:]
+	}
+	return ""
 }
 
 // SameOriginMiddleware rejects browser-cross-origin requests with 403.

@@ -1400,9 +1400,17 @@ textarea {
 }
 .toggle:focus-visible,
 .btn:focus-visible,
-[role="button"]:focus-visible {
+[role="button"]:focus-visible,
+.workspace-panel-tab:focus-visible,
+.workspace-review-entry-toggle:focus-visible {
   outline: 1px solid var(--teal-border);
   outline-offset: 2px;
+}
+
+.workspace-panel-search-input:focus-visible {
+  border-radius: 2px;
+  outline: 1px solid var(--teal-border);
+  outline-offset: 3px;
 }
 
 .cross-surface-focus-target:focus {

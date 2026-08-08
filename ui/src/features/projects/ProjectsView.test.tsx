@@ -9805,7 +9805,14 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Add assignment" }));
+    const detail = await screen.findByRole(
+      "region",
+      { name: "Selected work item" },
+      { timeout: 10_000 },
+    );
+    await userEvent.click(
+      await within(detail).findByRole("button", { name: "Add assignment" }, { timeout: 10_000 }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "Add assignment",
     });

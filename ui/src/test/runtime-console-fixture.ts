@@ -398,11 +398,17 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     listChatMessageFiles: async () => [],
     getChatWorkspaceDiff: async () => ({
       workspace: "",
-      revision: "sha256:empty",
       diff_stat: "",
       diff: "",
       has_changes: false,
       files: [],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        { kind: "working_tree", complete: true, files: [] },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: false, reason: "no_working_tree_changes" },
     }),
     getChatWorkspaceFiles: async () => ({
       workspace: "",
@@ -411,11 +417,17 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     getChatWorkspaceFileDiff: async () => null,
     revertChatWorkspaceFiles: async () => ({
       workspace: "",
-      revision: "sha256:empty",
       diff_stat: "",
       diff: "",
       has_changes: false,
       files: [],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        { kind: "working_tree", complete: true, files: [] },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: false, reason: "no_working_tree_changes" },
     }),
     getChatMessageFileDiff: async () => null,
     resolveTaskApproval: async () => true,

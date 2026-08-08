@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2088,6 +2089,14 @@ diff --git a/src/app.go b/src/app.go
 
 type fixedChatWorkspaceGitRunner struct {
 	snapshot gitrunner.DiffSnapshot
+	review   *gitrunner.ReviewSnapshot
+}
+
+func withTestWorkspaceAuthority(snapshot gitrunner.DiffSnapshot) gitrunner.DiffSnapshot {
+	if snapshot.DiscardRevision == "" {
+		snapshot.DiscardRevision = "workspace-sha256:test"
+	}
+	return snapshot
 }
 
 func (r *fixedChatWorkspaceGitRunner) IsWorkTree(context.Context, string) bool {
@@ -2095,7 +2104,51 @@ func (r *fixedChatWorkspaceGitRunner) IsWorkTree(context.Context, string) bool {
 }
 
 func (r *fixedChatWorkspaceGitRunner) SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error) {
-	return r.snapshot, nil
+	return withTestWorkspaceAuthority(r.snapshot), nil
+}
+
+func (r *fixedChatWorkspaceGitRunner) SnapshotReview(context.Context, string, int64) (gitrunner.ReviewSnapshot, error) {
+	if r.review != nil {
+		return *r.review, nil
+	}
+	unstaged := gitrunner.ReviewLayerSnapshot{
+		Stat:     r.snapshot.Stat,
+		Diff:     r.snapshot.Diff,
+		Paths:    append([]string(nil), r.snapshot.Paths...),
+		Complete: true,
+		Exact:    true,
+	}
+	return gitrunner.ReviewSnapshot{
+		Staged:   gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged: unstaged,
+		Complete: true,
+	}, nil
+}
+
+func (r *fixedChatWorkspaceGitRunner) SnapshotReviewFile(_ context.Context, _ string, path string, _ int64) (gitrunner.ReviewLayerSnapshot, gitrunner.ReviewStatusEntry, bool, error) {
+	review, err := r.SnapshotReview(context.Background(), "", 0)
+	if err != nil {
+		return gitrunner.ReviewLayerSnapshot{}, gitrunner.ReviewStatusEntry{}, false, err
+	}
+	if _, found := slices.BinarySearch(review.Unstaged.Paths, path); !found {
+		return gitrunner.ReviewLayerSnapshot{}, gitrunner.ReviewStatusEntry{}, false, nil
+	}
+	status := gitrunner.ReviewStatusEntry{Path: path, IndexStatus: ' ', WorktreeStatus: 'M'}
+	for _, candidate := range review.Status {
+		if candidate.Path == path {
+			status = candidate
+			break
+		}
+	}
+	return review.Unstaged, status, true, nil
+}
+
+func (r *fixedChatWorkspaceGitRunner) ReviewAndDiffMatchWorkspace(string, gitrunner.ReviewSnapshot, gitrunner.DiffSnapshot) bool {
+	return true
+}
+
+func (r *fixedChatWorkspaceGitRunner) ReviewMatchesWorkspace(string, gitrunner.ReviewSnapshot) bool {
+	return true
 }
 
 func (r *fixedChatWorkspaceGitRunner) StatusPorcelain(context.Context, string, int64) (string, error) {
@@ -2111,6 +2164,144 @@ type blockingChatWorkspaceGitRunner struct {
 	restoreStarted chan struct{}
 	restoreRelease chan struct{}
 	startOnce      sync.Once
+}
+
+type committedChatWorkspaceGitRunner struct {
+	snapshot     gitrunner.DiffSnapshot
+	refreshErr   error
+	reverseErr   error
+	reverseCalls int
+}
+
+type cancelAwareChatWorkspaceGitRunner struct {
+	committedChatWorkspaceGitRunner
+	finalCapture      chan struct{}
+	releaseCapture    chan struct{}
+	snapshotCalls     int
+	reverseContextErr error
+	finalCaptureOnce  sync.Once
+}
+
+type replacingRootChatWorkspaceGitRunner struct {
+	chatWorkspaceGitRunner
+	replaceOnce sync.Once
+	replace     func()
+	reviewCalls int
+}
+
+type snapshotErrorChatWorkspaceGitRunner struct {
+	*fixedChatWorkspaceGitRunner
+	err       error
+	diffCalls int
+}
+
+type sequenceSnapshotChatWorkspaceGitRunner struct {
+	*fixedChatWorkspaceGitRunner
+	snapshots []gitrunner.DiffSnapshot
+	diffCalls int
+}
+
+func (r *sequenceSnapshotChatWorkspaceGitRunner) SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error) {
+	index := min(r.diffCalls, len(r.snapshots)-1)
+	r.diffCalls++
+	return withTestWorkspaceAuthority(r.snapshots[index]), nil
+}
+
+type blockingHTTPResponseWriter struct {
+	header       http.Header
+	status       int
+	writeStarted chan struct{}
+	releaseWrite chan struct{}
+	startOnce    sync.Once
+}
+
+func (w *blockingHTTPResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *blockingHTTPResponseWriter) WriteHeader(status int) {
+	w.status = status
+}
+
+func (w *blockingHTTPResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	w.startOnce.Do(func() { close(w.writeStarted) })
+	<-w.releaseWrite
+	return len(body), nil
+}
+
+func (r *snapshotErrorChatWorkspaceGitRunner) SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error) {
+	r.diffCalls++
+	return gitrunner.DiffSnapshot{}, r.err
+}
+
+func (r *replacingRootChatWorkspaceGitRunner) SnapshotReview(ctx context.Context, workspace string, maxBytes int64) (gitrunner.ReviewSnapshot, error) {
+	r.reviewCalls++
+	review, err := r.chatWorkspaceGitRunner.SnapshotReview(ctx, workspace, maxBytes)
+	if err == nil {
+		r.replaceOnce.Do(r.replace)
+	}
+	return review, err
+}
+
+func (r *cancelAwareChatWorkspaceGitRunner) SnapshotDiff(ctx context.Context, workspace string, maxBytes int64) (gitrunner.DiffSnapshot, error) {
+	r.snapshotCalls++
+	if r.snapshotCalls == 2 {
+		r.finalCaptureOnce.Do(func() { close(r.finalCapture) })
+		<-r.releaseCapture
+	}
+	return r.committedChatWorkspaceGitRunner.SnapshotDiff(ctx, workspace, maxBytes)
+}
+
+func (r *cancelAwareChatWorkspaceGitRunner) ReverseApplySnapshot(ctx context.Context, workspace string, snapshot gitrunner.DiffSnapshot, paths []string) (gitrunner.Result, error) {
+	r.reverseContextErr = ctx.Err()
+	return r.committedChatWorkspaceGitRunner.ReverseApplySnapshot(ctx, workspace, snapshot, paths)
+}
+
+func (r *committedChatWorkspaceGitRunner) IsWorkTree(context.Context, string) bool {
+	return true
+}
+
+func (r *committedChatWorkspaceGitRunner) SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error) {
+	return withTestWorkspaceAuthority(r.snapshot), nil
+}
+
+func (r *committedChatWorkspaceGitRunner) SnapshotReview(context.Context, string, int64) (gitrunner.ReviewSnapshot, error) {
+	if r.refreshErr != nil {
+		return gitrunner.ReviewSnapshot{}, r.refreshErr
+	}
+	return gitrunner.ReviewSnapshot{
+		Staged:   gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged: gitrunner.ReviewLayerSnapshot{Diff: r.snapshot.Diff, Paths: append([]string(nil), r.snapshot.Paths...), Complete: true, Exact: true},
+		Status:   []gitrunner.ReviewStatusEntry{{Path: "README.md", IndexStatus: ' ', WorktreeStatus: 'M'}},
+		Complete: true,
+	}, nil
+}
+
+func (r *committedChatWorkspaceGitRunner) SnapshotReviewFile(_ context.Context, _ string, path string, _ int64) (gitrunner.ReviewLayerSnapshot, gitrunner.ReviewStatusEntry, bool, error) {
+	if path != "README.md" {
+		return gitrunner.ReviewLayerSnapshot{}, gitrunner.ReviewStatusEntry{}, false, nil
+	}
+	return gitrunner.ReviewLayerSnapshot{Diff: r.snapshot.Diff, Paths: []string{path}, Complete: true}, gitrunner.ReviewStatusEntry{Path: path, IndexStatus: ' ', WorktreeStatus: 'M'}, true, nil
+}
+
+func (r *committedChatWorkspaceGitRunner) ReviewAndDiffMatchWorkspace(string, gitrunner.ReviewSnapshot, gitrunner.DiffSnapshot) bool {
+	return true
+}
+
+func (r *committedChatWorkspaceGitRunner) ReviewMatchesWorkspace(string, gitrunner.ReviewSnapshot) bool {
+	return true
+}
+
+func (r *committedChatWorkspaceGitRunner) StatusPorcelain(context.Context, string, int64) (string, error) {
+	return "", nil
+}
+
+func (r *committedChatWorkspaceGitRunner) ReverseApplySnapshot(context.Context, string, gitrunner.DiffSnapshot, []string) (gitrunner.Result, error) {
+	r.reverseCalls++
+	return gitrunner.Result{ExitCode: 0}, r.reverseErr
 }
 
 func (r *blockingChatWorkspaceGitRunner) ReverseApplySnapshot(ctx context.Context, workspace string, snapshot gitrunner.DiffSnapshot, paths []string) (gitrunner.Result, error) {
@@ -2207,7 +2398,101 @@ func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
 	}
 }
 
-func TestChatWorkspaceDiffReturnsDeterministicRevisionWithoutWorkspace(t *testing.T) {
+func TestChatWorkspaceDiffReturnsLayeredStagedWorkingTreeAndUntrackedReview(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	for path, content := range map[string]string{
+		"mixed.txt":  "mixed before\n",
+		"staged.txt": "staged before\n",
+	} {
+		if err := os.WriteFile(filepath.Join(workspace, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runTestGit(t, workspace, "add", ".")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "staged.txt"), []byte("staged after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "mixed.txt"), []byte("mixed staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "staged.txt", "mixed.txt")
+	if err := os.WriteFile(filepath.Join(workspace, "mixed.txt"), []byte("mixed working tree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("untracked preview\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "image.bin"), []byte{'i', 'm', 0, 'g'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("note.txt", filepath.Join(workspace, "note-link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "large-untracked.txt"), bytes.Repeat([]byte("x"), chatWorkspaceReviewMaxPreviewBytesPerFile+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nestedRepo := filepath.Join(workspace, "nested-repository")
+	if err := os.Mkdir(nestedRepo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, nestedRepo, "init")
+
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_layered_review"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	recorder := client.mustRequest(http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if got := recorder.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("Cache-Control = %q, want private, no-store", got)
+	}
+	response := decodeRecorder[ChatWorkspaceDiffResponse](t, recorder)
+	if !response.Data.HasChanges || !response.Data.ReviewComplete {
+		t.Fatalf("layered review envelope = %+v", response.Data)
+	}
+	staged := chatWorkspaceReviewLayerByKind(response.Data.Layers, "staged")
+	working := chatWorkspaceReviewLayerByKind(response.Data.Layers, "working_tree")
+	untracked := chatWorkspaceReviewLayerByKind(response.Data.Layers, "untracked")
+	if staged == nil || working == nil || untracked == nil {
+		t.Fatalf("layers = %+v, want fixed staged/working_tree/untracked layers", response.Data.Layers)
+	}
+	stagedMixed := chatWorkspaceReviewFileByPath(staged.Files, "mixed.txt")
+	workingMixed := chatWorkspaceReviewFileByPath(working.Files, "mixed.txt")
+	if stagedMixed == nil || workingMixed == nil || stagedMixed.ID == workingMixed.ID ||
+		stagedMixed.Preview.Kind != "text_diff" || workingMixed.Preview.Kind != "text_diff" ||
+		!strings.Contains(stagedMixed.Preview.Content, "+mixed staged") || !strings.Contains(workingMixed.Preview.Content, "+mixed working tree") {
+		t.Fatalf("mixed-layer file entries = staged %+v working %+v", stagedMixed, workingMixed)
+	}
+	if file := chatWorkspaceReviewFileByPath(untracked.Files, "note.txt"); file == nil || file.Preview.Kind != "text" || file.Preview.Content != "untracked preview\n" {
+		t.Fatalf("untracked text preview = %+v", file)
+	}
+	if file := chatWorkspaceReviewFileByPath(untracked.Files, "image.bin"); file == nil || file.Preview.Kind != "binary" || file.Preview.Content != "" {
+		t.Fatalf("untracked binary preview = %+v", file)
+	}
+	if file := chatWorkspaceReviewFileByPath(untracked.Files, "note-link.txt"); file == nil || file.Preview.Kind != "symlink" || file.Preview.Content != "" {
+		t.Fatalf("untracked symlink preview = %+v", file)
+	}
+	if file := chatWorkspaceReviewFileByPath(untracked.Files, "large-untracked.txt"); file == nil || file.Preview.Kind != "too_large" || file.Preview.Reason != "file_limit" || file.Preview.Content != "" {
+		t.Fatalf("oversized untracked preview = %+v", file)
+	}
+	if file := chatWorkspaceReviewFileByPath(untracked.Files, "nested-repository"); file == nil || file.Preview.Kind != "nested_repository" || file.Preview.Content != "" {
+		t.Fatalf("nested repository preview = %+v", file)
+	}
+	if response.Data.Discard.Available || response.Data.Discard.Reason != "staged_changes" || response.Data.Revision != "" {
+		t.Fatalf("discard capability = %+v legacy revision %q", response.Data.Discard, response.Data.Revision)
+	}
+}
+
+func TestChatWorkspaceDiffReturnsEmptyLayeredReviewWithoutWorkspace(t *testing.T) {
 	store := chat.NewMemoryStore()
 	const sessionID = "chat_workspace_diff_empty"
 	if _, err := store.Create(context.Background(), chat.Session{
@@ -2225,8 +2510,8 @@ func TestChatWorkspaceDiffReturnsDeterministicRevisionWithoutWorkspace(t *testin
 
 	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
 
-	if resp.Data.Revision != gitrunner.DiffRevision("") || resp.Data.HasChanges || len(resp.Data.Files) != 0 {
-		t.Fatalf("empty workspace diff = %+v, want deterministic clean revision", resp.Data)
+	if resp.Data.Revision != "" || resp.Data.Discard.Available || resp.Data.HasChanges || len(resp.Data.Files) != 0 || len(resp.Data.Layers) != 3 {
+		t.Fatalf("empty workspace diff = %+v, want non-authoritative clean layered review", resp.Data)
 	}
 }
 
@@ -2237,7 +2522,7 @@ func TestChatWorkspaceDiffDoesNotAuthorizeStatOnlyObservation(t *testing.T) {
 		ID:        sessionID,
 		Title:     "Raced stat",
 		AgentID:   "codex",
-		Workspace: "/tmp/stat-observation",
+		Workspace: t.TempDir(),
 		Status:    "completed",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -2255,6 +2540,84 @@ func TestChatWorkspaceDiffDoesNotAuthorizeStatOnlyObservation(t *testing.T) {
 
 	if resp.Data.HasChanges || resp.Data.DiffStat != "" || len(resp.Data.Files) != 0 {
 		t.Fatalf("stat-only workspace diff = %+v, want clean non-authoritative snapshot", resp.Data)
+	}
+}
+
+func TestChatWorkspaceDiffPreservesReviewWhenDiscardCaptureFails(t *testing.T) {
+	diff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_discard_capture_failed"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: t.TempDir(), Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	runner := &snapshotErrorChatWorkspaceGitRunner{
+		fixedChatWorkspaceGitRunner: &fixedChatWorkspaceGitRunner{snapshot: gitrunner.DiffSnapshot{Diff: diff, Revision: gitrunner.DiffRevision(diff), Paths: []string{"README.md"}}},
+		err:                         errors.New("private-provider-diagnostic"),
+	}
+	handler.chatWorkspaceGit = runner
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	response := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	working := chatWorkspaceReviewLayerByKind(response.Data.Layers, "working_tree")
+	if !response.Data.ReviewComplete || working == nil || len(working.Files) != 1 || working.Files[0].Preview.Kind != "text_diff" || response.Data.Discard.Available || response.Data.Discard.Reason != "discard_capture_failed" {
+		t.Fatalf("degraded discard review = %+v", response.Data)
+	}
+	if !strings.Contains(logs.String(), "chat.workspace.review.discard_capture_failed") || strings.Contains(logs.String(), "private-provider-diagnostic") {
+		t.Fatalf("discard capture log = %s, want fixed classification without error detail", logs.String())
+	}
+}
+
+func TestChatWorkspaceDiffRejectsPersistentCrossCaptureDrift(t *testing.T) {
+	diff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_cross_capture_drift"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: t.TempDir(), Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	runner := &snapshotErrorChatWorkspaceGitRunner{
+		fixedChatWorkspaceGitRunner: &fixedChatWorkspaceGitRunner{snapshot: gitrunner.DiffSnapshot{Diff: diff, Revision: gitrunner.DiffRevision(diff), Paths: []string{"README.md"}}},
+		err:                         gitrunner.ErrStagedChangesUnsupported,
+	}
+	handler.chatWorkspaceGit = runner
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	response := client.mustRequestStatus(http.StatusConflict, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if runner.diffCalls != 2 || !strings.Contains(response.Body.String(), "workspace changed while") {
+		t.Fatalf("cross-capture response = calls %d body %s, want bounded retry then conflict", runner.diffCalls, response.Body.String())
+	}
+}
+
+func TestChatWorkspaceDiffRejectsPersistentSamePathContentDrift(t *testing.T) {
+	reviewDiff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+reviewed\n"
+	currentDiff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+current\n"
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_same_path_content_drift"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: t.TempDir(), Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	runner := &sequenceSnapshotChatWorkspaceGitRunner{
+		fixedChatWorkspaceGitRunner: &fixedChatWorkspaceGitRunner{snapshot: gitrunner.DiffSnapshot{Diff: reviewDiff, Revision: gitrunner.DiffRevision(reviewDiff), Paths: []string{"README.md"}}},
+		snapshots: []gitrunner.DiffSnapshot{
+			{Diff: currentDiff, Revision: gitrunner.DiffRevision(currentDiff), Paths: []string{"README.md"}},
+			{Diff: currentDiff, Revision: gitrunner.DiffRevision(currentDiff), Paths: []string{"README.md"}},
+		},
+	}
+	handler.chatWorkspaceGit = runner
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	response := client.mustRequestStatus(http.StatusConflict, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if runner.diffCalls != 2 || !strings.Contains(response.Body.String(), "workspace changed while") {
+		t.Fatalf("same-path drift response = calls %d body %s, want bounded retry then conflict", runner.diffCalls, response.Body.String())
 	}
 }
 
@@ -2284,14 +2647,14 @@ func TestChatWorkspaceDiffRejectsInvalidWorkspaces(t *testing.T) {
 			client := newAPITestClient(t, NewServer(logger, apiHandler))
 
 			rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
-			if !strings.Contains(rec.Body.String(), "chat workspace is not a git worktree") {
-				t.Fatalf("body = %s, want git worktree error", rec.Body.String())
+			if !strings.Contains(rec.Body.String(), "chat workspace is not") {
+				t.Fatalf("body = %s, want workspace validation error", rec.Body.String())
 			}
 		})
 	}
 }
 
-func TestChatWorkspaceDiffFailsClosedWhenCompletePatchExceedsReviewLimit(t *testing.T) {
+func TestChatWorkspaceDiffKeepsOversizedPatchMetadataVisibleWithoutDiscard(t *testing.T) {
 	workspace := t.TempDir()
 	runTestGit(t, workspace, "init")
 	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
@@ -2321,10 +2684,171 @@ func TestChatWorkspaceDiffFailsClosedWhenCompletePatchExceedsReviewLimit(t *test
 	apiHandler.SetAgentChatStore(store)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
-	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	response := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	working := chatWorkspaceReviewLayerByKind(response.Data.Layers, "working_tree")
+	if working == nil || working.Complete || len(working.Files) != 1 || working.Files[0].Preview.Kind != "too_large" {
+		t.Fatalf("oversized working-tree review = %+v", response.Data)
+	}
+	if response.Data.ReviewComplete || response.Data.Discard.Available || response.Data.Discard.Reason != "working_tree_too_large" {
+		t.Fatalf("oversized review capability = %+v", response.Data)
+	}
+}
 
-	if !strings.Contains(recorder.Body.String(), "too large to review and revert safely") {
-		t.Fatalf("oversized diff body = %s", recorder.Body.String())
+func TestChatWorkspaceDiffKeepsLargeBinaryMetadataVisibleWithoutDiscard(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	path := filepath.Join(workspace, "large.bin")
+	makeBytes := func(seed uint64) []byte {
+		data := make([]byte, agentChatMaxOutputBytes+512*1024)
+		state := seed
+		for index := range data {
+			state ^= state << 13
+			state ^= state >> 7
+			state ^= state << 17
+			data[index] = byte(state)
+		}
+		data[0] = 0
+		return data
+	}
+	if err := os.WriteFile(path, makeBytes(1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "large.bin")
+	runTestGit(t, workspace, "commit", "-m", "binary baseline")
+	if err := os.WriteFile(path, makeBytes(2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_large_binary"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	response := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	working := chatWorkspaceReviewLayerByKind(response.Data.Layers, "working_tree")
+	if working == nil || !working.Complete || len(working.Files) != 1 || working.Files[0].Preview.Kind != "binary" {
+		t.Fatalf("large binary review = %+v, want complete metadata-only binary evidence", response.Data)
+	}
+	if !response.Data.ReviewComplete || response.Data.Discard.Available || response.Data.Discard.Reason != "working_tree_preview_incomplete" {
+		t.Fatalf("large binary discard capability = %+v", response.Data)
+	}
+}
+
+func TestChatWorkspaceDiffDoesNotAuthorizeDiscardForTruncatedFilePreview(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	path := filepath.Join(workspace, "wide.txt")
+	if err := os.WriteFile(path, []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "wide.txt")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte(strings.Repeat("changed\n", 40_000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_file_preview_too_large"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	review := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	working := chatWorkspaceReviewLayerByKind(review.Data.Layers, "working_tree")
+	if working == nil || working.Complete || len(working.Files) != 1 || working.Files[0].Preview.Kind != "too_large" || working.Files[0].Preview.Reason != "file_limit" {
+		t.Fatalf("working-tree layer = %+v, want explicit file preview limit", working)
+	}
+	if review.Data.ReviewComplete || review.Data.Discard.Available || review.Data.Discard.Reason != "working_tree_preview_incomplete" || review.Data.Revision != "" {
+		t.Fatalf("discard capability = %+v revision %q review_complete %v", review.Data.Discard, review.Data.Revision, review.Data.ReviewComplete)
+	}
+	fileResponse := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape("wide.txt"), "")
+	if !strings.Contains(fileResponse.Body.String(), "workspace file has no bounded text diff") || strings.Contains(fileResponse.Body.String(), "workspace diff changed") {
+		t.Fatalf("oversized file-diff body = %s, want stable metadata-only error", fileResponse.Body.String())
+	}
+}
+
+func TestChatWorkspaceFileDiffReturnsMetadataErrorForTrackedBinary(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	path := filepath.Join(workspace, "asset.bin")
+	if err := os.WriteFile(path, []byte{'a', 0, 'b'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "asset.bin")
+	runTestGit(t, workspace, "commit", "-m", "binary")
+	if err := os.WriteFile(path, []byte{'c', 0, 'd'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_binary_file_diff"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape("asset.bin"), "")
+	if !strings.Contains(recorder.Body.String(), "workspace file has no bounded text diff") || strings.Contains(recorder.Body.String(), "workspace diff changed") {
+		t.Fatalf("binary file-diff body = %s, want stable metadata-only error", recorder.Body.String())
+	}
+}
+
+func TestChatWorkspaceFileDiffUsesDedicatedPerFileBudget(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	const fileCount = 20
+	paths := make([]string, 0, fileCount)
+	for index := 0; index < fileCount; index++ {
+		path := fmt.Sprintf("file-%02d.txt", index)
+		paths = append(paths, path)
+		if err := os.WriteFile(filepath.Join(workspace, path), []byte("old\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runTestGit(t, workspace, "add", ".")
+	runTestGit(t, workspace, "commit", "-m", "many files")
+	for index, path := range paths {
+		content := fmt.Sprintf("target-%02d\n%s\n", index, strings.Repeat("x", 220*1024))
+		if err := os.WriteFile(filepath.Join(workspace, path), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_per_file_budget"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	full := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	working := chatWorkspaceReviewLayerByKind(full.Data.Layers, "working_tree")
+	if working == nil || working.Complete {
+		t.Fatalf("aggregate working-tree review = %+v, want bounded incomplete metadata", working)
+	}
+	target := paths[len(paths)-1]
+	response := mustRequestJSON[ChatChangedFileDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape(target), "")
+	if response.Data.Path != target || len(response.Data.Diff) < 200*1024 || !strings.Contains(response.Data.Diff, "target-19") {
+		t.Fatalf("per-file response = path %q bytes %d, want final bounded file independent of aggregate budget", response.Data.Path, len(response.Data.Diff))
 	}
 }
 
@@ -2373,7 +2897,11 @@ func TestChatWorkspaceFilesReturnsTreeWithGitStatus(t *testing.T) {
 	apiHandler.SetAgentChatStore(store)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
-	resp := mustRequestJSON[ChatWorkspaceFilesResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-files", "")
+	recorder := client.mustRequest(http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-files", "")
+	if got := recorder.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("Cache-Control = %q, want private, no-store", got)
+	}
+	resp := decodeRecorder[ChatWorkspaceFilesResponse](t, recorder)
 	if resp.Object != "chat_workspace_files" {
 		t.Fatalf("object = %q, want chat_workspace_files", resp.Object)
 	}
@@ -2423,6 +2951,47 @@ func TestChatWorkspaceFilesReturnsEmptyWithoutWorkspace(t *testing.T) {
 	if len(resp.Data.Files) != 0 {
 		t.Fatalf("files = %#v, want empty", resp.Data.Files)
 	}
+}
+
+func TestChatWorkspaceFilesStopsAtInventoryLimit(t *testing.T) {
+	walker := &countingChatWorkspaceTreeWalker{available: chatWorkspaceFilesMaxEntries + 100}
+	files, truncated, err := collectChatWorkspaceFileInventory(t.Context(), walker, nil)
+	if err != nil || !truncated || len(files) != chatWorkspaceFilesMaxEntries {
+		t.Fatalf("bounded file inventory = truncated %v count %d err %v", truncated, len(files), err)
+	}
+	if walker.visits != chatWorkspaceFilesMaxEntries+1 {
+		t.Fatalf("workspace walk visits = %d, want immediate stop at first excess entry", walker.visits)
+	}
+}
+
+func TestChatWorkspaceFilesMarksBlockedTraversalTruncated(t *testing.T) {
+	walker := &blockedChatWorkspaceTreeWalker{}
+	files, truncated, err := collectChatWorkspaceFileInventory(t.Context(), walker, nil)
+	if err != nil || !truncated || len(files) != 1 || files[0].Path != "remote" {
+		t.Fatalf("blocked file inventory = truncated %v files %+v err %v", truncated, files, err)
+	}
+}
+
+type blockedChatWorkspaceTreeWalker struct{}
+
+func (*blockedChatWorkspaceTreeWalker) WalkDirContext(_ context.Context, _ string, visit func(string, string, workspacefs.DirEntry) error) error {
+	return visit("remote", "remote", workspacefs.DirEntry{Name: "remote", IsDir: true, TraversalBlocked: true})
+}
+
+type countingChatWorkspaceTreeWalker struct {
+	available int
+	visits    int
+}
+
+func (walker *countingChatWorkspaceTreeWalker) WalkDirContext(_ context.Context, _ string, visit func(string, string, workspacefs.DirEntry) error) error {
+	for index := 0; index < walker.available; index++ {
+		walker.visits++
+		name := fmt.Sprintf("file-%05d.txt", index)
+		if err := visit(name, name, workspacefs.DirEntry{Name: name}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestParseWorkspaceGitStatusSkipsRenameAndCopySources(t *testing.T) {
@@ -2478,6 +3047,331 @@ func chatWorkspaceFileByPath(files []ChatWorkspaceFileItem, path string) *ChatWo
 	return nil
 }
 
+func chatWorkspaceReviewLayerByKind(layers []ChatWorkspaceReviewLayerItem, kind string) *ChatWorkspaceReviewLayerItem {
+	for index := range layers {
+		if layers[index].Kind == kind {
+			return &layers[index]
+		}
+	}
+	return nil
+}
+
+func chatWorkspaceReviewFileByPath(files []ChatWorkspaceReviewFileItem, path string) *ChatWorkspaceReviewFileItem {
+	for index := range files {
+		if files[index].Path == path {
+			return &files[index]
+		}
+	}
+	return nil
+}
+
+func TestReadBoundedWorkspaceReviewPreviewRejectsCancelledContextBeforeRead(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = readBoundedWorkspaceReviewPreview(ctx, reader, 1024)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("read error = %v, want cancellation before I/O", err)
+	}
+}
+
+func TestProjectUntrackedWorkspaceReviewLayerStopsReadsAfterDeadline(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "later.txt"), []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fSys, err := workspacefs.NewPinned(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	remaining := int64(chatWorkspaceReviewMaxPreviewBytesTotal)
+	layer := projectUntrackedWorkspaceReviewLayer(ctx, fSys, []gitrunner.ReviewUntrackedEntry{{Path: "later.txt", Kind: "file"}}, &remaining)
+	if len(layer.Files) != 1 || layer.Files[0].Preview.Kind != "unavailable" || layer.Files[0].Preview.Reason != "read_timeout" || layer.Files[0].SizeBytes != 0 {
+		t.Fatalf("canceled preview layer = %+v", layer)
+	}
+	if remaining != chatWorkspaceReviewMaxPreviewBytesTotal {
+		t.Fatalf("remaining preview budget = %d, want unchanged", remaining)
+	}
+}
+
+func TestProjectUntrackedWorkspaceReviewLayerRejectsReplacementAfterVerificationRead(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "note.txt")
+	if err := os.WriteFile(path, []byte("reviewed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remaining := int64(chatWorkspaceReviewMaxPreviewBytesTotal)
+	layer := projectUntrackedWorkspaceReviewLayer(t.Context(), &replacingChatWorkspacePreviewFS{path: path}, []gitrunner.ReviewUntrackedEntry{{Path: "note.txt", Kind: "file"}}, &remaining)
+	if len(layer.Files) != 1 || layer.Files[0].Preview.Kind != "unavailable" || layer.Files[0].Preview.Reason != "changed_during_read" {
+		t.Fatalf("replacement preview layer = %+v", layer)
+	}
+	if remaining != chatWorkspaceReviewMaxPreviewBytesTotal {
+		t.Fatalf("remaining preview budget = %d, want unchanged", remaining)
+	}
+}
+
+type replacingChatWorkspacePreviewFS struct {
+	path    string
+	reopens int
+}
+
+func (fsys *replacingChatWorkspacePreviewFS) OpenStableRegularRead(string) (*os.File, os.FileInfo, string, error) {
+	file, err := os.Open(fsys.path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, "", err
+	}
+	return file, info, fsys.path, nil
+}
+
+func (fsys *replacingChatWorkspacePreviewFS) ReopenStableRegularRead(_ string, original os.FileInfo) (*os.File, os.FileInfo, error) {
+	fsys.reopens++
+	if fsys.reopens == 2 {
+		return nil, nil, workspacefs.ErrNotStableRegularFile
+	}
+	file, err := os.Open(fsys.path)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !os.SameFile(original, info) {
+		_ = file.Close()
+		return nil, nil, workspacefs.ErrNotStableRegularFile
+	}
+	return file, info, nil
+}
+
+func TestWriteChatWorkspaceFilesCaptureErrorUsesStablePrivateMessages(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "unsupported filesystem", err: fmt.Errorf("private path: %w", workspacefs.ErrStableReadUnsupported), status: http.StatusUnprocessableEntity},
+		{name: "changed path", err: fmt.Errorf("private path: %w", workspacefs.ErrNotStableRegularFile), status: http.StatusConflict},
+		{name: "unsafe symlink", err: fmt.Errorf("private path: %w", workspacefs.ErrSymlinkComponent), status: http.StatusConflict},
+		{name: "other", err: errors.New("private path"), status: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeChatWorkspaceFilesCaptureError(recorder, test.err)
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, want %d; body=%s", recorder.Code, test.status, recorder.Body.String())
+			}
+			if strings.Contains(recorder.Body.String(), "private path") {
+				t.Fatalf("response exposed raw error: %s", recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestProjectChatWorkspaceReviewCanSkipUntrackedBodies(t *testing.T) {
+	item, err := projectChatWorkspaceReviewWithUntrackedPreviews(t.Context(), t.TempDir(), gitrunner.ReviewSnapshot{
+		Staged:    gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged:  gitrunner.ReviewLayerSnapshot{Complete: true},
+		Untracked: []gitrunner.ReviewUntrackedEntry{{Path: "private.txt", Kind: "file"}},
+		Complete:  true,
+	}, nil, "no_working_tree_changes", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untracked := chatWorkspaceReviewLayerByKind(item.Layers, "untracked")
+	if untracked == nil || len(untracked.Files) != 1 || untracked.Files[0].Preview.Kind != "unavailable" || untracked.Files[0].Preview.Reason != "not_requested" {
+		t.Fatalf("metadata-only untracked layer = %+v", untracked)
+	}
+}
+
+func TestProjectChatWorkspaceReviewSharesOnePreviewContentBudget(t *testing.T) {
+	workspace := t.TempDir()
+	const fileBytes = 240 * 1024
+	entries := make([]gitrunner.ReviewUntrackedEntry, 0, 20)
+	for index := 0; index < 20; index++ {
+		path := fmt.Sprintf("preview-%02d.txt", index)
+		if err := os.WriteFile(filepath.Join(workspace, path), bytes.Repeat([]byte("x"), fileBytes), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, gitrunner.ReviewUntrackedEntry{Path: path, Kind: "file"})
+	}
+	fSys, err := workspacefs.NewPinned(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := projectChatWorkspaceReview(t.Context(), workspace, gitrunner.ReviewSnapshot{
+		Staged:    gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged:  gitrunner.ReviewLayerSnapshot{Complete: true},
+		Untracked: entries,
+		Complete:  true,
+	}, nil, "no_working_tree_changes", fSys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untracked := chatWorkspaceReviewLayerByKind(item.Layers, "untracked")
+	if untracked == nil {
+		t.Fatalf("layers = %+v, want untracked", item.Layers)
+	}
+	previewBytes := 0
+	foundTotalLimit := false
+	for _, file := range untracked.Files {
+		previewBytes += len(file.Preview.Content)
+		foundTotalLimit = foundTotalLimit || file.Preview.Reason == "total_limit"
+	}
+	if previewBytes > chatWorkspaceReviewMaxPreviewBytesTotal || !foundTotalLimit {
+		t.Fatalf("preview bytes = %d total-limit=%v, want one %d-byte cap", previewBytes, foundTotalLimit, chatWorkspaceReviewMaxPreviewBytesTotal)
+	}
+}
+
+func TestProjectChatWorkspaceReviewBoundsEntriesAndIssuesWithOmissionCounts(t *testing.T) {
+	const total = chatWorkspaceReviewMaxEntries + 2
+	untracked := make([]gitrunner.ReviewUntrackedEntry, 0, total)
+	hidden := make([]gitrunner.IndexVisibilityEntry, 0, total)
+	for index := 0; index < total; index++ {
+		path := fmt.Sprintf("entry-%04d", index)
+		untracked = append(untracked, gitrunner.ReviewUntrackedEntry{Path: path, Kind: "nested_repository"})
+		hidden = append(hidden, gitrunner.IndexVisibilityEntry{Path: path, Kind: "assume_unchanged"})
+	}
+	item, err := projectChatWorkspaceReview(t.Context(), "/workspace", gitrunner.ReviewSnapshot{
+		Staged:    gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged:  gitrunner.ReviewLayerSnapshot{Complete: true},
+		Untracked: untracked,
+		Hidden:    hidden,
+		Complete:  false,
+	}, nil, "review_incomplete", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer := chatWorkspaceReviewLayerByKind(item.Layers, "untracked")
+	if layer == nil || layer.Complete || len(layer.Files) != chatWorkspaceReviewMaxEntries || layer.OmittedCount != 2 {
+		t.Fatalf("bounded untracked layer = %+v", layer)
+	}
+	if len(item.ReviewIssues) != chatWorkspaceReviewMaxEntries || item.ReviewIssuesOmittedCount != 2 || item.ReviewComplete {
+		t.Fatalf("bounded review issues = %d omitted=%d complete=%t", len(item.ReviewIssues), item.ReviewIssuesOmittedCount, item.ReviewComplete)
+	}
+}
+
+func TestProjectTrackedWorkspaceReviewLayerBoundsIncompleteMetadata(t *testing.T) {
+	const total = chatWorkspaceReviewMaxEntries + 2
+	paths := make([]string, 0, total)
+	statuses := make([]gitrunner.ReviewStatusEntry, 0, total)
+	for index := 0; index < total; index++ {
+		path := fmt.Sprintf("tracked-%04d.txt", index)
+		paths = append(paths, path)
+		statuses = append(statuses, gitrunner.ReviewStatusEntry{Path: path, IndexStatus: ' ', WorktreeStatus: 'M'})
+	}
+	remaining := int64(chatWorkspaceReviewMaxPreviewBytesTotal)
+	layer, err := projectTrackedWorkspaceReviewLayer("working_tree", gitrunner.ReviewLayerSnapshot{
+		Paths:    paths,
+		Complete: false,
+	}, indexWorkspaceReviewStatuses(statuses), &remaining, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if layer.Complete || len(layer.Files) != chatWorkspaceReviewMaxEntries || layer.OmittedCount != 2 {
+		t.Fatalf("bounded tracked layer = files=%d omitted=%d complete=%t", len(layer.Files), layer.OmittedCount, layer.Complete)
+	}
+}
+
+func TestProjectTrackedWorkspaceReviewLayerExplainsUnmergedSuppression(t *testing.T) {
+	paths := []string{"conflicted.txt", "unrelated.txt"}
+	statuses := indexWorkspaceReviewStatuses([]gitrunner.ReviewStatusEntry{
+		{Path: "conflicted.txt", IndexStatus: 'U', WorktreeStatus: 'U', Conflict: true},
+		{Path: "unrelated.txt", IndexStatus: ' ', WorktreeStatus: 'M'},
+	})
+	remaining := int64(chatWorkspaceReviewMaxPreviewBytesTotal)
+	layer, err := projectTrackedWorkspaceReviewLayer("working_tree", gitrunner.ReviewLayerSnapshot{
+		Paths:            paths,
+		Complete:         false,
+		IncompleteReason: "unmerged_state",
+	}, statuses, &remaining, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layer.Files) != 2 || layer.Files[0].Preview.Kind != "conflict" || layer.Files[0].Preview.Reason != "unmerged" {
+		t.Fatalf("conflicted projection = %+v", layer.Files)
+	}
+	if layer.Files[1].Preview.Kind != "unavailable" || layer.Files[1].Preview.Reason != "unmerged_state" {
+		t.Fatalf("unrelated suppressed projection = %+v, want unavailable/unmerged_state", layer.Files[1])
+	}
+}
+
+func TestProjectTrackedWorkspaceReviewLayerUsesPorcelainTypeChangeStatus(t *testing.T) {
+	const path = "tool"
+	patch := "diff --git a/tool b/tool\nold mode 100644\nnew mode 120000\n"
+	remaining := int64(chatWorkspaceReviewMaxPreviewBytesTotal)
+	layer, err := projectTrackedWorkspaceReviewLayer("working_tree", gitrunner.ReviewLayerSnapshot{
+		Diff:     patch,
+		Paths:    []string{path},
+		Complete: true,
+	}, indexWorkspaceReviewStatuses([]gitrunner.ReviewStatusEntry{{Path: path, IndexStatus: ' ', WorktreeStatus: 'T'}}), &remaining, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layer.Files) != 1 || layer.Files[0].Status != "type_changed" {
+		t.Fatalf("type-change projection = %+v", layer.Files)
+	}
+}
+
+func TestTrackedWorkspacePreviewDoesNotMistakeTextForGitlink(t *testing.T) {
+	patch := "diff --git a/notes.txt b/notes.txt\n" +
+		"index 1111111..2222222 100644\n" +
+		"--- a/notes.txt\n" +
+		"+++ b/notes.txt\n" +
+		"@@ -1 +1 @@\n" +
+		"-Subproject commit was discussed yesterday\n" +
+		"+Subproject commit will be discussed tomorrow\n"
+	preview := trackedWorkspacePreview(patch)
+	if preview.Kind != "text_diff" || preview.Content != patch {
+		t.Fatalf("ordinary text preview = %+v, want text_diff", preview)
+	}
+}
+
+func TestProjectChatWorkspaceReviewKeepsSubmodulesReadOnly(t *testing.T) {
+	workspace := t.TempDir()
+	fSys, err := workspacefs.NewPinned(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := "diff --git a/vendor/agent b/vendor/agent\n" +
+		"index 1111111..2222222 160000\n" +
+		"--- a/vendor/agent\n" +
+		"+++ b/vendor/agent\n" +
+		"@@ -1 +1 @@\n" +
+		"-Subproject commit 1111111111111111111111111111111111111111\n" +
+		"+Subproject commit 2222222222222222222222222222222222222222-dirty\n"
+	review := gitrunner.ReviewSnapshot{
+		Staged:   gitrunner.ReviewLayerSnapshot{Complete: true},
+		Unstaged: gitrunner.ReviewLayerSnapshot{Diff: patch, Paths: []string{"vendor/agent"}, Complete: true},
+		Status:   []gitrunner.ReviewStatusEntry{{Path: "vendor/agent", IndexStatus: ' ', WorktreeStatus: 'M'}},
+		Complete: true,
+	}
+	discard := gitrunner.DiffSnapshot{Diff: patch, Revision: gitrunner.DiffRevision(patch), Paths: []string{"vendor/agent"}}
+	item, err := projectChatWorkspaceReview(t.Context(), workspace, review, &discard, "", fSys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	working := chatWorkspaceReviewLayerByKind(item.Layers, "working_tree")
+	if working == nil || working.Complete || len(working.Files) != 1 || working.Files[0].Preview.Kind != "nested_repository" || working.Files[0].Preview.Reason != "gitlink" {
+		t.Fatalf("submodule review = %+v", working)
+	}
+	if item.Discard.Available || item.Discard.Reason != "working_tree_preview_incomplete" || item.Revision != "" {
+		t.Fatalf("submodule discard capability = %+v revision %q", item.Discard, item.Revision)
+	}
+}
+
 func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	workspace := t.TempDir()
 	runTestGit(t, workspace, "init")
@@ -2522,7 +3416,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld \n"), 0o644); err != nil {
 		t.Fatalf("drift README: %v", err)
 	}
-	staleBody := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, reviewed.Data.Revision)
+	staleBody := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, reviewed.Data.Discard.Revision)
 	stale := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", staleBody)
 	if !strings.Contains(stale.Body.String(), "workspace diff changed after it was reviewed") {
 		t.Fatalf("stale revision body = %s", stale.Body.String())
@@ -2539,7 +3433,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	if current.Data.Revision == reviewed.Data.Revision {
 		t.Fatalf("revision did not change for trailing-whitespace drift: %q", current.Data.Revision)
 	}
-	body := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, current.Data.Revision)
+	body := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, current.Data.Discard.Revision)
 	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", body)
 	if resp.Object != "chat_workspace_diff" {
 		t.Fatalf("object = %q, want chat_workspace_diff", resp.Object)
@@ -2574,7 +3468,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("set session status %q: %v", status, err)
 		}
-		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Discard.Revision)
 		busy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
 		if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
 			t.Fatalf("busy status %q body = %s", status, busy.Body.String())
@@ -2592,7 +3486,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 			t.Fatalf("register live turn = %v, want accepted", got)
 		}
 		defer apiHandler.agentChatLive.clearTurn(sessionID)
-		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Discard.Revision)
 		busy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
 		if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
 			t.Fatalf("live turn body = %s", busy.Body.String())
@@ -2608,7 +3502,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("set active turn: %v", err)
 	}
-	busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+	busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Discard.Revision)
 	busyTurn := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
 	if !strings.Contains(busyTurn.Body.String(), errCodeAgentSessionBusy) {
 		t.Fatalf("active turn body = %s", busyTurn.Body.String())
@@ -2639,7 +3533,7 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 		request := httptest.NewRequest(
 			http.MethodPost,
 			"/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert",
-			strings.NewReader(fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)),
+			strings.NewReader(fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Discard.Revision)),
 		)
 		client.handler.ServeHTTP(recorder, request)
 		revertDone <- recorder
@@ -2677,6 +3571,330 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	}
 	if got := string(notes); got != "note\n" {
 		t.Fatalf("notes after fenced revert = %q, want original", got)
+	}
+}
+
+func TestChatWorkspaceDiffRetriesReplacementBetweenReviewAndAuthorityCapture(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "workspace")
+	replacement := filepath.Join(parent, "replacement")
+	createWorkspace := func(path, untracked string) {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, path, "init")
+		runTestGit(t, path, "config", "user.email", "hecate@example.test")
+		runTestGit(t, path, "config", "user.name", "Hecate Test")
+		if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, path, "add", "README.md")
+		runTestGit(t, path, "commit", "-m", "initial")
+		if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("reviewed change\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "untracked.txt"), []byte(untracked), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	createWorkspace(workspace, "old root\n")
+	createWorkspace(replacement, "new root\n")
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_mid_capture_replacement"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	runner := &replacingRootChatWorkspaceGitRunner{
+		chatWorkspaceGitRunner: gitrunner.NewLocalRunner(),
+		replace: func() {
+			if err := os.Rename(workspace, filepath.Join(parent, "original")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(replacement, workspace); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	handler.chatWorkspaceGit = runner
+	client := newAPITestClient(t, NewServer(logger, handler))
+
+	response := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if runner.reviewCalls != 2 {
+		t.Fatalf("review calls = %d, want one root-mismatch retry", runner.reviewCalls)
+	}
+	untracked := chatWorkspaceReviewLayerByKind(response.Data.Layers, "untracked")
+	if untracked == nil || len(untracked.Files) != 1 || untracked.Files[0].Preview.Content != "new root\n" || !response.Data.Discard.Available {
+		t.Fatalf("replacement-root review = %+v, want one coherent new-root snapshot", response.Data)
+	}
+}
+
+func TestRevertChatWorkspaceFilesRejectsLegacyRevisionAndReplacementRoot(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "workspace")
+	createWorkspace := func(path string) {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, path, "init")
+		runTestGit(t, path, "config", "user.email", "hecate@example.test")
+		runTestGit(t, path, "config", "user.name", "Hecate Test")
+		if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, path, "add", "README.md")
+		runTestGit(t, path, "commit", "-m", "initial")
+		if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("reviewed change\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	createWorkspace(workspace)
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_replaced_root"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, handler))
+	reviewed := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+
+	legacyBody := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, reviewed.Data.Revision)
+	legacy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", legacyBody)
+	if !strings.Contains(legacy.Body.String(), "workspace diff changed") {
+		t.Fatalf("legacy revision response = %s, want closed mutation authority", legacy.Body.String())
+	}
+
+	original := filepath.Join(parent, "original")
+	if err := os.Rename(workspace, original); err != nil {
+		t.Fatal(err)
+	}
+	createWorkspace(workspace)
+	replacementReview := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if replacementReview.Data.Revision != reviewed.Data.Revision || replacementReview.Data.Discard.Revision == reviewed.Data.Discard.Revision {
+		t.Fatalf("replacement review revisions = legacy %q discard %q, want same display digest and new root-bound authority", replacementReview.Data.Revision, replacementReview.Data.Discard.Revision)
+	}
+	staleRootBody := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, reviewed.Data.Discard.Revision)
+	client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", staleRootBody)
+	content, err := os.ReadFile(filepath.Join(workspace, "README.md"))
+	if err != nil || string(content) != "reviewed change\n" {
+		t.Fatalf("replacement root after rejected discard = %q, %v", content, err)
+	}
+}
+
+func TestRevertChatWorkspaceFilesReportsCommittedMutationWhenFollowUpFails(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	path := filepath.Join(workspace, "README.md")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "README.md")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := gitrunner.NewLocalRunner().SnapshotDiff(t.Context(), workspace, agentChatMaxOutputBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name           string
+		refreshErr     error
+		reverseErr     error
+		wantOutcome    string
+		wantReason     string
+		wantCleanup    bool
+		wantRefreshReq bool
+	}{
+		{name: "refresh capture fails", refreshErr: errors.New("injected refresh failure"), wantOutcome: "applied", wantReason: "refresh_required", wantRefreshReq: true},
+		{name: "index cleanup warns after apply", reverseErr: gitrunner.ErrDiffSnapshotApplied, wantOutcome: "applied", wantReason: "cleanup_failed", wantCleanup: true, wantRefreshReq: true},
+		{name: "apply outcome is unknown", reverseErr: gitrunner.ErrDiffSnapshotOutcomeUnknown, wantOutcome: "outcome_unknown", wantReason: "mutation_outcome_unknown", wantRefreshReq: true},
+		{name: "unknown outcome and cleanup failure", reverseErr: errors.Join(gitrunner.ErrDiffSnapshotOutcomeUnknown, gitrunner.ErrDiffSnapshotCleanupFailed), wantOutcome: "outcome_unknown", wantReason: "mutation_outcome_unknown", wantCleanup: true, wantRefreshReq: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := chat.NewMemoryStore()
+			sessionID := "chat_workspace_committed_" + strings.ReplaceAll(test.name, " ", "_")
+			if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+				t.Fatal(err)
+			}
+			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+			handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+			handler.SetAgentChatStore(store)
+			runner := &committedChatWorkspaceGitRunner{snapshot: snapshot, refreshErr: test.refreshErr, reverseErr: test.reverseErr}
+			handler.chatWorkspaceGit = runner
+			client := newAPITestClient(t, NewServer(logger, handler))
+
+			body := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, snapshot.DiscardRevision)
+			response := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", body)
+			if runner.reverseCalls != 1 {
+				t.Fatalf("reverse calls = %d, want 1", runner.reverseCalls)
+			}
+			if response.DiscardResult == nil || response.DiscardResult.Outcome != test.wantOutcome || response.DiscardResult.CleanupFailed != test.wantCleanup || response.DiscardResult.RefreshRequired != test.wantRefreshReq {
+				t.Fatalf("discard result = %+v, want outcome=%q cleanup=%t refresh=%t", response.DiscardResult, test.wantOutcome, test.wantCleanup, test.wantRefreshReq)
+			}
+			if response.Data.Discard.Available || response.Data.Discard.Reason != test.wantReason {
+				t.Fatalf("post-commit review = %+v, want discard reason %q", response.Data, test.wantReason)
+			}
+		})
+	}
+}
+
+func TestRevertChatWorkspaceFilesNeverReportsPreMutationCleanupFailureAsApplied(t *testing.T) {
+	workspace := t.TempDir()
+	diff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+	snapshot := withTestWorkspaceAuthority(gitrunner.DiffSnapshot{Diff: diff, Revision: gitrunner.DiffRevision(diff), Paths: []string{"README.md"}})
+	for _, test := range []struct {
+		name       string
+		reverseErr error
+	}{
+		{name: "cleanup only", reverseErr: gitrunner.ErrDiffSnapshotCleanupFailed},
+		{name: "conflict and cleanup", reverseErr: errors.Join(gitrunner.ErrDiffSnapshotNotApplicable, gitrunner.ErrDiffSnapshotCleanupFailed)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := chat.NewMemoryStore()
+			sessionID := "chat_workspace_cleanup_" + strings.ReplaceAll(test.name, " ", "_")
+			if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+				t.Fatal(err)
+			}
+			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+			handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+			handler.SetAgentChatStore(store)
+			handler.chatWorkspaceGit = &committedChatWorkspaceGitRunner{snapshot: snapshot, refreshErr: errors.New("unused"), reverseErr: test.reverseErr}
+			client := newAPITestClient(t, NewServer(logger, handler))
+			body := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, snapshot.DiscardRevision)
+			response := client.mustRequestStatus(http.StatusInternalServerError, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", body)
+			if !strings.Contains(response.Body.String(), "cleanup did not complete") || strings.Contains(response.Body.String(), `"outcome":"applied"`) {
+				t.Fatalf("cleanup failure body = %s, want explicit non-success", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRevertChatWorkspaceFilesReleasesAdmissionsBeforeWritingResponse(t *testing.T) {
+	workspace := t.TempDir()
+	diff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+	snapshot := withTestWorkspaceAuthority(gitrunner.DiffSnapshot{Diff: diff, Revision: gitrunner.DiffRevision(diff), Paths: []string{"README.md"}})
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_slow_response"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	handler.chatWorkspaceGit = &committedChatWorkspaceGitRunner{snapshot: snapshot, refreshErr: errors.New("skip refresh")}
+	server := NewServer(logger, handler)
+	writer := &blockingHTTPResponseWriter{
+		header:       make(http.Header),
+		writeStarted: make(chan struct{}),
+		releaseWrite: make(chan struct{}),
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert",
+		strings.NewReader(fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, snapshot.DiscardRevision)),
+	)
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(writer, request)
+		close(done)
+	}()
+	select {
+	case <-writer.writeStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("response write did not start")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	lease, err := handler.workspaceCoordinator.AcquireWriter(ctx, workspace)
+	cancel()
+	if err != nil {
+		close(writer.releaseWrite)
+		t.Fatalf("workspace writer stayed blocked by slow response: %v", err)
+	}
+	lease.Release()
+	lifecycle := handler.agentChatLive.snapshotLifecycle(sessionID)
+	registration := handler.agentChatLive.registerTurn(lifecycle, func() {})
+	lifecycle.release()
+	if registration == agentChatTurnAccepted {
+		handler.agentChatLive.clearTurn(sessionID)
+	}
+	if registration != agentChatTurnAccepted {
+		close(writer.releaseWrite)
+		t.Fatalf("chat lifecycle stayed closed by slow response: %v", registration)
+	}
+	close(writer.releaseWrite)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("response did not complete after writer release")
+	}
+	if writer.status != http.StatusOK {
+		t.Fatalf("response status = %d, want 200", writer.status)
+	}
+}
+
+func TestRevertChatWorkspaceFilesDetachesCommittedMutationFromClientCancellation(t *testing.T) {
+	workspace := t.TempDir()
+	diff := "diff --git a/README.md b/README.md\n" +
+		"index ce01362..5ea2ed4 100644\n" +
+		"--- a/README.md\n" +
+		"+++ b/README.md\n" +
+		"@@ -1 +1 @@\n" +
+		"-hello\n" +
+		"+changed\n"
+	snapshot := withTestWorkspaceAuthority(gitrunner.DiffSnapshot{Diff: diff, Revision: gitrunner.DiffRevision(diff), Paths: []string{"README.md"}})
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_client_canceled"
+	if _, err := store.Create(t.Context(), chat.Session{ID: sessionID, AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	runner := &cancelAwareChatWorkspaceGitRunner{
+		committedChatWorkspaceGitRunner: committedChatWorkspaceGitRunner{snapshot: snapshot, refreshErr: errors.New("skip refresh")},
+		finalCapture:                    make(chan struct{}),
+		releaseCapture:                  make(chan struct{}),
+	}
+	handler.chatWorkspaceGit = runner
+	server := NewServer(logger, handler)
+
+	requestContext, cancelRequest := context.WithCancel(t.Context())
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert",
+		strings.NewReader(fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, snapshot.DiscardRevision)),
+	).WithContext(requestContext)
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, request)
+		close(done)
+	}()
+	select {
+	case <-runner.finalCapture:
+	case <-time.After(5 * time.Second):
+		t.Fatal("discard did not reach final exact recapture")
+	}
+	cancelRequest()
+	close(runner.releaseCapture)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("discard did not complete after client cancellation")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want committed success", recorder.Code, recorder.Body.String())
+	}
+	if runner.reverseContextErr != nil || runner.reverseCalls != 1 {
+		t.Fatalf("reverse context error = %v calls=%d, want detached live context", runner.reverseContextErr, runner.reverseCalls)
 	}
 }
 

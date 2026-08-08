@@ -3952,6 +3952,24 @@ test("workspace changes review inspects and discards a current file", async ({ p
     " existing line",
     "+kept line",
   ].join("\n");
+  const runtimeReviewEntry = {
+    id: "entry-runtime-working",
+    layer: "working_tree",
+    path: "docs/runtime-api.md",
+    additions: 4,
+    deletions: 0,
+    status: "modified",
+    preview: { kind: "text_diff", content: runtimeAPIDiff },
+  };
+  const readmeReviewEntry = {
+    id: "entry-readme-working",
+    layer: "working_tree",
+    path: "README.md",
+    additions: 2,
+    deletions: 1,
+    status: "modified",
+    preview: { kind: "text_diff", content: readmeDiff },
+  };
 
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatSessionID", "a-diff-1");
@@ -4036,7 +4054,21 @@ test("workspace changes review inspects and discards a current file", async ({ p
             diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
             diff: runtimeAPIDiff,
             has_changes: true,
-            files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
+            files: [
+              {
+                path: runtimeReviewEntry.path,
+                additions: runtimeReviewEntry.additions,
+                deletions: runtimeReviewEntry.deletions,
+                status: runtimeReviewEntry.status,
+              },
+            ],
+            review_complete: true,
+            layers: [
+              { kind: "staged", complete: true, files: [] },
+              { kind: "working_tree", complete: true, files: [runtimeReviewEntry] },
+              { kind: "untracked", complete: true, files: [] },
+            ],
+            discard: { available: true, revision: "sha256:after-readme" },
           },
         }),
       });
@@ -4055,9 +4087,30 @@ test("workspace changes review inspects and discards a current file", async ({ p
           diff: `${readmeDiff}\n${runtimeAPIDiff}`,
           has_changes: true,
           files: [
-            { path: "README.md", additions: 2, deletions: 1, status: "modified" },
-            { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
+            {
+              path: readmeReviewEntry.path,
+              additions: readmeReviewEntry.additions,
+              deletions: readmeReviewEntry.deletions,
+              status: readmeReviewEntry.status,
+            },
+            {
+              path: runtimeReviewEntry.path,
+              additions: runtimeReviewEntry.additions,
+              deletions: runtimeReviewEntry.deletions,
+              status: runtimeReviewEntry.status,
+            },
           ],
+          review_complete: true,
+          layers: [
+            { kind: "staged", complete: true, files: [] },
+            {
+              kind: "working_tree",
+              complete: true,
+              files: [runtimeReviewEntry, readmeReviewEntry],
+            },
+            { kind: "untracked", complete: true, files: [] },
+          ],
+          discard: { available: true, revision: "sha256:reviewed-workspace" },
         },
       }),
     });
@@ -4078,7 +4131,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
               path: "docs/runtime-api.md",
               name: "runtime-api.md",
               kind: "file",
-              status: "added",
+              status: "modified",
             },
           ],
         },
@@ -4086,23 +4139,10 @@ test("workspace changes review inspects and discards a current file", async ({ p
     });
   });
 
-  let readmeFileDiffRequests = 0;
-  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/files/README.md", (route) => {
-    readmeFileDiffRequests += 1;
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "chat_workspace_file_diff",
-        data: {
-          path: "README.md",
-          additions: 2,
-          deletions: 1,
-          status: "modified",
-          diff: readmeDiff,
-        },
-      }),
-    });
+  let rawPathDiffRequests = 0;
+  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/files/**", (route) => {
+    rawPathDiffRequests += 1;
+    void route.fulfill({ status: 500, body: "layered review must not request path URLs" });
   });
 
   let discardedPaths: string[] | null = null;
@@ -4125,7 +4165,21 @@ test("workspace changes review inspects and discards a current file", async ({ p
           diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
           diff: runtimeAPIDiff,
           has_changes: true,
-          files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
+          files: [
+            {
+              path: runtimeReviewEntry.path,
+              additions: runtimeReviewEntry.additions,
+              deletions: runtimeReviewEntry.deletions,
+              status: runtimeReviewEntry.status,
+            },
+          ],
+          review_complete: true,
+          layers: [
+            { kind: "staged", complete: true, files: [] },
+            { kind: "working_tree", complete: true, files: [runtimeReviewEntry] },
+            { kind: "untracked", complete: true, files: [] },
+          ],
+          discard: { available: true, revision: "sha256:after-readme" },
         },
       }),
     });
@@ -4139,24 +4193,34 @@ test("workspace changes review inspects and discards a current file", async ({ p
   await expect(workspaceChangesButton).toBeVisible();
   await workspaceChangesButton.click();
   const workspaceChangesPanel = page.getByLabel("Workspace changes panel");
-  await expect(
-    workspaceChangesPanel.getByText("2 files changed, 6 insertions(+), 1 deletion(-)").first(),
-  ).toBeVisible();
+  await expect(workspaceChangesPanel.getByText("2 review entries")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Staged changes" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Working tree changes" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Untracked changes" })).toBeVisible();
+  await expect(page.getByText("Read only")).toHaveCount(2);
 
-  await expect(page.getByRole("button", { name: "Collapse diff README.md" })).toBeVisible();
-  await expect.poll(() => readmeFileDiffRequests).toBeGreaterThan(0);
-  const readmeDiffPreview = workspaceChangesPanel.getByTestId("workspace-file-diff-preview");
+  const runtimeDiffPreview = workspaceChangesPanel.getByTestId("workspace-review-diff-preview");
+  await expect(runtimeDiffPreview).toBeVisible();
+  await expect(runtimeDiffPreview.getByTestId("diff-viewer")).toBeAttached();
+  const readmeToggle = page.getByRole("button", { name: /^Expand diff README\.md;/ });
+  await readmeToggle.focus();
+  await page.keyboard.press("Enter");
+  const readmeDiffPreview = page.getByRole("region", { name: "diff README.md" });
   await expect(readmeDiffPreview).toBeVisible();
   await expect(readmeDiffPreview.getByTestId("diff-viewer")).toBeAttached();
+  await expect.poll(() => rawPathDiffRequests).toBe(0);
 
-  await page.getByRole("button", { name: "Discard README.md" }).click();
-  await expect(page.getByRole("button", { name: "Confirm discard README.md" })).toBeVisible();
-  await page.getByRole("button", { name: "Confirm discard README.md" }).click();
+  const discardReadme = page.getByRole("button", { name: "Discard README.md" });
+  await discardReadme.focus();
+  await page.keyboard.press("Enter");
+  const confirmDiscardReadme = page.getByRole("button", { name: "Confirm discard README.md" });
+  await expect(confirmDiscardReadme).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect.poll(() => discardedPaths).toEqual(["README.md"]);
   await expect.poll(() => discardedRevision).toBe("sha256:reviewed-workspace");
-  await expect(
-    workspaceChangesPanel.getByText("1 file changed, 4 insertions(+)").first(),
-  ).toBeVisible();
+  await expect(workspaceChangesPanel.getByText("1 review entry")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Discard README.md" })).toHaveCount(0);
+  await expect.poll(() => rawPathDiffRequests).toBe(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(workspaceChangesPanel).toBeFocused();
@@ -4168,7 +4232,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
     expect(box).not.toBeNull();
     expect(box!.height).toBeGreaterThanOrEqual(44);
   }
-  await expect(page.getByRole("textbox", { name: "Search changed files" })).toHaveCSS(
+  await expect(page.getByRole("textbox", { name: "Search workspace changes" })).toHaveCSS(
     "font-size",
     "16px",
   );

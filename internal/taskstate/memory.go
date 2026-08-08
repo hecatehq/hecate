@@ -206,7 +206,7 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 	if err != nil {
 		return nil, err
 	}
-	if len(filter.Statuses) == 0 {
+	if len(filter.Statuses) == 0 && len(filter.ExcludeStatuses) == 0 {
 		if filter.OrderByID {
 			runs = filterRunsByIDCursor(runs, filter.AfterID)
 		}
@@ -219,9 +219,18 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 	for _, status := range filter.Statuses {
 		allowed[status] = struct{}{}
 	}
+	excluded := make(map[string]struct{}, len(filter.ExcludeStatuses))
+	for _, status := range filter.ExcludeStatuses {
+		excluded[status] = struct{}{}
+	}
 	filtered := make([]types.TaskRun, 0, len(runs))
 	for _, run := range runs {
-		if _, ok := allowed[run.Status]; !ok {
+		if len(allowed) > 0 {
+			if _, ok := allowed[run.Status]; !ok {
+				continue
+			}
+		}
+		if _, ok := excluded[run.Status]; ok {
 			continue
 		}
 		filtered = append(filtered, run)

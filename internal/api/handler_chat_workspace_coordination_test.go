@@ -19,6 +19,8 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -174,7 +176,7 @@ func newChatWorkspaceRevertFixture(t *testing.T) chatWorkspaceRevertFixture {
 		nested:    nested,
 		sibling:   sibling,
 		filePath:  filePath,
-		revision:  reviewed.Data.Revision,
+		revision:  reviewed.Data.Discard.Revision,
 	}
 }
 
@@ -184,6 +186,81 @@ func (fixture chatWorkspaceRevertFixture) revertBody() string {
 
 func (fixture chatWorkspaceRevertFixture) revertPath() string {
 	return "/hecate/v1/chat/sessions/" + fixture.sessionID + "/workspace-diff/revert"
+}
+
+func TestRevertChatWorkspaceFilesStrictlyBoundsAndDecodesRequests(t *testing.T) {
+	fixture := newChatWorkspaceRevertFixture(t)
+
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{
+			name:   "unknown_field",
+			status: http.StatusBadRequest,
+			body:   fmt.Sprintf(`{"expected_revision":%q,"unexpected":true}`, fixture.revision),
+		},
+		{
+			name:   "trailing_object",
+			status: http.StatusBadRequest,
+			body:   fmt.Sprintf(`{"expected_revision":%q}{}`, fixture.revision),
+		},
+		{
+			name:   "empty_path",
+			status: http.StatusBadRequest,
+			body:   fmt.Sprintf(`{"expected_revision":%q,"paths":[""]}`, fixture.revision),
+		},
+		{
+			name:   "missing_paths",
+			status: http.StatusBadRequest,
+			body:   fmt.Sprintf(`{"expected_revision":%q}`, fixture.revision),
+		},
+		{
+			name:   "null_paths",
+			status: http.StatusBadRequest,
+			body:   fmt.Sprintf(`{"expected_revision":%q,"paths":null}`, fixture.revision),
+		},
+		{
+			name:   "oversized",
+			status: http.StatusRequestEntityTooLarge,
+			body:   fmt.Sprintf(`{"expected_revision":%q,"paths":[%q]}`, fixture.revision, strings.Repeat("x", chatWorkspaceRevertMaxBodyBytes)),
+		},
+		{
+			name:   "oversized_trailing_data",
+			status: http.StatusRequestEntityTooLarge,
+			body:   fmt.Sprintf(`{"expected_revision":%q}`, fixture.revision) + strings.Repeat(" ", chatWorkspaceRevertMaxBodyBytes),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := fixture.client.mustRequestStatus(test.status, http.MethodPost, fixture.revertPath(), test.body)
+			if got := response.Header().Get("Cache-Control"); got != "private, no-store" {
+				t.Fatalf("Cache-Control = %q, want private, no-store", got)
+			}
+			if content, err := os.ReadFile(fixture.filePath); err != nil || string(content) != "modified\n" {
+				t.Fatalf("file after rejected request = %q, err=%v", content, err)
+			}
+		})
+	}
+}
+
+func TestRevertChatWorkspaceFilesNeverAcceptsUntrackedPaths(t *testing.T) {
+	fixture := newChatWorkspaceRevertFixture(t)
+	untrackedPath := filepath.Join(fixture.workspace, "untracked.txt")
+	if err := os.WriteFile(untrackedPath, []byte("keep me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"paths":["untracked.txt"],"expected_revision":%q}`, fixture.revision)
+	response := fixture.client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, fixture.revertPath(), body)
+	if !strings.Contains(response.Body.String(), "path is not present in the current workspace diff") {
+		t.Fatalf("body = %s, want tracked-diff authority refusal", response.Body.String())
+	}
+	if content, err := os.ReadFile(untrackedPath); err != nil || string(content) != "keep me\n" {
+		t.Fatalf("untracked file after rejected discard = %q, err=%v", content, err)
+	}
+	if content, err := os.ReadFile(fixture.filePath); err != nil || string(content) != "modified\n" {
+		t.Fatalf("tracked file after rejected discard = %q, err=%v", content, err)
+	}
 }
 
 func TestRevertChatWorkspaceFilesCoordinatesOverlappingWriters(t *testing.T) {
@@ -272,6 +349,56 @@ func TestChatWorkspaceDurableOwnerFindsOverlappingOwnersAcrossPages(t *testing.T
 	}
 }
 
+func TestChatWorkspaceDurableOwnerReadsActiveSQLiteMessageSummary(t *testing.T) {
+	ctx := t.Context()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "hecate.db"),
+		TablePrefix: "workspace_owner",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	store, err := chat.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetAgentChatStore(store)
+	workspace := t.TempDir()
+	if _, err := store.Create(ctx, chat.Session{ID: "other-chat", AgentID: "codex", Workspace: workspace, Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(ctx, "other-chat", chat.Message{ID: "older", Role: "assistant", Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(ctx, "other-chat", chat.Message{ID: "newer", Role: "assistant", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateMessage(ctx, "other-chat", "older", func(message *chat.Message) {
+		message.Status = "failed"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := store.List(ctx)
+	if err != nil || len(listed) != 1 || listed[0].Status != "failed" || len(listed[0].Messages) != 2 || listed[0].Messages[1].Status != "" {
+		t.Fatalf("SQLite summary fixture = %+v, err=%v", listed, err)
+	}
+	loaded, ok, err := store.Get(ctx, "other-chat")
+	if err != nil || !ok || loaded.Status != "failed" || len(loaded.Messages) != 2 || loaded.Messages[1].Status != "running" {
+		t.Fatalf("SQLite hydrated fixture = %+v ok=%v err=%v", loaded, ok, err)
+	}
+	workspaceKey, err := workspacecoord.CanonicalWorkspace(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, active, err := handler.chatWorkspaceDurableOwner(ctx, workspaceKey, "current-chat")
+	if err != nil || !active || status != "running" {
+		t.Fatalf("SQLite durable owner = status %q active %v err %v, want running message owner", status, active, err)
+	}
+}
+
 type overlappingEditChatWorkspaceGitRunner struct {
 	chatWorkspaceGitRunner
 	path string
@@ -283,6 +410,81 @@ type stagingAfterReviewChatWorkspaceGitRunner struct {
 	local *gitrunner.LocalRunner
 	path  string
 	once  sync.Once
+}
+
+type endlessWorkspaceOwnerTaskStore struct {
+	taskstate.Store
+	calls int
+}
+
+func (store *endlessWorkspaceOwnerTaskStore) ListRunsByFilter(_ context.Context, filter taskstate.RunFilter) ([]types.TaskRun, error) {
+	start := store.calls * workspaceOwnerScanPageSize
+	store.calls++
+	runs := make([]types.TaskRun, filter.Limit)
+	for index := range runs {
+		runs[index] = types.TaskRun{ID: fmt.Sprintf("run-%08d", start+index), Status: "future_active"}
+	}
+	return runs, nil
+}
+
+type endlessWorkspaceOwnerChatStore struct {
+	chat.Store
+	calls int
+}
+
+func (store *endlessWorkspaceOwnerChatStore) ListWorkspaceOwnerSummaries(_ context.Context, _ string, limit int) ([]chat.WorkspaceOwnerSummary, error) {
+	start := store.calls * workspaceOwnerScanPageSize
+	store.calls++
+	items := make([]chat.WorkspaceOwnerSummary, limit)
+	for index := range items {
+		items[index] = chat.WorkspaceOwnerSummary{ID: fmt.Sprintf("chat-%08d", start+index), Status: "running"}
+	}
+	return items, nil
+}
+
+func TestChatWorkspaceDurableOwnerFailsClosedAtInventoryLimits(t *testing.T) {
+	workspaceKey, err := workspacecoord.CanonicalWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	t.Run("task_runs", func(t *testing.T) {
+		taskStore := &endlessWorkspaceOwnerTaskStore{Store: taskstate.NewMemoryStore()}
+		handler := NewHandler(config.Config{}, logger, nil, nil, taskStore, nil)
+		handler.SetAgentChatStore(chat.NewMemoryStore())
+		if _, active, err := handler.chatWorkspaceDurableOwner(t.Context(), workspaceKey, "current"); err == nil || active || !strings.Contains(err.Error(), "inventory exceeds") {
+			t.Fatalf("oversized task owner scan = active %v err %v", active, err)
+		}
+		if taskStore.calls > workspaceOwnerScanMaxEntries/workspaceOwnerScanPageSize+1 {
+			t.Fatalf("task owner scan calls = %d, want bounded", taskStore.calls)
+		}
+	})
+
+	t.Run("chat_sessions", func(t *testing.T) {
+		chatStore := &endlessWorkspaceOwnerChatStore{Store: chat.NewMemoryStore()}
+		handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+		handler.SetAgentChatStore(chatStore)
+		if _, active, err := handler.chatWorkspaceDurableOwner(t.Context(), workspaceKey, "current"); err == nil || active || !strings.Contains(err.Error(), "inventory exceeds") {
+			t.Fatalf("oversized chat owner scan = active %v err %v", active, err)
+		}
+		if chatStore.calls > workspaceOwnerScanMaxEntries/workspaceOwnerScanPageSize+1 {
+			t.Fatalf("chat owner scan calls = %d, want bounded", chatStore.calls)
+		}
+	})
+}
+
+func TestChatWorkspaceRevertBusyTreatsUnknownCurrentStatusesAsOwners(t *testing.T) {
+	handler := &Handler{}
+	for _, session := range []chat.Session{
+		{ID: "future_session", Status: "future_active"},
+		{ID: "future_message", Status: "completed", Messages: []chat.Message{{ID: "message", Status: "future_message_active"}}},
+	} {
+		busy, status := handler.chatWorkspaceRevertBusy(t.Context(), session)
+		if !busy || !strings.HasPrefix(status, "future_") {
+			t.Fatalf("chatWorkspaceRevertBusy(%s) = %v, %q; want future owner", session.ID, busy, status)
+		}
+	}
 }
 
 func (runner *stagingAfterReviewChatWorkspaceGitRunner) ReverseApplySnapshot(ctx context.Context, workspace string, snapshot gitrunner.DiffSnapshot, paths []string) (gitrunner.Result, error) {
@@ -353,16 +555,20 @@ func TestRevertChatWorkspaceFilesRejectsStagingAfterFinalSnapshot(t *testing.T) 
 	}
 }
 
-func TestChatWorkspaceDiffFailsClosedForStagedChanges(t *testing.T) {
+func TestChatWorkspaceDiffReviewsStagedChangesButKeepsDiscardClosed(t *testing.T) {
 	fixture := newChatWorkspaceRevertFixture(t)
 	runTestGit(t, fixture.workspace, "add", "notes.md")
 
-	getConflict := fixture.client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/chat/sessions/"+fixture.sessionID+"/workspace-diff", "")
-	if !strings.Contains(getConflict.Body.String(), "Unstage the changes") {
-		t.Fatalf("staged GET body = %s, want unstage guidance", getConflict.Body.String())
+	review := mustRequestJSON[ChatWorkspaceDiffResponse](fixture.client, http.MethodGet, "/hecate/v1/chat/sessions/"+fixture.sessionID+"/workspace-diff", "")
+	staged := chatWorkspaceReviewLayerByKind(review.Data.Layers, "staged")
+	if staged == nil || len(staged.Files) != 1 || staged.Files[0].Path != "notes.md" || !strings.Contains(staged.Files[0].Preview.Content, "+modified") {
+		t.Fatalf("staged review = %+v, want visible notes.md patch", review.Data)
+	}
+	if review.Data.Discard.Available || review.Data.Discard.Reason != "staged_changes" || review.Data.Revision != "" {
+		t.Fatalf("staged discard capability = %+v revision %q, want unavailable", review.Data.Discard, review.Data.Revision)
 	}
 	revertConflict := fixture.client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, fixture.revertPath(), fixture.revertBody())
-	if !strings.Contains(revertConflict.Body.String(), "staged Git changes") {
+	if !strings.Contains(revertConflict.Body.String(), "staged workspace changes") {
 		t.Fatalf("staged revert body = %s, want staged-change refusal", revertConflict.Body.String())
 	}
 	content, err := os.ReadFile(fixture.filePath)
@@ -372,6 +578,27 @@ func TestChatWorkspaceDiffFailsClosedForStagedChanges(t *testing.T) {
 	status := runTestGit(t, fixture.workspace, "status", "--porcelain=v1", "--", "notes.md")
 	if !strings.HasPrefix(status, "M ") {
 		t.Fatalf("status after refusal = %q, want staged modification preserved", status)
+	}
+}
+
+func TestChatWorkspaceDiffSurfacesIntentToAddAsIncompleteReview(t *testing.T) {
+	fixture := newChatWorkspaceRevertFixture(t)
+	intentPath := filepath.Join(fixture.workspace, "intent.txt")
+	if err := os.WriteFile(intentPath, []byte("intent content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, fixture.workspace, "add", "-N", "--", "intent.txt")
+
+	review := mustRequestJSON[ChatWorkspaceDiffResponse](fixture.client, http.MethodGet, "/hecate/v1/chat/sessions/"+fixture.sessionID+"/workspace-diff", "")
+	if review.Data.ReviewComplete || review.Data.Discard.Available || review.Data.Discard.Reason != "review_incomplete" || review.Data.Revision != "" {
+		t.Fatalf("intent-to-add review capability = %+v", review.Data)
+	}
+	if len(review.Data.ReviewIssues) != 1 || review.Data.ReviewIssues[0] != (ChatWorkspaceReviewIssueItem{Kind: "intent_to_add", Path: "intent.txt"}) {
+		t.Fatalf("review issues = %+v, want intent_to_add", review.Data.ReviewIssues)
+	}
+	working := chatWorkspaceReviewLayerByKind(review.Data.Layers, "working_tree")
+	if working == nil || working.Complete {
+		t.Fatalf("working-tree layer = %+v, want incomplete", working)
 	}
 }
 
@@ -476,8 +703,8 @@ func TestRevertChatWorkspaceFilesPreservesExactUnusualPaths(t *testing.T) {
 		t.Fatalf("whitespace-only workspace file = %#v, want exact modified path", file)
 	}
 	body, err := json.Marshal(RevertChatWorkspaceFilesRequest{
-		Paths:            paths,
-		ExpectedRevision: reviewed.Data.Revision,
+		Paths:            &paths,
+		ExpectedRevision: reviewed.Data.Discard.Revision,
 	})
 	if err != nil {
 		t.Fatalf("Marshal revert request: %v", err)

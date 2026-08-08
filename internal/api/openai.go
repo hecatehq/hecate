@@ -1200,17 +1200,64 @@ type ChatChangedFilesResponse struct {
 }
 
 type ChatWorkspaceDiffItem struct {
-	Workspace  string                `json:"workspace,omitempty"`
-	Revision   string                `json:"revision"`
-	DiffStat   string                `json:"diff_stat,omitempty"`
-	Diff       string                `json:"diff,omitempty"`
-	HasChanges bool                  `json:"has_changes"`
-	Files      []ChatChangedFileItem `json:"files"`
+	Workspace                string                         `json:"workspace,omitempty"`
+	Revision                 string                         `json:"revision,omitempty"`
+	ReviewComplete           bool                           `json:"review_complete"`
+	ReviewIssues             []ChatWorkspaceReviewIssueItem `json:"review_issues,omitempty"`
+	ReviewIssuesOmittedCount int                            `json:"review_issues_omitted_count,omitempty"`
+	DiffStat                 string                         `json:"diff_stat,omitempty"`
+	Diff                     string                         `json:"diff,omitempty"`
+	HasChanges               bool                           `json:"has_changes"`
+	Files                    []ChatChangedFileItem          `json:"files"`
+	Layers                   []ChatWorkspaceReviewLayerItem `json:"layers"`
+	Discard                  ChatWorkspaceDiscardItem       `json:"discard"`
+}
+
+type ChatWorkspaceReviewLayerItem struct {
+	Kind         string                        `json:"kind"`
+	Complete     bool                          `json:"complete"`
+	OmittedCount int                           `json:"omitted_count,omitempty"`
+	Files        []ChatWorkspaceReviewFileItem `json:"files"`
+}
+
+type ChatWorkspaceReviewFileItem struct {
+	ID        string                         `json:"id"`
+	Layer     string                         `json:"layer"`
+	Path      string                         `json:"path"`
+	Additions int                            `json:"additions"`
+	Deletions int                            `json:"deletions"`
+	Status    string                         `json:"status"`
+	SizeBytes int64                          `json:"size_bytes,omitempty"`
+	Preview   ChatWorkspaceReviewPreviewItem `json:"preview"`
+}
+
+type ChatWorkspaceReviewPreviewItem struct {
+	Kind    string `json:"kind"`
+	Content string `json:"content,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type ChatWorkspaceReviewIssueItem struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+
+type ChatWorkspaceDiscardItem struct {
+	Available bool   `json:"available"`
+	Revision  string `json:"revision,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type ChatWorkspaceDiscardResultItem struct {
+	Outcome         string `json:"outcome"`
+	RefreshRequired bool   `json:"refresh_required,omitempty"`
+	CleanupFailed   bool   `json:"cleanup_failed,omitempty"`
 }
 
 type ChatWorkspaceDiffResponse struct {
-	Object string                `json:"object"`
-	Data   ChatWorkspaceDiffItem `json:"data"`
+	Object        string                          `json:"object"`
+	Data          ChatWorkspaceDiffItem           `json:"data"`
+	DiscardResult *ChatWorkspaceDiscardResultItem `json:"discard_result,omitempty"`
 }
 
 type ChatWorkspaceFileItem struct {
@@ -1246,8 +1293,11 @@ type ChatChangedFileDiffResponse struct {
 }
 
 type RevertChatWorkspaceFilesRequest struct {
-	Paths            []string `json:"paths,omitempty"`
-	ExpectedRevision string   `json:"expected_revision,omitempty"`
+	// Paths is a pointer so the destructive endpoint can distinguish an
+	// explicit empty array (discard every reviewed path) from omitted or null
+	// input, both of which fail closed.
+	Paths            *[]string `json:"paths"`
+	ExpectedRevision string    `json:"expected_revision,omitempty"`
 }
 
 type WorkspaceOpenRequest struct {

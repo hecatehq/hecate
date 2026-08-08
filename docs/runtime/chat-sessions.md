@@ -966,50 +966,77 @@ read-context rows keep raw output out of the compact row and show normalized
 line breaks inside the output card.
 Workspace changes have one primary surface: the per-turn file badge and the
 workspace changes panel. The panel has two jobs: **Review** shows the current
-unstaged tracked patch (index → worktree) as a changed-file list with
-collapsible rich diffs, while **Files** shows the full workspace tree separately
-and keeps folders collapsed until the operator expands or searches. Staged
-index changes and untracked files are not part of Review's patch or discard
-authority. Transcript activity may mention that workspace changes exist, but it
+workspace in three fixed groups—**Staged**, **Working tree**, and
+**Untracked**—while **Files** shows a bounded, curated workspace tree separately
+and keeps folders collapsed until the operator expands or searches. A path that appears
+in more than one Git layer gets a distinct opaque review-entry id in each
+group. Transcript activity may mention that workspace changes exist, but it
 should not duplicate raw patches or render a second diff viewer when the richer
-workspace diff surface is available.
+workspace review is available.
 
-If the selected workspace has any staged change in scope, including mixed
-staged and unstaged edits, Review and discard fail closed with
-`422 invalid_request`. Hecate issues no revision, never renders staged-only
-state as a clean patch, and never authorizes only the unstaged half of mixed
-state. Unstage the changes, refresh Review, inspect the now-visible
-index-to-worktree patch, and confirm discard again. Full staged-layer review and
-discard is not part of this surface yet.
+Tracked entries carry bounded inline unified diffs. Untracked regular UTF-8
+files carry bounded inline text; binary, oversized, symlink, special-file,
+nested-repository, conflict, and unavailable previews remain visible as typed
+metadata instead of being opened through a generic path endpoint. An untracked
+preview is capped at 256 KiB, and all inline bodies share one 4 MiB
+response-content budget with tracked display and legacy compatibility content.
+Hecate snapshots effective external Git excludes before inventory, does not
+list paths ignored by those rules, and serves every live review with the
+private, no-store `Cache-Control` policy.
 
-Discard confirmation is bound to the opaque revision returned with that exact,
-complete raw, workspace-scoped unstaged tracked patch. Hecate first closes and
-drains the owning chat's session lifecycle, then attempts an exclusive closure
-in the shared process-local workspace registry. The registry treats canonical
-parent and child roots as overlapping, so active task admission/execution,
-External Agent turns and live ACP terminals, task-patch apply/revert, or an
-operator terminal on either root blocks the discard. A live ACP terminal keeps
-its own writer lease after its creating turn settles and releases it only after
-exit is observed. Hecate also scans durable non-terminal task runs and other
-active chat sessions for the same overlapping workspace before it trusts the
-final snapshot.
+Review completeness and discard availability are deliberately separate. A
+staged change remains visible and can still produce a complete read-only
+review, but staged and untracked entries are never discardable here. Git
+intent-to-add, assume-unchanged, skip-worktree, and unmerged state appear as
+review issues and make the review incomplete. Conflicts, truncated layers,
+omitted entries, and oversized working-tree previews also keep the UI from
+claiming a complete view. These states no longer make the review disappear;
+the panel renders the available evidence and explains why discard is closed.
+Tracked Gitlinks are shown as read-only nested-repository entries because a
+root patch cannot safely restore their nested state.
 
-With those gates held, Hecate checks for staged state again, captures the
-complete raw unstaged tracked patch, and requires its revision to match the
-reviewed token. Conditional reverse apply then reserves Git's conventional
-index lock, rechecks staged state and the reviewed patch's live index baseline,
-and applies only the selected hunks from those exact captured bytes. A committed
-baseline change or overlapping worktree edit made after the snapshot causes the
-whole discard to return `409` without changing the selected files; unrelated
-and non-overlapping edits remain in the worktree. The index reservation blocks
-cooperating Git index writers during the final recheck and apply, while
-conditional apply remains the final protection against direct worktree edits.
+Discard confirmation is offered only when Hecate separately captures one
+exact, complete raw, workspace-scoped **unstaged tracked** patch (index →
+worktree). The UI binds confirmation to the root-bound `workspace-sha256:`
+`discard.revision`, not an entry id, display patch, diff stat, historical
+message diff, or legacy top-level patch-only `sha256:` compatibility field.
+Staged changes, hidden index flags, conflicts, incomplete working-tree previews,
+tracked Gitlinks, or a changed snapshot leave `discard.available=false`.
+
+For an available discard, Hecate first closes and drains the owning chat's
+session lifecycle, then attempts an exclusive closure in the shared
+process-local workspace registry. The registry treats canonical parent and
+child roots as overlapping, so active task admission/execution, External Agent
+turns and live ACP terminals, task-patch apply/revert, or an operator terminal
+on either root blocks the discard. A live ACP terminal keeps its own writer
+lease after its creating turn settles and releases it only after exit is
+observed. Hecate also scans bounded, paginated projections of durable
+non-terminal task runs and other active chat sessions for the same overlapping
+workspace before it trusts the final snapshot. The ceiling applies after
+historical terminal/inactive rows are excluded, and an oversized active-owner
+inventory fails closed.
+
+With those gates held, Hecate checks the workspace directory identity, index
+flags, and staged state again, recaptures the complete raw unstaged tracked
+patch, and requires its root-bound discard revision to match the reviewed
+token. Conditional
+reverse apply reserves Git's conventional index lock, rechecks the reviewed
+patch's live index baseline, and performs a non-mutating apply preflight before
+changing selected paths from those exact bytes. A committed or staged baseline
+change, index contention, replaced workspace root detected by the checks, or
+ordinary overlapping worktree edit returns `409` before mutation. The real
+apply uses a bounded server-owned context, so client disconnect is not a
+cancellation authority. A failure after preflight is reported as
+`outcome_unknown`, not as a false no-op conflict; cleanup and refresh failures
+also produce typed operator warnings, close further discard, and require a
+fresh inspection. Unrelated and non-overlapping edits remain in the worktree.
 The shared registry is process-local, not a distributed lock.
+
 Discard controls remain disabled while the UI knows agent work is queued,
 running, or awaiting approval, but the API is the authority for every
-active-work, staged-state, and revision conflict.
-Complete unstaged tracked patches above the 4 MiB review limit fail closed
-instead of exposing partial discard authority.
+active-work, review-completeness, staged-state, index-state, and revision
+conflict. The discard request accepts one strict JSON object up to 1 MiB and
+never authorizes staged changes or untracked-file deletion.
 
 For failed tool rows, Task Detail also previews stdout/stderr artifacts captured
 for the same tool step, including an explicit empty-stream note when stderr was

@@ -203,11 +203,13 @@ process-derived versions, auth/capability evidence, and launch controls with the
 cached check for troubleshooting.
 
 Stored message diffs are read-only historical evidence. The current
-`workspace-diff` response carries an opaque revision for the complete scoped
-unstaged tracked patch (index → worktree), and its revision-bound revert
-endpoint is the only chat surface allowed to discard workspace files. Staged
-index changes and untracked files are outside that authority. A message-scoped
-captured diff can be stale and therefore cannot authorize mutation.
+`workspace-diff` response reviews staged, working-tree, and untracked layers,
+then exposes a separate discard capability only when Hecate captured one exact
+complete scoped unstaged tracked patch (index → worktree). Its revision-bound
+revert endpoint is the only chat surface allowed to discard workspace files.
+Staged index changes and untracked files are visible but outside that authority.
+A message-scoped captured diff can be stale and therefore cannot authorize
+mutation.
 
 Message creation remains a blocking POST while the submitting client stays
 connected, and clients can subscribe to the session SSE stream first to receive
@@ -347,8 +349,9 @@ not a drop-in fit.
 
 - Fuller patch review UX: side-by-side hunks, batch selection, and richer
   artifact history. The current Chats UI keeps captured per-turn diffs as
-  read-only historical evidence and can discard selected paths only from the
-  revision-bound live unstaged tracked workspace patch.
+  read-only historical evidence, reviews current staged, working-tree, and
+  untracked layers, and can discard selected paths only from the revision-bound
+  live unstaged tracked workspace patch.
 - Deeper adapter-specific structured mappers for ACP tool output. The current
   generic mapper plus raw diagnostics is sufficient for alpha stability.
 - Decide which task-runtime primitives External Agent chat should reuse without
