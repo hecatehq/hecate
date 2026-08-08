@@ -3077,6 +3077,20 @@ func runStoreListRunsByFilterStatusSet(t *testing.T, store Store) {
 	if len(secondPage) != 2 || secondPage[0].ID != "run-queued" || secondPage[1].ID != "run-running" {
 		t.Fatalf("cursor second page = %+v", secondPage)
 	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{ID: "run-unknown", TaskID: "task-rfilter", Number: 5, Status: "future_nonterminal", StartedAt: now.Add(5 * time.Second)}); err != nil {
+		t.Fatalf("CreateRun(unknown): %v", err)
+	}
+	nonterminal, err := store.ListRunsByFilter(ctx, RunFilter{
+		TaskID:          "task-rfilter",
+		ExcludeStatuses: []string{"completed", "failed", "cancelled"},
+		OrderByID:       true,
+	})
+	if err != nil {
+		t.Fatalf("ListRunsByFilter(exclude terminal): %v", err)
+	}
+	if len(nonterminal) != 3 || nonterminal[0].ID != "run-queued" || nonterminal[1].ID != "run-running" || nonterminal[2].ID != "run-unknown" {
+		t.Fatalf("nonterminal runs = %+v, want queued/running/unknown", nonterminal)
+	}
 }
 
 func runStoreDeleteTaskCascades(t *testing.T, store Store) {

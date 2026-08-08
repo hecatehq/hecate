@@ -3954,10 +3954,27 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         if (!latest) return null;
         snapshot = latest;
       }
-      params.setNoticeMessage(
-        "success",
-        paths.length > 0 ? "Selected workspace files discarded." : "Workspace changes discarded.",
-      );
+      if (payload.discard_result?.outcome === "outcome_unknown") {
+        params.setNoticeMessage(
+          "error",
+          "The discard command did not finish cleanly. Refresh Workspace changes and verify every selected file before continuing.",
+        );
+      } else if (payload.discard_result?.cleanup_failed) {
+        params.setNoticeMessage(
+          "error",
+          "Workspace changes were discarded, but Git cleanup did not finish. Refresh the review and check Git before continuing.",
+        );
+      } else if (payload.discard_result?.refresh_required) {
+        params.setNoticeMessage(
+          "success",
+          "Workspace changes were discarded. Refresh the review before another discard.",
+        );
+      } else {
+        params.setNoticeMessage(
+          "success",
+          paths.length > 0 ? "Selected workspace files discarded." : "Workspace changes discarded.",
+        );
+      }
       return snapshot;
     } catch (error) {
       params.setNoticeMessage(

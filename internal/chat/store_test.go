@@ -16,6 +16,43 @@ func messageRequestTestFingerprint(value string) MessageRequestFingerprint {
 	return sha256.Sum256([]byte(value))
 }
 
+func runStoreWorkspaceOwnerSummaries(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	for _, session := range []Session{
+		{ID: "chat_completed", Workspace: "/workspace/completed", Status: "completed"},
+		{ID: "chat_future", Workspace: "/workspace/future", Status: "future_active"},
+		{ID: "chat_idle", Workspace: "/workspace/idle", Status: "idle"},
+		{ID: "chat_running", Workspace: "/workspace/running", Status: "running"},
+		{ID: "chat_unknown_message", Workspace: "/workspace/message", Status: "completed"},
+	} {
+		if _, err := store.Create(ctx, session); err != nil {
+			t.Fatalf("Create(%s): %v", session.ID, err)
+		}
+	}
+	if _, err := store.AppendMessage(ctx, "chat_unknown_message", Message{ID: "msg_future", Role: "assistant", Status: "future_message_active"}); err != nil {
+		t.Fatalf("AppendMessage(future): %v", err)
+	}
+	if _, err := store.UpdateSession(ctx, "chat_unknown_message", func(session *Session) { session.Status = "completed" }); err != nil {
+		t.Fatalf("UpdateSession(terminal projection): %v", err)
+	}
+
+	first, err := store.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(first): %v", err)
+	}
+	if len(first) != 2 || first[0].ID != "chat_future" || first[1].ID != "chat_running" {
+		t.Fatalf("first owner page = %+v, want future and running", first)
+	}
+	second, err := store.ListWorkspaceOwnerSummaries(ctx, first[len(first)-1].ID, 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(second): %v", err)
+	}
+	if len(second) != 1 || second[0].ID != "chat_unknown_message" || second[0].ActiveMessageStatus != "future_message_active" {
+		t.Fatalf("second owner page = %+v, want future message", second)
+	}
+}
+
 type messageRequestNowSetter interface {
 	setMessageRequestNow(func() time.Time)
 }

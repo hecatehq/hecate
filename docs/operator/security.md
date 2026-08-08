@@ -157,24 +157,69 @@ Hecate supports isolated generated workspaces and opt-in in-place workspaces.
 
 Git is used for workspace setup and change review, not as a security boundary. Hecate also uses Git status/diff information to show branch state, changed files, and revertable workspace changes. Hecate-owned Git calls go through the shared GitRunner seam, which validates the workspace directory and runs Git with a sanitized environment; external-agent subprocesses can still run their own Git commands internally.
 
-Workspace discard currently uses the complete raw **unstaged tracked** Git
-patch (index → worktree) as optimistic-concurrency authority. GitRunner captures
-it through the same hardened passive view used by structured inspection and
-scopes a nested workspace to that workspace rather than the surrounding
-checkout. This surface does not review or discard staged index changes or
-untracked files. Before issuing a revision, GitRunner checks the scoped index;
-any staged-only or mixed staged/unstaged state returns `422 invalid_request`
-with no revision. The operator must unstage, refresh, and review the resulting
-index-to-worktree patch. This fail-closed check prevents staged-only work from
-appearing clean and prevents a mixed change from granting authority over only
-its visible layer.
+Live Workspace review is read-only evidence from three distinct Git layers:
+staged (HEAD → index), working tree (index → worktree), and untracked. GitRunner
+captures the tracked layers and status inventory through its hardened passive
+view, scopes a nested workspace to that workspace rather than the surrounding
+checkout, and snapshots effective external Git excludes before
+inventory. Ignored paths are not returned. Paths with intent-to-add,
+assume-unchanged, skip-worktree, or unmerged state are reported as bounded
+review issues instead of being silently treated as clean.
 
-The review response carries an opaque SHA-256 revision of the exact unstaged
-tracked patch bytes, including any final newline, and the discard request must
-return that token. A trimmed patch, diff stat, stored historical message diff,
-or truncated prefix is never mutation authority. Unstaged tracked patches above
-the 4 MiB review limit fail closed instead of issuing a revision for a partial
-view.
+Untracked regular text previews are a deliberate content-disclosure surface.
+Each body is limited to 256 KiB and shares a 4 MiB response-content budget with
+tracked display patches and legacy compatibility content. Invalid UTF-8, NUL
+content, binaries, oversized entries, symlinks, special files, and nested
+repositories return only a typed state. On Unix, WorkspaceFS walks from a
+pinned root with no-follow directory handles, accepts only a single-link
+regular file on the root device, and rewalks the path to prove identity; this
+also refuses hardlinks and files reached across a different device. On Windows
+it uses `os.Root`, rejects symlink/reparse-like components with `Lstat`, verifies
+the opened identity, and refuses files with multiple hardlinks. Before opening
+sensitive metadata or preview content, Hecate classifies the most-specific
+mounted filesystem and then validates the opened handle. On Linux and macOS it
+also rejects recognized network, FUSE, or unknown descendant mounts beneath the
+selected review tree and canonical Git metadata/object trees before status or
+diff. Non-empty Git object alternates are unsupported. Hecate compares identity,
+size, and modification time again after the bounded read. A replacement,
+unsupported filesystem, or platform without a safe primitive yields
+`unavailable`, never a weaker raw-path read.
+
+This is not a universal storage sandbox. Initial bounded `git rev-parse`
+discovery happens before Hecate knows the canonical Git directory and may parse
+the live repository configuration; OS symlink resolution and root metadata
+inspection also precede final handle validation. On Windows the preflight proves
+a fixed or RAM-backed drive and stable preview handles, but the Git child can
+still encounter a nested junction/reparse target on that drive. Git subprocess
+deadlines bound those children, not synchronous OS metadata calls or a failing
+physical local disk. Operators must keep selected roots, Git metadata/object
+stores, configuration includes, symlink/junction targets, and host storage on
+healthy trusted local storage. Same-device bind mounts and allowlisted overlay
+backing stores still require host mount policy.
+
+Every live review response uses `Cache-Control: private, no-store`. In remote
+runtime mode, an authenticated operator can still receive the raw bounded text
+of an untracked file, so deployment authentication, TLS, reverse-proxy, and
+browser-origin controls protect this endpoint as data access—not merely Git
+metadata. Review telemetry contains only low-cardinality layer counts,
+completeness, discard availability, and bounded reasons. Paths, preview bodies,
+and revision values must never become log or telemetry attributes.
+
+Workspace discard separately uses the complete raw **unstaged tracked** Git
+patch (index → worktree) as optimistic-concurrency authority. Only the
+root-bound `workspace-sha256:` value in `data.discard.revision`, issued from that
+exact `DiffSnapshot`, is accepted. The legacy top-level `sha256:` revision is
+display evidence only.
+Read-only layer patches, opaque entry ids, the legacy top-level projection,
+trimmed output, diff stats, stored historical message diffs, and truncated
+prefixes are never mutation authority. Staged changes remain visible in Review
+but close discard. Intent-to-add, assume-unchanged, skip-worktree, unmerged
+state, incomplete or truncated working-tree previews, and exact patches above
+the safe limit also prevent authority from being issued. Tracked Gitlinks are
+reported as nested repositories and remain read-only because reverse-applying a
+root patch cannot safely restore their nested state. The discard endpoint
+accepts exactly one known-field JSON object up to 1 MiB and never authorizes
+staged changes or untracked-file deletion.
 
 Before the final snapshot, Hecate closes and drains the owning chat lifecycle,
 then acquires an exclusive closure from one shared process-local workspace
@@ -189,23 +234,38 @@ period in which they can change files. ACP and native agent-loop terminals keep
 their own leases after the owning turn or execution attempt ends and release
 them only after process-unit exit and output drain are observed. A live writer
 makes discard return `409`, while the closure rejects or delays new work
-according to that runtime's admission contract. Hecate then rereads the session and scans durable
-non-terminal task runs and active chats for overlapping workspaces, covering
-queued or recovered work that has no currently executing writer lease.
+according to that runtime's admission contract. Hecate then rereads the session
+and scans bounded, paginated projections of durable non-terminal task runs and
+active chats for overlapping workspaces, covering queued or recovered work that
+has no currently executing writer lease. Historical terminal runs and inactive
+transcripts are excluded before the safety cap is applied; an oversized
+active-owner inventory fails closed.
 
-With those checks held, Hecate verifies the scoped index is unstaged, captures
-the exact scoped index-to-worktree patch, and compares its revision with the
-reviewed token. Conditional reverse apply then reserves Git's conventional
-index lock, rechecks staged state and the reviewed patch's live index baseline,
-and applies those exact captured bytes while holding the reservation. The
-transient lock excludes well-behaved Git index writers during that final
-recheck and apply; it does not exclude direct filesystem or non-cooperating
-index writes. A committed baseline change or overlapping worktree change made
-after the snapshot causes an atomic `409`
-conflict without altering the selected files; unrelated and non-overlapping
-edits are preserved. The registry coordinates one Hecate process only. It is
-not a distributed lock or protection against an external editor, so the
-durable-owner scan and conditional Git apply remain independent fail-closed
+With those checks held, Hecate verifies the scoped index flags and staged state,
+captures the exact scoped index-to-worktree patch, and compares its root-bound
+discard revision with the reviewed token. Conditional reverse apply pins and rechecks the selected
+workspace directory identity, reserves Git's conventional index lock through a
+handle that survives directory renames, rechecks index visibility, staged
+state, and the reviewed patch's live index baseline, and runs `git apply
+--reverse --check` before mutation. A committed baseline change or ordinary
+overlapping worktree edit found by those gates returns `409` without changing
+selected files. The real apply runs under a bounded server-owned context so a
+client disconnect cannot cancel it. If that mutating subprocess fails after
+preflight, Hecate reports a typed `outcome_unknown` success envelope and forces
+refresh/inspection instead of claiming a no-op conflict; an index-lock cleanup
+failure is likewise surfaced as a fixed operator warning and closes further
+discard. The transient lock excludes well-behaved Git index writers during the
+final recheck and apply; it does not exclude direct filesystem or
+non-cooperating index writes. Unrelated and non-overlapping edits are preserved.
+The registry coordinates one Hecate process only. It is not a distributed lock
+or protection against an external editor. The Git child still resolves its
+working directory by pathname; a same-user process that replaces that root in
+the narrow interval after the last identity check is outside process-local
+coordination. Hecate rechecks afterward and reports an unknown outcome, but host
+filesystem/process isolation remains the boundary against an adversarial race.
+The durable-owner scan, root
+identity checks, preflight, and conditional Git apply remain independent
+fail-closed
 layers rather than a claim of replica-wide atomic exclusion. The revision token
 is neither workspace content nor a durable identity, but it can reveal equality
 with a known complete unstaged tracked patch. Treat it as sensitive operational

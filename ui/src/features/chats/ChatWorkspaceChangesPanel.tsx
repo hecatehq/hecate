@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   ChatChangedFileDiffRecord,
@@ -6,6 +14,11 @@ import type {
   ChatWorkspaceDiffRecord,
   ChatWorkspaceFileRecord,
   ChatWorkspaceFilesRecord,
+  ChatWorkspaceLayeredDiffRecord,
+  ChatWorkspaceReviewFileRecord,
+  ChatWorkspaceReviewLayerKind,
+  ChatWorkspaceReviewLayerRecord,
+  ChatWorkspaceReviewPreviewRecord,
 } from "../../types/chat";
 import { InlineError } from "../shared/Atoms";
 import { DiffViewer } from "../shared/DiffViewer";
@@ -16,6 +29,12 @@ import type { VisibleChatMessage } from "./ChatTranscript";
 
 const EMPTY_CHANGED_FILES: ChatChangedFileRecord[] = [];
 const EMPTY_WORKSPACE_FILES: ChatWorkspaceFileRecord[] = [];
+const WORKSPACE_REVIEW_LAYER_ORDER: ChatWorkspaceReviewLayerKind[] = [
+  "staged",
+  "working_tree",
+  "untracked",
+];
+const DISCARD_ALL_WORKING_TREE_KEY = "workspace-review:discard-all-working-tree";
 const TEXT_DIFF_EXTENSIONS = new Set([
   "c",
   "cc",
@@ -98,13 +117,23 @@ type WorkspaceRevertIntent = {
   owner: WorkspacePanelOwner;
   snapshot: ChatWorkspaceDiffRecord;
   revision: string;
+  entryIDs: string[];
   paths: string[];
-  label: string;
+  key: string;
 };
 
 type WorkspaceOperationFence = {
   owner: WorkspacePanelOwner;
   generation: number;
+};
+
+type CanonicalWorkspaceReviewLayer = Omit<ChatWorkspaceReviewLayerRecord, "kind"> & {
+  kind: ChatWorkspaceReviewLayerKind;
+};
+
+type WorkspaceDiscardEntry = {
+  id: string;
+  path: string;
 };
 
 export function collectChatWorkspaceChanges(messages: VisibleChatMessage[]): ChatWorkspaceChange[] {
@@ -183,6 +212,9 @@ export function ChatWorkspaceChangesPanel({
   const [reviewFailed, setReviewFailed] = useState(false);
   const [filesFailed, setFilesFailed] = useState(false);
   const [localError, setLocalError] = useState("");
+  const tabIDPrefix = useId();
+  const reviewTabRef = useRef<HTMLButtonElement | null>(null);
+  const filesTabRef = useRef<HTMLButtonElement | null>(null);
   const ownerRef = useRef<WorkspacePanelOwner | null>(null);
   const ownerGenerationRef = useRef(0);
   const operationGenerationRef = useRef(0);
@@ -489,6 +521,17 @@ export function ChatWorkspaceChangesPanel({
       failedFileDiffPathsRef.current = new Set();
       replaceFileDiffs(owner, {});
       setReviewFailed(next === null);
+      if (next && isLayeredWorkspaceReview(next)) {
+        const firstPreview = orderedWorkspaceReviewLayers(next)
+          .flatMap((layer) => layer.files)
+          .find(
+            (file) =>
+              (file.preview.kind === "text_diff" || file.preview.kind === "text") &&
+              Boolean(file.preview.content),
+          );
+        setExpandedDiffPaths(firstPreview ? [firstPreview.id] : []);
+        return;
+      }
       let nestedReadBecameStale = false;
       const firstSelection = await findInitialDiffFile(
         next?.files ?? EMPTY_CHANGED_FILES,
@@ -620,17 +663,50 @@ export function ChatWorkspaceChangesPanel({
     }
   }
 
-  function requestRevert(paths: string[], label: string) {
+  async function copyReviewEntry(file: ChatWorkspaceReviewFileRecord) {
+    const owner = currentOwnerForProps();
+    const snapshotAtStart = snapshotValueRef.current;
+    const content = file.preview.content ?? "";
+    if (
+      !owner ||
+      snapshotOwnerRef.current !== owner ||
+      !snapshotAtStart ||
+      !isLayeredWorkspaceReview(snapshotAtStart) ||
+      !content
+    ) {
+      return;
+    }
+    const operation = beginOperation(copyOperationRef, owner);
+    if (!operation) return;
+    setCopyingPath(file.id);
+    setLocalError("");
+    try {
+      await writeClipboard(operation, content, `review-entry:${file.id}`);
+    } finally {
+      const canWrite = isCurrentOperation(copyOperationRef, operation);
+      finishOperation(copyOperationRef, operation);
+      if (canWrite) setCopyingPath("");
+    }
+  }
+
+  function requestRevert(paths: string[], entryIDs: string[], key: string) {
     const owner = currentOwnerForProps();
     const currentSnapshot = snapshotValueRef.current;
-    const revision = currentSnapshot?.revision?.trim() ?? "";
+    const revision = workspaceDiscardRevision(currentSnapshot);
+    const allowedEntries = currentSnapshot
+      ? discardableWorkspaceReviewEntries(currentSnapshot)
+      : [];
     if (
       revertDisabled ||
       !owner ||
       snapshotOwnerRef.current !== owner ||
       !currentSnapshot ||
       !revision ||
-      paths.some((path) => !currentSnapshot.files.some((file) => file.path === path))
+      paths.length !== entryIDs.length ||
+      paths.some(
+        (path, index) =>
+          !allowedEntries.some((file) => file.path === path && file.id === entryIDs[index]),
+      )
     ) {
       return;
     }
@@ -638,8 +714,9 @@ export function ChatWorkspaceChangesPanel({
       owner,
       snapshot: currentSnapshot,
       revision,
+      entryIDs: [...entryIDs],
       paths: [...paths],
-      label,
+      key,
     });
   }
 
@@ -659,13 +736,14 @@ export function ChatWorkspaceChangesPanel({
       !isCurrentOwner(intent.owner) ||
       snapshotOwnerRef.current !== intent.owner ||
       snapshotValueRef.current !== intent.snapshot ||
-      intent.snapshot.revision !== intent.revision
+      workspaceDiscardRevision(intent.snapshot) !== intent.revision
     ) {
       if (intent && isCurrentOwner(intent.owner)) updateRevertIntent(null);
       return;
     }
     const operation = beginOperation(revertOperationRef, intent.owner);
     if (!operation) return;
+    reviewTabRef.current?.focus();
     const refreshFilesAfterRevert = filesLoadedRef.current;
     let shouldRefreshFiles = false;
     abortReadSlot(reviewReadRef);
@@ -674,7 +752,7 @@ export function ChatWorkspaceChangesPanel({
     setLoadingReview(false);
     setLoadingFiles(false);
     setLoadingPath("");
-    setRevertingPath(intent.label);
+    setRevertingPath(intent.key);
     setLocalError("");
     try {
       const next = await onRevertWorkspaceFiles(
@@ -700,7 +778,7 @@ export function ChatWorkspaceChangesPanel({
           if (!isCurrentOperation(revertOperationRef, operation)) return current;
           return intent.paths.length === 0
             ? []
-            : current.filter((path) => !intent.paths.includes(path));
+            : current.filter((entryID) => !intent.entryIDs.includes(entryID));
         });
         if (intent.paths.length === 0) {
           failedFileDiffPathsRef.current = new Set();
@@ -754,6 +832,24 @@ export function ChatWorkspaceChangesPanel({
     if (!hasWorkspacePatch && !failedFileDiffPathsRef.current.has(file.path)) {
       void ensureFileDiff(owner, file);
     }
+  }
+
+  function toggleReviewEntry(file: ChatWorkspaceReviewFileRecord) {
+    const owner = currentOwnerForProps();
+    const currentSnapshot = snapshotValueRef.current;
+    if (
+      !owner ||
+      snapshotOwnerRef.current !== owner ||
+      !currentSnapshot ||
+      !isLayeredWorkspaceReview(currentSnapshot)
+    ) {
+      return;
+    }
+    setExpandedDiffPaths((current) =>
+      current.includes(file.id)
+        ? current.filter((entryID) => entryID !== file.id)
+        : [...current, file.id],
+    );
   }
 
   useLayoutEffect(() => {
@@ -853,12 +949,14 @@ export function ChatWorkspaceChangesPanel({
     revertIntent.snapshot === visibleSnapshot
       ? revertIntent
       : null;
-  const confirmRevertPath = visibleRevertIntent?.label ?? "";
+  const confirmRevertKey = visibleRevertIntent?.key ?? "";
+  const layeredSnapshot =
+    visibleSnapshot && isLayeredWorkspaceReview(visibleSnapshot) ? visibleSnapshot : null;
   const files = visibleSnapshot?.files ?? EMPTY_CHANGED_FILES;
   const diffStat = visibleSnapshot?.diff_stat?.trim() ?? "";
   const diff = visibleSnapshot?.diff?.trim() ?? "";
   const hasChanges = Boolean(visibleSnapshot?.has_changes || files.length > 0 || diffStat || diff);
-  const workspaceRevertDisabled = revertDisabled || !visibleSnapshot?.revision?.trim();
+  const workspaceRevertDisabled = revertDisabled || !workspaceDiscardRevision(visibleSnapshot);
   const reviewSummary = summarizeChangedFiles(files, diffStat);
   const filteredChangedFiles = useMemo(
     () => prioritizeDiffCandidates(filterChangedFiles(files, reviewQuery), diff),
@@ -873,6 +971,16 @@ export function ChatWorkspaceChangesPanel({
     if (activeView !== "files" || !fileQuery.trim()) return;
     setExpandedFileDirs(collectFileTreeFolderPaths(fileTree));
   }, [activeView, fileQuery, fileTree]);
+
+  const reviewTabID = `${tabIDPrefix}-review-tab`;
+  const reviewPanelID = `${tabIDPrefix}-review-panel`;
+  const filesTabID = `${tabIDPrefix}-files-tab`;
+  const filesPanelID = `${tabIDPrefix}-files-panel`;
+
+  function moveWorkspacePanelTab(next: "review" | "files") {
+    setActiveView(next);
+    (next === "review" ? reviewTabRef : filesTabRef).current?.focus();
+  }
 
   return (
     <div
@@ -929,15 +1037,25 @@ export function ChatWorkspaceChangesPanel({
           >
             <WorkspacePanelTab
               active={activeView === "review"}
+              buttonRef={reviewTabRef}
+              controlsID={reviewPanelID}
               icon={Icons.tasks}
+              id={reviewTabID}
               label="Review"
               onClick={() => setActiveView("review")}
+              onMove={moveWorkspacePanelTab}
+              view="review"
             />
             <WorkspacePanelTab
               active={activeView === "files"}
+              buttonRef={filesTabRef}
+              controlsID={filesPanelID}
               icon={Icons.folder}
+              id={filesTabID}
               label="Files"
               onClick={() => setActiveView("files")}
+              onMove={moveWorkspacePanelTab}
+              view="files"
             />
           </div>
           <div
@@ -988,48 +1106,83 @@ export function ChatWorkspaceChangesPanel({
         }}
       >
         {activeView === "review" ? (
-          <WorkspaceReviewView
-            confirmRevertPath={confirmRevertPath}
-            copiedKey={renderedOwner ? copiedKey : ""}
-            copyingPath={renderedOwner ? copyingPath : ""}
-            diff={diff}
-            expandedDiffPaths={expandedDiffPaths}
-            fileDiffs={visibleFileDiffs}
-            files={filteredChangedFiles}
-            hasChanges={hasChanges}
-            loading={Boolean(renderedOwner && loadingReview)}
-            loadingPath={renderedOwner ? loadingPath : ""}
-            query={reviewQuery}
-            revertingPath={renderedOwner ? revertingPath : ""}
-            revertDisabled={workspaceRevertDisabled}
-            reviewFailed={Boolean(renderedOwner && reviewFailed)}
-            summary={reviewSummary}
-            onCancelRevert={cancelRevert}
-            onChangeQuery={setReviewQuery}
-            onConfirmRevert={() => void confirmRevert()}
-            onCopyAll={() => void copyText(diff, "full")}
-            onCopyFileDiff={(file) => void copyFileDiff(file)}
-            onRequestRevert={(path) => requestRevert([path], path)}
-            onRequestRevertAll={() => requestRevert([], "__all__")}
-            onToggleDiff={toggleFileDiff}
-          />
+          <div
+            aria-labelledby={reviewTabID}
+            id={reviewPanelID}
+            role="tabpanel"
+            style={{ display: "flex", flex: "1 1 0", minHeight: 0, minWidth: 0 }}
+          >
+            {layeredSnapshot ? (
+              <LayeredWorkspaceReviewView
+                confirmRevertKey={confirmRevertKey}
+                copiedKey={renderedOwner ? copiedKey : ""}
+                copyingEntryID={renderedOwner ? copyingPath : ""}
+                expandedEntryIDs={expandedDiffPaths}
+                loading={Boolean(renderedOwner && loadingReview)}
+                query={reviewQuery}
+                revertingKey={renderedOwner ? revertingPath : ""}
+                revertDisabled={workspaceRevertDisabled}
+                snapshot={layeredSnapshot}
+                onCancelRevert={cancelRevert}
+                onChangeQuery={setReviewQuery}
+                onConfirmRevert={() => void confirmRevert()}
+                onCopyEntry={(file) => void copyReviewEntry(file)}
+                onRequestRevert={(file) => requestRevert([file.path], [file.id], file.id)}
+                onRequestRevertAll={() => requestRevert([], [], DISCARD_ALL_WORKING_TREE_KEY)}
+                onToggleEntry={toggleReviewEntry}
+              />
+            ) : (
+              <WorkspaceReviewView
+                confirmRevertPath={confirmRevertKey}
+                copiedKey={renderedOwner ? copiedKey : ""}
+                copyingPath={renderedOwner ? copyingPath : ""}
+                diff={diff}
+                expandedDiffPaths={expandedDiffPaths}
+                fileDiffs={visibleFileDiffs}
+                files={filteredChangedFiles}
+                hasChanges={hasChanges}
+                loading={Boolean(renderedOwner && loadingReview)}
+                loadingPath={renderedOwner ? loadingPath : ""}
+                query={reviewQuery}
+                revertingPath={renderedOwner ? revertingPath : ""}
+                revertDisabled={workspaceRevertDisabled}
+                reviewFailed={Boolean(renderedOwner && reviewFailed)}
+                summary={reviewSummary}
+                onCancelRevert={cancelRevert}
+                onChangeQuery={setReviewQuery}
+                onConfirmRevert={() => void confirmRevert()}
+                onCopyAll={() => void copyText(diff, "full")}
+                onCopyFileDiff={(file) => void copyFileDiff(file)}
+                onRequestRevert={(path) => requestRevert([path], [path], path)}
+                onRequestRevertAll={() => requestRevert([], [], DISCARD_ALL_WORKING_TREE_KEY)}
+                onToggleDiff={toggleFileDiff}
+              />
+            )}
+          </div>
         ) : (
-          <WorkspaceFilesView
-            expandedDirPaths={expandedFileDirs}
-            files={visibleWorkspaceFiles}
-            filesFailed={Boolean(renderedOwner && filesFailed)}
-            loading={Boolean(renderedOwner && loadingFiles)}
-            query={fileQuery}
-            tree={fileTree}
-            onChangeQuery={setFileQuery}
-            onToggleFolder={(path) =>
-              setExpandedFileDirs((current) =>
-                current.includes(path)
-                  ? current.filter((candidate) => candidate !== path)
-                  : [...current, path],
-              )
-            }
-          />
+          <div
+            aria-labelledby={filesTabID}
+            id={filesPanelID}
+            role="tabpanel"
+            style={{ display: "flex", flex: "1 1 0", minHeight: 0, minWidth: 0 }}
+          >
+            <WorkspaceFilesView
+              expandedDirPaths={expandedFileDirs}
+              files={visibleWorkspaceFiles}
+              filesFailed={Boolean(renderedOwner && filesFailed)}
+              loading={Boolean(renderedOwner && loadingFiles)}
+              query={fileQuery}
+              tree={fileTree}
+              onChangeQuery={setFileQuery}
+              onToggleFolder={(path) =>
+                setExpandedFileDirs((current) =>
+                  current.includes(path)
+                    ? current.filter((candidate) => candidate !== path)
+                    : [...current, path],
+                )
+              }
+            />
+          </div>
         )}
         {renderedOwner && localError && <InlineError message={localError} />}
       </div>
@@ -1039,19 +1192,42 @@ export function ChatWorkspaceChangesPanel({
 
 function WorkspacePanelTab({
   active,
+  buttonRef,
+  controlsID,
   icon,
+  id,
   label,
   onClick,
+  onMove,
+  view,
 }: {
   active: boolean;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  controlsID: string;
   icon: string | string[];
+  id: string;
   label: string;
   onClick: () => void;
+  onMove: (view: "review" | "files") => void;
+  view: "review" | "files";
 }) {
   return (
     <button
+      aria-controls={active ? controlsID : undefined}
       aria-selected={active}
+      className="workspace-panel-tab"
+      id={id}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft" || event.key === "Home") {
+          event.preventDefault();
+          onMove(event.key === "Home" ? "review" : view === "review" ? "files" : "review");
+        } else if (event.key === "ArrowRight" || event.key === "End") {
+          event.preventDefault();
+          onMove(event.key === "End" ? "files" : view === "files" ? "review" : "files");
+        }
+      }}
+      ref={buttonRef}
       role="tab"
       style={{
         alignItems: "center",
@@ -1071,6 +1247,7 @@ function WorkspacePanelTab({
         padding: "5px 8px",
         width: "100%",
       }}
+      tabIndex={active ? 0 : -1}
       type="button"
     >
       <Icon d={icon} size={12} strokeWidth={1.7} />
@@ -1085,6 +1262,877 @@ function WorkspacePanelTab({
       </span>
     </button>
   );
+}
+
+function LayeredWorkspaceReviewView({
+  confirmRevertKey,
+  copiedKey,
+  copyingEntryID,
+  expandedEntryIDs,
+  loading,
+  query,
+  revertingKey,
+  revertDisabled,
+  snapshot,
+  onCancelRevert,
+  onChangeQuery,
+  onConfirmRevert,
+  onCopyEntry,
+  onRequestRevert,
+  onRequestRevertAll,
+  onToggleEntry,
+}: {
+  confirmRevertKey: string;
+  copiedKey: string;
+  copyingEntryID: string;
+  expandedEntryIDs: string[];
+  loading: boolean;
+  query: string;
+  revertingKey: string;
+  revertDisabled: boolean;
+  snapshot: ChatWorkspaceLayeredDiffRecord;
+  onCancelRevert: () => void;
+  onChangeQuery: (query: string) => void;
+  onConfirmRevert: () => void;
+  onCopyEntry: (file: ChatWorkspaceReviewFileRecord) => void;
+  onRequestRevert: (file: ChatWorkspaceReviewFileRecord) => void;
+  onRequestRevertAll: () => void;
+  onToggleEntry: (file: ChatWorkspaceReviewFileRecord) => void;
+}) {
+  const discardAllButtonRef = useRef<HTMLButtonElement | null>(null);
+  const layers = orderedWorkspaceReviewLayers(snapshot);
+  const filteredLayers = filterWorkspaceReviewLayers(layers, query);
+  const workingTree = layers.find((layer) => layer.kind === "working_tree");
+  const totalEntries = layers.reduce(
+    (count, layer) => count + layer.files.length + (layer.omitted_count ?? 0),
+    0,
+  );
+  const hasChanges =
+    snapshot.has_changes || totalEntries > 0 || Boolean(snapshot.review_issues?.length);
+  const discardAvailable = Boolean(workspaceDiscardRevision(snapshot));
+  const discardReason = workspaceDiscardReason(snapshot, revertDisabled);
+  const showDiscardReason =
+    Boolean(discardReason) &&
+    (Boolean(workingTree?.files.length) ||
+      workspaceDiscardReasonRequiresStandaloneNotice(snapshot.discard.reason));
+
+  if (!hasChanges && !loading) {
+    return (
+      <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
+        The current workspace is clean.
+      </div>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Workspace review"
+      style={{
+        boxSizing: "border-box",
+        display: "flex",
+        flex: "1 1 0",
+        flexDirection: "column",
+        height: 0,
+        minHeight: 0,
+        minWidth: 0,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          background: "transparent",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          boxSizing: "border-box",
+          display: "flex",
+          flex: "1 1 0",
+          flexDirection: "column",
+          minHeight: 0,
+          minWidth: 0,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            alignItems: "center",
+            background: "var(--bg0)",
+            borderBottom: "1px solid var(--border)",
+            display: "grid",
+            gap: 8,
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            minWidth: 0,
+            padding: "8px 10px 7px",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 750 }}>
+              Workspace changes
+            </div>
+            <div
+              style={{
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                lineHeight: 1.35,
+                marginTop: 2,
+              }}
+            >
+              {loading
+                ? "Checking staged, working-tree, and untracked changes..."
+                : `${totalEntries} review entr${totalEntries === 1 ? "y" : "ies"}${
+                    snapshot.review_complete ? "" : " · incomplete"
+                  }`}
+            </div>
+          </div>
+          {discardAvailable && Boolean(workingTree?.files.length) && (
+            <div style={{ alignItems: "center", display: "flex", gap: 5 }}>
+              <button
+                aria-label="Discard all working-tree changes"
+                aria-describedby={discardReason ? "workspace-discard-reason" : undefined}
+                className="btn btn-ghost btn-sm"
+                disabled={revertDisabled || Boolean(revertingKey)}
+                onClick={onRequestRevertAll}
+                ref={discardAllButtonRef}
+                title={discardReason || "Discard all working-tree changes"}
+                type="button"
+              >
+                <Icon d={Icons.revert} size={12} />
+                Discard working tree
+              </button>
+              {confirmRevertKey === DISCARD_ALL_WORKING_TREE_KEY && (
+                <ConfirmInline
+                  busy={revertingKey === DISCARD_ALL_WORKING_TREE_KEY}
+                  disabled={revertDisabled}
+                  cancelAriaLabel="Cancel discard all working-tree changes"
+                  confirmAriaLabel="Confirm discard all working-tree changes"
+                  confirmLabel="Discard all"
+                  onCancel={onCancelRevert}
+                  onConfirm={onConfirmRevert}
+                  returnFocusRef={discardAllButtonRef}
+                />
+              )}
+            </div>
+          )}
+        </div>
+        {showDiscardReason && (
+          <div
+            id="workspace-discard-reason"
+            style={{
+              background: "var(--bg0)",
+              borderBottom: "1px solid var(--border)",
+              color: "var(--t3)",
+              fontSize: 10,
+              lineHeight: 1.45,
+              padding: "7px 10px",
+            }}
+          >
+            {discardReason}
+          </div>
+        )}
+        {!snapshot.review_complete && (
+          <WorkspaceReviewIncompleteNotice
+            issues={snapshot.review_issues ?? []}
+            omittedCount={snapshot.review_issues_omitted_count ?? 0}
+          />
+        )}
+        <SearchBox
+          label="Search workspace changes"
+          placeholder="Search workspace changes"
+          value={query}
+          onChange={onChangeQuery}
+        />
+        <div
+          aria-label="Workspace change layers"
+          style={{
+            flex: "1 1 0",
+            minHeight: 0,
+            minWidth: 0,
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+          }}
+        >
+          {filteredLayers.map((layer) => (
+            <WorkspaceReviewLayer
+              key={layer.kind}
+              confirmRevertKey={confirmRevertKey}
+              copiedKey={copiedKey}
+              copyingEntryID={copyingEntryID}
+              discardAvailable={discardAvailable}
+              expandedEntryIDs={expandedEntryIDs}
+              layer={layer}
+              query={query}
+              revertingKey={revertingKey}
+              revertDisabled={revertDisabled}
+              discardReason={discardReason}
+              onCancelRevert={onCancelRevert}
+              onConfirmRevert={onConfirmRevert}
+              onCopyEntry={onCopyEntry}
+              onRequestRevert={onRequestRevert}
+              onToggleEntry={onToggleEntry}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceReviewLayer({
+  confirmRevertKey,
+  copiedKey,
+  copyingEntryID,
+  discardAvailable,
+  discardReason,
+  expandedEntryIDs,
+  layer,
+  query,
+  revertingKey,
+  revertDisabled,
+  onCancelRevert,
+  onConfirmRevert,
+  onCopyEntry,
+  onRequestRevert,
+  onToggleEntry,
+}: {
+  confirmRevertKey: string;
+  copiedKey: string;
+  copyingEntryID: string;
+  discardAvailable: boolean;
+  discardReason: string;
+  expandedEntryIDs: string[];
+  layer: CanonicalWorkspaceReviewLayer;
+  query: string;
+  revertingKey: string;
+  revertDisabled: boolean;
+  onCancelRevert: () => void;
+  onConfirmRevert: () => void;
+  onCopyEntry: (file: ChatWorkspaceReviewFileRecord) => void;
+  onRequestRevert: (file: ChatWorkspaceReviewFileRecord) => void;
+  onToggleEntry: (file: ChatWorkspaceReviewFileRecord) => void;
+}) {
+  const layerLabel = workspaceReviewLayerLabel(layer.kind);
+  const readOnly = layer.kind !== "working_tree";
+
+  return (
+    <section
+      aria-label={`${layerLabel} changes`}
+      style={{ borderBottom: "1px solid var(--border)", minWidth: 0 }}
+    >
+      <div
+        style={{
+          alignItems: "start",
+          background: "var(--bg0)",
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          padding: "9px 10px 8px",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <h3
+            style={{
+              color: "var(--t0)",
+              fontSize: 11.5,
+              fontWeight: 750,
+              lineHeight: 1.3,
+              margin: 0,
+            }}
+          >
+            {layerLabel}
+          </h3>
+          <div style={{ color: "var(--t3)", fontSize: 10, lineHeight: 1.45, marginTop: 2 }}>
+            {workspaceReviewLayerDescription(layer.kind)}
+          </div>
+        </div>
+        <div style={{ alignItems: "center", display: "flex", gap: 6 }}>
+          {!layer.complete && (
+            <span style={workspaceReviewBadgeStyle("var(--amber)")}>Incomplete</span>
+          )}
+          {readOnly && <span style={workspaceReviewBadgeStyle("var(--t2)")}>Read only</span>}
+          <span style={workspaceReviewBadgeStyle("var(--t3)")}>
+            {layer.files.length + (layer.omitted_count ?? 0)}
+          </span>
+        </div>
+      </div>
+      {layer.omitted_count ? (
+        <div
+          role="status"
+          style={{ color: "var(--amber)", fontSize: 10, lineHeight: 1.45, padding: "7px 10px" }}
+        >
+          {`${layer.omitted_count} additional entr${
+            layer.omitted_count === 1 ? "y was" : "ies were"
+          } omitted by the review limit.`}
+        </div>
+      ) : null}
+      {layer.files.length === 0 ? (
+        <div style={{ color: "var(--t3)", fontSize: 10.5, lineHeight: 1.5, padding: "8px 10px" }}>
+          {query ? `No ${layerLabel.toLowerCase()} changes match that search.` : "No changes."}
+        </div>
+      ) : (
+        <ul
+          aria-label={`${layerLabel} change entries`}
+          style={{ listStyle: "none", margin: 0, padding: 0 }}
+        >
+          {layer.files.map((file) => (
+            <li key={file.id}>
+              <WorkspaceReviewEntry
+                confirmRevertKey={confirmRevertKey}
+                copied={copiedKey === `review-entry:${file.id}`}
+                copying={copyingEntryID === file.id}
+                discardReason={discardReason}
+                expanded={expandedEntryIDs.includes(file.id)}
+                file={file}
+                layerKind={layer.kind}
+                reverting={Boolean(revertingKey)}
+                discardAvailable={discardAvailable}
+                revertDisabled={revertDisabled}
+                onCancelRevert={onCancelRevert}
+                onConfirmRevert={onConfirmRevert}
+                onCopy={() => onCopyEntry(file)}
+                onRequestRevert={() => onRequestRevert(file)}
+                onToggle={() => onToggleEntry(file)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function WorkspaceReviewEntry({
+  confirmRevertKey,
+  copied,
+  copying,
+  discardReason,
+  expanded,
+  file,
+  layerKind,
+  reverting,
+  discardAvailable,
+  revertDisabled,
+  onCancelRevert,
+  onConfirmRevert,
+  onCopy,
+  onRequestRevert,
+  onToggle,
+}: {
+  confirmRevertKey: string;
+  copied: boolean;
+  copying: boolean;
+  discardReason: string;
+  expanded: boolean;
+  file: ChatWorkspaceReviewFileRecord;
+  layerKind: ChatWorkspaceReviewLayerKind;
+  reverting: boolean;
+  discardAvailable: boolean;
+  revertDisabled: boolean;
+  onCancelRevert: () => void;
+  onConfirmRevert: () => void;
+  onCopy: () => void;
+  onRequestRevert: () => void;
+  onToggle: () => void;
+}) {
+  const discardButtonRef = useRef<HTMLButtonElement | null>(null);
+  const displayPath = escapeWorkspacePathForDisplay(file.path);
+  const previewRegionID = `${file.id}-preview`;
+  const hasCopyablePreview = Boolean(file.preview.content);
+  const copyKind = file.preview.kind === "text" ? "contents" : "diff";
+  const canDiscard = layerKind === "working_tree" && discardAvailable;
+  const toggleLabel = `${expanded ? "Collapse" : "Expand"} ${workspaceReviewPreviewLabel(
+    file.preview,
+  )} ${displayPath}; ${fileStatusLabel(file.status || "modified")}; ${file.additions} addition${
+    file.additions === 1 ? "" : "s"
+  }, ${file.deletions} deletion${file.deletions === 1 ? "" : "s"}`;
+
+  return (
+    <div
+      style={{
+        backgroundColor: expanded ? "var(--teal-bg)" : "transparent",
+        borderTop: "1px solid var(--border)",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          display: "grid",
+          gap: 6,
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          minWidth: 0,
+        }}
+      >
+        <button
+          aria-controls={expanded ? previewRegionID : undefined}
+          aria-expanded={expanded}
+          aria-label={toggleLabel}
+          className="workspace-review-entry-toggle"
+          onClick={onToggle}
+          style={{
+            alignItems: "center",
+            background: "transparent",
+            border: 0,
+            color: "inherit",
+            cursor: "pointer",
+            display: "grid",
+            gap: 9,
+            gridTemplateColumns: "auto auto minmax(0, 1fr) auto",
+            minWidth: 0,
+            padding: "7px 10px",
+            textAlign: "left",
+          }}
+          type="button"
+        >
+          <Icon d={expanded ? Icons.chevD : Icons.chevR} size={10} />
+          <span
+            title={fileStatusLabel(file.status || "modified")}
+            style={{
+              alignItems: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: fileStatusColor(file.status || "modified"),
+              display: "inline-flex",
+              fontFamily: "var(--font-mono)",
+              fontSize: 9,
+              height: 18,
+              justifyContent: "center",
+              width: 18,
+            }}
+          >
+            {fileStatusGlyph(file.status || "modified")}
+          </span>
+          <span style={{ minWidth: 0 }}>
+            <ChangedFilePathLabel path={file.path} />
+            <span
+              style={{
+                color: "var(--t3)",
+                display: "block",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                marginTop: 2,
+              }}
+            >
+              {formatWorkspaceReviewEntryMeta(file)}
+            </span>
+          </span>
+          <WorkspaceReviewLineDelta file={file} />
+        </button>
+        <div style={{ alignItems: "center", display: "flex", gap: 4, paddingRight: 7 }}>
+          {hasCopyablePreview && (
+            <button
+              aria-label={`${copied ? "Copied" : "Copy"} ${copyKind} ${displayPath}`}
+              className="btn btn-ghost btn-sm"
+              disabled={copying || Boolean(reverting)}
+              onClick={onCopy}
+              title={`${copied ? "Copied" : "Copy"} ${copyKind} ${displayPath}`}
+              type="button"
+            >
+              <Icon d={copied ? Icons.check : Icons.copy} size={12} />
+            </button>
+          )}
+          {canDiscard && (
+            <button
+              aria-label={`Discard ${displayPath}`}
+              className="btn btn-ghost btn-sm"
+              disabled={revertDisabled || Boolean(reverting)}
+              onClick={onRequestRevert}
+              ref={discardButtonRef}
+              title={discardReason || `Discard ${displayPath}`}
+              type="button"
+            >
+              <Icon d={Icons.revert} size={12} />
+            </button>
+          )}
+          {canDiscard && confirmRevertKey === file.id && (
+            <ConfirmInline
+              busy={reverting}
+              disabled={revertDisabled}
+              cancelAriaLabel={`Cancel discard ${displayPath}`}
+              confirmAriaLabel={`Confirm discard ${displayPath}`}
+              confirmLabel="Discard"
+              onCancel={onCancelRevert}
+              onConfirm={onConfirmRevert}
+              returnFocusRef={discardButtonRef}
+            />
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div
+          aria-label={`${workspaceReviewPreviewLabel(file.preview)} ${displayPath}`}
+          id={previewRegionID}
+          role="region"
+          style={{ background: "var(--bg0)", borderTop: "1px solid var(--border)", minWidth: 0 }}
+        >
+          <WorkspaceReviewPreview preview={file.preview} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceReviewLineDelta({ file }: { file: ChatWorkspaceReviewFileRecord }) {
+  if (file.additions <= 0 && file.deletions <= 0) return <span aria-hidden="true" />;
+  return (
+    <span
+      aria-label={`${file.additions} additions, ${file.deletions} deletions`}
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        minWidth: 34,
+        textAlign: "right",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {file.additions > 0 && <span style={{ color: "var(--green)" }}>+{file.additions}</span>}
+      {file.deletions > 0 && (
+        <span style={{ color: "var(--red)", marginLeft: 5 }}>-{file.deletions}</span>
+      )}
+    </span>
+  );
+}
+
+function WorkspaceReviewPreview({ preview }: { preview: ChatWorkspaceReviewPreviewRecord }) {
+  if (preview.kind === "text_diff") {
+    return (
+      <WorkspaceDiffPreview
+        diff={escapeWorkspacePreviewForDisplay(preview.content ?? "")}
+        hasTextPatch
+        testID="workspace-review-diff-preview"
+      />
+    );
+  }
+  if (preview.kind === "text") {
+    return (
+      <pre
+        data-testid="workspace-review-text-preview"
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10.5,
+          lineHeight: 1.55,
+          margin: 0,
+          maxHeight: 320,
+          overflow: "auto",
+          padding: "10px 12px",
+          tabSize: 2,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {preview.content ? escapeWorkspacePreviewForDisplay(preview.content) : "(empty file)"}
+      </pre>
+    );
+  }
+  return (
+    <div
+      data-testid={`workspace-review-preview-${preview.kind}`}
+      style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5, padding: "10px 12px" }}
+    >
+      {workspaceReviewPreviewMessage(preview)}
+    </div>
+  );
+}
+
+function WorkspaceReviewIncompleteNotice({
+  issues,
+  omittedCount,
+}: {
+  issues: ChatWorkspaceLayeredDiffRecord["review_issues"];
+  omittedCount: number;
+}) {
+  return (
+    <div
+      role="status"
+      style={{
+        background: "color-mix(in srgb, var(--amber) 8%, transparent)",
+        borderBottom: "1px solid var(--border)",
+        color: "var(--t1)",
+        fontSize: 10.5,
+        lineHeight: 1.5,
+        padding: "8px 10px",
+      }}
+    >
+      <strong style={{ color: "var(--amber)", fontWeight: 700 }}>Review incomplete.</strong> Some
+      workspace state could not be represented safely. Inspect Git directly before deciding what to
+      keep.
+      {issues && issues.length > 0 && (
+        <ul style={{ margin: "5px 0 0", paddingLeft: 18 }}>
+          {issues.slice(0, 5).map((issue) => (
+            <li key={`${issue.kind}:${issue.path}`}>
+              {workspaceReviewIssueLabel(issue.kind)}: {escapeWorkspacePathForDisplay(issue.path)}
+            </li>
+          ))}
+          {issues.length > 5 && <li>{issues.length - 5} more review issues are not shown.</li>}
+          {omittedCount > 0 && (
+            <li>
+              {omittedCount} additional review issue{omittedCount === 1 ? " was" : "s were"} omitted
+              by the response limit.
+            </li>
+          )}
+        </ul>
+      )}
+      {(!issues || issues.length === 0) && omittedCount > 0 && (
+        <div style={{ marginTop: 5 }}>
+          {omittedCount} review issue{omittedCount === 1 ? " was" : "s were"} omitted by the
+          response limit.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isLayeredWorkspaceReview(
+  snapshot: ChatWorkspaceDiffRecord,
+): snapshot is ChatWorkspaceLayeredDiffRecord {
+  return (
+    Array.isArray(snapshot.layers) &&
+    snapshot.discard !== null &&
+    typeof snapshot.discard === "object"
+  );
+}
+
+function orderedWorkspaceReviewLayers(
+  snapshot: ChatWorkspaceLayeredDiffRecord,
+): CanonicalWorkspaceReviewLayer[] {
+  return WORKSPACE_REVIEW_LAYER_ORDER.map((kind) => {
+    const layer = snapshot.layers.find((candidate) => candidate.kind === kind);
+    return layer
+      ? { ...layer, kind, files: Array.isArray(layer.files) ? layer.files : [] }
+      : { kind, complete: false, files: [] };
+  });
+}
+
+function filterWorkspaceReviewLayers(
+  layers: CanonicalWorkspaceReviewLayer[],
+  rawQuery: string,
+): CanonicalWorkspaceReviewLayer[] {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return layers;
+  return layers.map((layer) => ({
+    ...layer,
+    files: layer.files.filter((file) => file.path.toLowerCase().includes(query)),
+  }));
+}
+
+function workspaceDiscardRevision(snapshot: ChatWorkspaceDiffRecord | null): string {
+  if (!snapshot) return "";
+  if (isLayeredWorkspaceReview(snapshot)) {
+    return snapshot.discard.available ? (snapshot.discard.revision?.trim() ?? "") : "";
+  }
+  return snapshot.revision?.trim() ?? "";
+}
+
+function discardableWorkspaceReviewEntries(
+  snapshot: ChatWorkspaceDiffRecord,
+): WorkspaceDiscardEntry[] {
+  if (isLayeredWorkspaceReview(snapshot)) {
+    return (
+      orderedWorkspaceReviewLayers(snapshot).find((layer) => layer.kind === "working_tree")
+        ?.files ?? []
+    ).map((file) => ({ id: file.id, path: file.path }));
+  }
+  return snapshot.files.map((file) => ({ id: file.path, path: file.path }));
+}
+
+function workspaceReviewLayerLabel(kind: ChatWorkspaceReviewLayerKind): string {
+  switch (kind) {
+    case "staged":
+      return "Staged";
+    case "working_tree":
+      return "Working tree";
+    case "untracked":
+      return "Untracked";
+  }
+}
+
+function workspaceReviewLayerDescription(kind: ChatWorkspaceReviewLayerKind): string {
+  switch (kind) {
+    case "staged":
+      return "Changes already prepared in Git. Review only; Hecate will not discard them here.";
+    case "working_tree":
+      return "Unstaged tracked changes. These are the only entries this panel can discard.";
+    case "untracked":
+      return "New workspace files. Review only; Hecate will not delete them here.";
+  }
+}
+
+function workspaceReviewBadgeStyle(color: string) {
+  return {
+    border: "1px solid var(--border)",
+    borderRadius: 999,
+    color,
+    fontFamily: "var(--font-mono)",
+    fontSize: 9,
+    lineHeight: 1,
+    padding: "4px 6px",
+    whiteSpace: "nowrap",
+  } as const;
+}
+
+function workspaceDiscardReason(
+  snapshot: ChatWorkspaceLayeredDiffRecord,
+  disabled: boolean,
+): string {
+  if (snapshot.discard.available) {
+    if (!snapshot.discard.revision?.trim()) {
+      return "Discard is unavailable until the workspace is reviewed again.";
+    }
+    return disabled ? "Discard is unavailable while agent work is active." : "";
+  }
+  switch (snapshot.discard.reason) {
+    case "staged_changes":
+      return "Discard is unavailable while staged changes are present. Staged changes remain read only.";
+    case "working_tree_too_large":
+      return "Discard is unavailable because the working-tree review exceeded its safety limit.";
+    case "working_tree_preview_incomplete":
+      return "Discard is unavailable because one or more working-tree previews are incomplete. Refresh or inspect Git directly.";
+    case "review_incomplete":
+      return "Discard is unavailable because the workspace review is incomplete.";
+    case "workspace_changed":
+      return "The workspace changed during review. Refresh before discarding.";
+    case "refresh_required":
+      return "The discard completed, but Hecate could not refresh the review. Refresh before continuing.";
+    case "cleanup_failed":
+      return "Git cleanup did not finish after discard. Refresh and check Git before continuing.";
+    case "mutation_outcome_unknown":
+      return "The discard command did not finish cleanly. Refresh and verify every selected file before continuing.";
+    case "no_working_tree_changes":
+      return "There are no unstaged tracked changes to discard.";
+    default:
+      return "Discard is unavailable for this review.";
+  }
+}
+
+function workspaceDiscardReasonRequiresStandaloneNotice(reason?: string): boolean {
+  return (
+    reason === "refresh_required" ||
+    reason === "cleanup_failed" ||
+    reason === "mutation_outcome_unknown"
+  );
+}
+
+function workspaceReviewPreviewLabel(preview: ChatWorkspaceReviewPreviewRecord): string {
+  return preview.kind === "text_diff" ? "diff" : "preview";
+}
+
+function workspaceReviewPreviewMessage(preview: ChatWorkspaceReviewPreviewRecord): string {
+  switch (preview.kind) {
+    case "binary":
+      return "Binary content is not displayed.";
+    case "too_large":
+      if (preview.reason === "total_limit") {
+        return "Preview omitted because the review reached its total content limit.";
+      }
+      if (preview.reason === "layer_limit") {
+        return "Preview omitted because this Git layer exceeded its review limit.";
+      }
+      return "Preview omitted because this entry exceeds the per-file content limit.";
+    case "symlink":
+      return "Symlink targets are not opened from workspace review.";
+    case "special":
+      return "This non-regular file is not opened from workspace review.";
+    case "nested_repository":
+      return "Nested repository contents are not opened from workspace review.";
+    case "conflict":
+      return "Git reports an unresolved conflict. Inspect and resolve it directly in the workspace.";
+    case "unavailable":
+      switch (preview.reason) {
+        case "filesystem_unsupported":
+        case "platform_unsupported":
+          return "A safe inline preview is not available on this platform.";
+        case "changed_during_read":
+          return "The file changed while it was being read. Refresh to try again.";
+        case "read_timeout":
+          return "The file preview timed out. Refresh to try again.";
+        case "workspace_unavailable":
+          return "The workspace could not be opened for a safe preview.";
+        case "read_failed":
+          return "The file could not be read safely. Refresh to try again.";
+        default:
+          return "A safe inline preview is unavailable for this entry.";
+      }
+    default:
+      return "This preview type is not supported by this version of Hecate.";
+  }
+}
+
+function workspaceReviewIssueLabel(kind: string): string {
+  switch (kind) {
+    case "intent_to_add":
+      return "Intent-to-add index entry";
+    case "assume_unchanged":
+      return "Assume-unchanged index entry";
+    case "skip_worktree":
+      return "Skip-worktree index entry";
+    case "skip_worktree_assume_unchanged":
+      return "Skip-worktree and assume-unchanged index entry";
+    case "unmerged":
+      return "Unmerged path";
+    default:
+      return "Unrepresented Git state";
+  }
+}
+
+function formatWorkspaceReviewEntryMeta(file: ChatWorkspaceReviewFileRecord): string {
+  const parts = [file.status || "modified", workspaceReviewPreviewMeta(file.preview)];
+  if (typeof file.size_bytes === "number" && file.size_bytes >= 0) {
+    parts.push(formatWorkspaceReviewBytes(file.size_bytes));
+  }
+  return parts.filter(Boolean).join(" · ");
+}
+
+function workspaceReviewPreviewMeta(preview: ChatWorkspaceReviewPreviewRecord): string {
+  switch (preview.kind) {
+    case "text_diff":
+      return "text diff";
+    case "text":
+      return "text preview";
+    case "nested_repository":
+      return "nested repository";
+    case "too_large":
+      return "preview omitted";
+    default:
+      return escapeWorkspacePathForDisplay(preview.kind.replaceAll("_", " "));
+  }
+}
+
+function formatWorkspaceReviewBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function escapeWorkspacePathForDisplay(path: string): string {
+  return escapeUnsafeWorkspaceText(path, false);
+}
+
+function escapeWorkspacePreviewForDisplay(content: string): string {
+  return escapeUnsafeWorkspaceText(content, true);
+}
+
+function escapeUnsafeWorkspaceText(value: string, preserveTextWhitespace: boolean): string {
+  return Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    const preservedWhitespace =
+      preserveTextWhitespace && (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d);
+    const unsafeControl =
+      (codePoint >= 0 && codePoint <= 0x1f) || (codePoint >= 0x7f && codePoint <= 0x9f);
+    const unsafeDirection =
+      codePoint === 0x061c ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      (codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069);
+    return !preservedWhitespace && (unsafeControl || unsafeDirection)
+      ? escapeUnsafeWorkspaceCharacter(character)
+      : character;
+  }).join("");
+}
+
+function escapeUnsafeWorkspaceCharacter(character: string): string {
+  const codePoint = character.codePointAt(0) ?? 0;
+  return `\\u${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
 function WorkspaceReviewView({
@@ -1136,6 +2184,7 @@ function WorkspaceReviewView({
   onRequestRevertAll: () => void;
   onToggleDiff: (file: ChatChangedFileRecord) => void;
 }) {
+  const discardAllButtonRef = useRef<HTMLButtonElement | null>(null);
   if (reviewFailed) {
     return (
       <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5 }}>
@@ -1233,27 +2282,28 @@ function WorkspaceReviewView({
               >
                 <Icon d={copiedKey === "full" ? Icons.check : Icons.copy} size={12} />
               </button>
-              {confirmRevertPath === "__all__" ? (
+              <button
+                aria-label="Discard all workspace changes"
+                className="btn btn-ghost btn-sm"
+                disabled={revertDisabled || Boolean(revertingPath)}
+                onClick={onRequestRevertAll}
+                ref={discardAllButtonRef}
+                title="Discard all workspace changes"
+                type="button"
+              >
+                <Icon d={Icons.revert} size={12} />
+              </button>
+              {confirmRevertPath === DISCARD_ALL_WORKING_TREE_KEY && (
                 <ConfirmInline
-                  busy={revertingPath === "__all__"}
+                  busy={revertingPath === DISCARD_ALL_WORKING_TREE_KEY}
                   disabled={revertDisabled}
                   cancelAriaLabel="Cancel discard all workspace changes"
                   confirmAriaLabel="Confirm discard all workspace changes"
                   confirmLabel="Discard all"
                   onCancel={onCancelRevert}
                   onConfirm={onConfirmRevert}
+                  returnFocusRef={discardAllButtonRef}
                 />
-              ) : (
-                <button
-                  aria-label="Discard all workspace changes"
-                  className="btn btn-ghost btn-sm"
-                  disabled={revertDisabled || Boolean(revertingPath)}
-                  onClick={onRequestRevertAll}
-                  title="Discard all workspace changes"
-                  type="button"
-                >
-                  <Icon d={Icons.revert} size={12} />
-                </button>
               )}
             </div>
           )}
@@ -1353,6 +2403,9 @@ function ChangedFileReviewItem({
   onRequestRevert: (path: string) => void;
   onToggleDiff: (file: ChatChangedFileRecord) => void;
 }) {
+  const displayPath = escapeWorkspacePathForDisplay(file.path);
+  const previewRegionID = `workspace-legacy-diff-${encodeURIComponent(file.path)}`;
+  const discardButtonRef = useRef<HTMLButtonElement | null>(null);
   return (
     <div
       style={{
@@ -1372,8 +2425,10 @@ function ChangedFileReviewItem({
       >
         <button
           aria-current={expanded ? "true" : undefined}
+          aria-controls={expanded ? previewRegionID : undefined}
           aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} diff ${file.path}`}
+          aria-label={`${expanded ? "Collapse" : "Expand"} diff ${displayPath}`}
+          className="workspace-review-entry-toggle"
           onClick={() => onToggleDiff(file)}
           style={{
             alignItems: "center",
@@ -1438,51 +2493,53 @@ function ChangedFileReviewItem({
             )}
           </span>
         </button>
-        {confirmRevertPath === file.path ? (
-          <ConfirmInline
-            busy={revertingPath === file.path}
-            disabled={revertDisabled}
-            cancelAriaLabel={`Cancel discard ${file.path}`}
-            confirmAriaLabel={`Confirm discard ${file.path}`}
-            confirmLabel="Discard"
-            onCancel={onCancelRevert}
-            onConfirm={onConfirmRevert}
-          />
-        ) : (
-          <div
-            style={{
-              alignItems: "center",
-              display: "flex",
-              gap: 4,
-              paddingRight: 7,
-            }}
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            gap: 4,
+            paddingRight: 7,
+          }}
+        >
+          <button
+            aria-label={`Copy diff ${displayPath}`}
+            className="btn btn-ghost btn-sm"
+            disabled={copyingPath === file.path || Boolean(revertingPath)}
+            onClick={() => onCopyFileDiff(file)}
+            title={`Copy diff ${displayPath}`}
+            type="button"
           >
-            <button
-              aria-label={`Copy diff ${file.path}`}
-              className="btn btn-ghost btn-sm"
-              disabled={copyingPath === file.path || Boolean(revertingPath)}
-              onClick={() => onCopyFileDiff(file)}
-              title={`Copy diff ${file.path}`}
-              type="button"
-            >
-              <Icon d={copiedKey === `file:${file.path}` ? Icons.check : Icons.copy} size={12} />
-            </button>
-            <button
-              aria-label={`Discard ${file.path}`}
-              className="btn btn-ghost btn-sm"
-              disabled={revertDisabled || Boolean(revertingPath)}
-              onClick={() => onRequestRevert(file.path)}
-              title={`Discard ${file.path}`}
-              type="button"
-            >
-              <Icon d={Icons.revert} size={12} />
-            </button>
-          </div>
-        )}
+            <Icon d={copiedKey === `file:${file.path}` ? Icons.check : Icons.copy} size={12} />
+          </button>
+          <button
+            aria-label={`Discard ${displayPath}`}
+            className="btn btn-ghost btn-sm"
+            disabled={revertDisabled || Boolean(revertingPath)}
+            onClick={() => onRequestRevert(file.path)}
+            ref={discardButtonRef}
+            title={`Discard ${displayPath}`}
+            type="button"
+          >
+            <Icon d={Icons.revert} size={12} />
+          </button>
+          {confirmRevertPath === file.path && (
+            <ConfirmInline
+              busy={revertingPath === file.path}
+              disabled={revertDisabled}
+              cancelAriaLabel={`Cancel discard ${displayPath}`}
+              confirmAriaLabel={`Confirm discard ${displayPath}`}
+              confirmLabel="Discard"
+              onCancel={onCancelRevert}
+              onConfirm={onConfirmRevert}
+              returnFocusRef={discardButtonRef}
+            />
+          )}
+        </div>
       </div>
       {expanded && (
         <div
-          aria-label={`Diff ${file.path}`}
+          aria-label={`Diff ${displayPath}`}
+          id={previewRegionID}
           role="region"
           style={{
             borderTop: "1px solid var(--border)",
@@ -1530,10 +2587,11 @@ function ChangedFileReviewItem({
 }
 
 function ChangedFilePathLabel({ path, strong = false }: { path: string; strong?: boolean }) {
-  const { directory, filename } = splitPathForDisplay(path);
+  const displayPath = escapeWorkspacePathForDisplay(path);
+  const { directory, filename } = splitPathForDisplay(displayPath);
 
   return (
-    <span style={{ display: "block", minWidth: 0 }} title={path}>
+    <span style={{ display: "block", minWidth: 0 }} title={displayPath}>
       <span
         style={{
           color: "var(--t0)",
@@ -1689,9 +2747,10 @@ function WorkspaceFilesView({
 }
 
 function WorkspacePathLabel({ workspace }: { workspace: string }) {
+  const displayWorkspace = escapeWorkspacePathForDisplay(workspace);
   return (
     <div
-      title={workspace}
+      title={displayWorkspace}
       style={{
         color: "var(--t3)",
         fontFamily: "var(--font-mono)",
@@ -1701,7 +2760,7 @@ function WorkspacePathLabel({ workspace }: { workspace: string }) {
         whiteSpace: "nowrap",
       }}
     >
-      {workspace || "No workspace selected"}
+      {displayWorkspace || "No workspace selected"}
     </div>
   );
 }
@@ -1785,7 +2844,13 @@ function WorkspaceFileTreeRow({
       }}
     >
       <span
-        title={node.file.status ? fileStatusLabel(node.file.status) : "File"}
+        title={
+          node.file.status
+            ? fileStatusLabel(node.file.status)
+            : node.file.kind === "unavailable"
+              ? "Metadata unavailable on an unsupported filesystem"
+              : "File"
+        }
         style={{
           alignItems: "center",
           border: "1px solid var(--border)",
@@ -1799,7 +2864,11 @@ function WorkspaceFileTreeRow({
           width: 18,
         }}
       >
-        {node.file.status ? fileStatusGlyph(node.file.status) : "F"}
+        {node.file.status
+          ? fileStatusGlyph(node.file.status)
+          : node.file.kind === "unavailable"
+            ? "U"
+            : "F"}
       </span>
       <span
         style={{
@@ -1848,6 +2917,7 @@ function SearchBox({
       <Icon d={Icons.search} size={12} />
       <input
         aria-label={label}
+        className="workspace-panel-search-input"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         style={{
@@ -1858,7 +2928,6 @@ function SearchBox({
           fontFamily: "var(--font-mono)",
           fontSize: 10.5,
           minWidth: 0,
-          outline: "none",
           padding: 0,
         }}
         value={value}
@@ -1875,6 +2944,7 @@ function ConfirmInline({
   confirmLabel,
   onCancel,
   onConfirm,
+  returnFocusRef,
 }: {
   busy: boolean;
   disabled: boolean;
@@ -1883,7 +2953,14 @@ function ConfirmInline({
   confirmLabel: string;
   onCancel: () => void;
   onConfirm: () => void;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+
+  useLayoutEffect(() => {
+    confirmRef.current?.focus();
+  }, []);
+
   return (
     <div style={{ display: "flex", gap: 5 }}>
       <button
@@ -1891,6 +2968,7 @@ function ConfirmInline({
         className="btn btn-ghost btn-sm"
         disabled={busy || disabled}
         onClick={onConfirm}
+        ref={confirmRef}
         type="button"
       >
         {busy ? "Working..." : confirmLabel}
@@ -1899,7 +2977,10 @@ function ConfirmInline({
         aria-label={cancelAriaLabel}
         className="btn btn-ghost btn-sm"
         disabled={busy}
-        onClick={onCancel}
+        onClick={() => {
+          onCancel();
+          returnFocusRef.current?.focus();
+        }}
         type="button"
       >
         Cancel
@@ -2318,6 +3399,10 @@ function fileStatusGlyph(status: string): string {
       return "R";
     case "copied":
       return "C";
+    case "conflict":
+      return "!";
+    case "type_changed":
+      return "T";
     default:
       return "M";
   }
@@ -2336,6 +3421,10 @@ function fileStatusLabel(status: string): string {
       return "Renamed file";
     case "copied":
       return "Copied file";
+    case "conflict":
+      return "Conflicted file";
+    case "type_changed":
+      return "Type-changed file";
     default:
       return "Modified file";
   }
@@ -2352,6 +3441,10 @@ function fileStatusColor(status: string): string {
       return "var(--red)";
     case "renamed":
     case "copied":
+      return "var(--amber)";
+    case "conflict":
+      return "var(--red)";
+    case "type_changed":
       return "var(--amber)";
     default:
       return "var(--teal)";
@@ -2375,12 +3468,11 @@ function summarizeDiffAvailability(file: ChatChangedFileRecord, diff: string): s
 }
 
 function splitPathForDisplay(path: string): { directory: string; filename: string } {
-  const trimmed = path.trim();
-  const lastSlash = trimmed.lastIndexOf("/");
-  if (lastSlash < 0) return { directory: "", filename: trimmed };
+  const lastSlash = path.lastIndexOf("/");
+  if (lastSlash < 0) return { directory: "", filename: path };
   return {
-    directory: trimmed.slice(0, lastSlash),
-    filename: trimmed.slice(lastSlash + 1) || trimmed,
+    directory: path.slice(0, lastSlash),
+    filename: path.slice(lastSlash + 1) || path,
   };
 }
 

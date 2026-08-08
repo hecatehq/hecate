@@ -1982,6 +1982,11 @@ describe("api client", () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           object: "chat_workspace_diff",
+          discard_result: {
+            outcome: "applied",
+            refresh_required: true,
+            cleanup_failed: true,
+          },
           data: {
             workspace: "/tmp/hecate",
             revision: "sha256:reviewed",
@@ -1989,6 +1994,30 @@ describe("api client", () => {
             diff: "diff --git a/README.md b/README.md",
             has_changes: true,
             files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+            review_complete: true,
+            layers: [
+              { kind: "staged", complete: true, files: [] },
+              {
+                kind: "working_tree",
+                complete: true,
+                files: [
+                  {
+                    id: "entry-readme",
+                    layer: "working_tree",
+                    path: "README.md",
+                    additions: 1,
+                    deletions: 0,
+                    status: "modified",
+                    preview: {
+                      kind: "text_diff",
+                      content: "diff --git a/README.md b/README.md",
+                    },
+                  },
+                ],
+              },
+              { kind: "untracked", complete: true, files: [] },
+            ],
+            discard: { available: true, revision: "sha256:reviewed" },
           },
         }),
       );
@@ -2000,7 +2029,8 @@ describe("api client", () => {
         expect.anything(),
       );
       expect(result.data.files[0]?.path).toBe("README.md");
-      expect(result.data.revision).toBe("sha256:reviewed");
+      expect(result.data.layers?.[1]?.files[0]?.preview.kind).toBe("text_diff");
+      expect(result.data.discard?.revision).toBe("sha256:reviewed");
     });
 
     it("fetches the current workspace file tree for a chat session", async () => {
@@ -2059,13 +2089,24 @@ describe("api client", () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           object: "chat_workspace_diff",
+          discard_result: {
+            outcome: "applied",
+            refresh_required: true,
+            cleanup_failed: true,
+          },
           data: {
             workspace: "/tmp/hecate",
-            revision: "sha256:after-revert",
             diff_stat: "",
             diff: "",
             has_changes: false,
             files: [],
+            review_complete: true,
+            layers: [
+              { kind: "staged", complete: true, files: [] },
+              { kind: "working_tree", complete: true, files: [] },
+              { kind: "untracked", complete: true, files: [] },
+            ],
+            discard: { available: false, reason: "no_working_tree_changes" },
           },
         }),
       );
@@ -2083,7 +2124,15 @@ describe("api client", () => {
         }),
       );
       expect(result.data.has_changes).toBe(false);
-      expect(result.data.revision).toBe("sha256:after-revert");
+      expect(result.data.discard).toEqual({
+        available: false,
+        reason: "no_working_tree_changes",
+      });
+      expect(result.discard_result).toEqual({
+        outcome: "applied",
+        refresh_required: true,
+        cleanup_failed: true,
+      });
     });
   });
 

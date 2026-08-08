@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -409,6 +410,118 @@ func TestWalkDirContextPreservesSkipAll(t *testing.T) {
 	}
 	if visits != 2 {
 		t.Fatalf("visits = %d, want root plus first file", visits)
+	}
+}
+
+func TestOpenStableRegularReadReturnsOpenedFileIdentity(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("review me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	file, info, resolved, err := fsys.OpenStableRegularRead("note.txt")
+	if err != nil {
+		t.Fatalf("OpenStableRegularRead: %v", err)
+	}
+	defer file.Close()
+	wantResolved := path
+	if resolved != wantResolved || !info.Mode().IsRegular() || info.Size() != int64(len("review me\n")) {
+		t.Fatalf("opened file = (%q, %+v), want stable regular %q", resolved, info, wantResolved)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil || string(data) != "review me\n" {
+		t.Fatalf("read opened file = %q, %v", data, err)
+	}
+}
+
+func TestReopenStableRegularReadRejectsPathReplacement(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("reviewed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := NewPinned(root)
+	if err != nil {
+		t.Fatalf("NewPinned: %v", err)
+	}
+	file, info, _, err := fsys.OpenStableRegularRead("note.txt")
+	if err != nil {
+		t.Fatalf("OpenStableRegularRead: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, filepath.Join(root, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("replaced\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, _, err := fsys.ReopenStableRegularRead("note.txt", info)
+	if reopened != nil {
+		_ = reopened.Close()
+	}
+	if !errors.Is(err, ErrNotStableRegularFile) {
+		t.Fatalf("ReopenStableRegularRead error = %v, want ErrNotStableRegularFile", err)
+	}
+}
+
+func TestPinnedStableReadRejectsWorkspaceRootReplacement(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspace")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("reviewed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fSys, err := NewPinned(root)
+	if err != nil {
+		t.Fatalf("NewPinned: %v", err)
+	}
+	if err := os.Rename(root, filepath.Join(parent, "workspace-before")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("replacement\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, _, _, err := fSys.OpenStableRegularRead("note.txt")
+	if file != nil {
+		file.Close()
+	}
+	if !errors.Is(err, ErrNotStableRegularFile) {
+		t.Fatalf("OpenStableRegularRead after root replacement error = %v, want ErrNotStableRegularFile", err)
+	}
+}
+
+func TestPinnedWalkRejectsWorkspaceRootReplacement(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspace")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := NewPinned(root)
+	if err != nil {
+		t.Fatalf("NewPinned: %v", err)
+	}
+	if err := os.Rename(root, filepath.Join(parent, "workspace-old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	err = fsys.WalkDirContext(t.Context(), ".", func(string, string, DirEntry) error { return nil })
+	if !errors.Is(err, ErrNotStableRegularFile) {
+		t.Fatalf("WalkDirContext error = %v, want ErrNotStableRegularFile", err)
 	}
 }
 

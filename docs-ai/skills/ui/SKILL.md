@@ -352,24 +352,50 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Group repetitive command rows into a single expandable summary that reveals
   commands and captured output together.
 - Keep workspace review and workspace browsing as separate UI surfaces. The
-  workspace changes panel's Review tab owns changed-file diffs, copy, and
-  discard actions; the Files tab owns the full workspace tree. Keep the full
-  tree collapsed by default and expand matching directories only when the
-  operator searches or opens them. When the workspace panel is visible, refresh
-  it after an active chat/agent turn settles so the operator sees live changes
-  without pressing Refresh; keep the explicit Refresh action for manual
-  rechecks and recovery. Bind every discard confirmation and request to the
-  opaque revision from the exact reviewed diff, fail closed when it is absent,
-  and disable discard while agent work is queued, running, or awaiting
-  approval. Treat the content-derived token as sensitive operational metadata:
-  it can reveal equality with a known complete unstaged tracked patch, so never
-  persist or log it. The backend remains the authority for revision drift,
-  active-work conflicts, and staged-state refusal. When workspace review or
-  discard returns `422 invalid_request` because the scoped workspace has staged
-  changes, never retain a previous revision or render a false clean state. Tell
-  the operator to unstage the changes, refresh, review the newly visible
-  index-to-worktree patch, and confirm again. Do not imply that this surface
-  reviews staged or untracked layers.
+  workspace changes panel's Review tab owns the fixed `staged`, `working_tree`,
+  and `untracked` groups; the Files tab owns the bounded, curated workspace tree.
+  Keep the tree collapsed by default and expand matching directories only when the
+  operator searches or opens them. Use each opaque `file.id`—not `path`—for
+  expansion, copy, busy, and confirmation state because one path may appear in
+  multiple layers. Preserve the server's group order and render missing or
+  unknown layer data defensively without merging identities.
+- Render `text_diff` through the shared diff viewer and `text` as escaped
+  preformatted content. Give `binary`, `too_large`, `symlink`, `special`,
+  `nested_repository`, `conflict`, and `unavailable` explicit human-readable
+  notices, including bounded `reason` detail where useful. Never infer safety
+  from file extensions, fetch an inline preview through a raw path URL, render
+  untrusted content as HTML, or make a metadata-only row look empty. Escape
+  control and bidi characters in paths and plain-text previews, and expose copy
+  only when the server returned text. A tracked Gitlink is a read-only
+  `nested_repository` preview and must not expose discard.
+- `review_complete` and discard availability are different states. Keep all
+  available staged, working-tree, and untracked evidence visible when a layer
+  is incomplete; show `review_issues`, `review_issues_omitted_count`, per-layer
+  `complete`, and `omitted_count` without inventing missing rows. Staged and
+  untracked groups are always review-only. Show discard actions only on
+  working-tree entries and only when `snapshot.discard.available` has a nonempty
+  `snapshot.discard.revision`. Bind every confirmation and request to that
+  root-bound `workspace-sha256:` revision plus the selected working-tree entry
+  ids/paths. The legacy top-level patch-only `sha256:` `revision` / `diff` /
+  `files` projection is only an older-gateway UI fallback, never the authority
+  path for a layered response.
+- Disable discard while agent work is queued, running, or awaiting approval,
+  and preserve the backend as authority for hidden/staged index state,
+  incomplete previews, active writers, and revision drift. A staged GET is a
+  successful read-only review with discard closed, not an error or a clean
+  workspace. If discard later returns `422`, retain no stale token, keep the
+  visible review evidence, and tell the operator to resolve the reported Git
+  state and refresh. A `discard_result.outcome=outcome_unknown`,
+  `cleanup_failed`, or `refresh_required` response is not an ordinary failed
+  request and must not be collapsed to a false no-op error. Commit the returned
+  non-authoritative review, show the fixed operator warning, and require refresh
+  plus Git/file inspection before another discard. Treat revisions as sensitive
+  operational metadata: never persist or log them.
+- When the workspace panel is visible, refresh it after an active chat/agent
+  turn settles so the operator sees live changes without pressing Refresh; keep
+  the explicit Refresh action for manual rechecks and recovery. Treat live
+  review responses as non-cacheable and remember that an authenticated remote
+  runtime response may contain raw bounded untracked text.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

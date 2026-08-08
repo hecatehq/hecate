@@ -6163,13 +6163,10 @@ below is the only chat file-revert surface.
 
 ### `GET /hecate/v1/chat/sessions/{id}/workspace-diff`
 
-Returns the current **unstaged tracked** Git patch (index → worktree) for the
-chat session's selected workspace. This is live state for that one Git layer,
-not the captured diff from any assistant message. Staged index changes and
-untracked files are not part of this patch or its discard authority. The
-operator UI renders the response as a Review tab: a changed-file list where
-each file expands to its own rich diff, plus copy/discard actions for the full
-patch or a single file.
+Returns a live, read-only review of the chat session's selected Git workspace.
+The `layers` array always contains `staged`, `working_tree`, and `untracked`, in
+that order, even when a layer is empty. This is current workspace state, not a
+captured diff from an assistant message.
 
 ```json
 GET /hecate/v1/chat/sessions/chat_.../workspace-diff
@@ -6182,6 +6179,7 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff
     "diff_stat": "README.md | 1 +",
     "diff": "diff --git a/README.md b/README.md\n...",
     "has_changes": true,
+    "review_complete": true,
     "files": [
       {
         "path": "README.md",
@@ -6189,39 +6187,157 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff
         "deletions": 0,
         "status": "modified"
       }
-    ]
+    ],
+    "layers": [
+      {
+        "kind": "staged",
+        "complete": true,
+        "files": []
+      },
+      {
+        "kind": "working_tree",
+        "complete": true,
+        "files": [
+          {
+            "id": "review-entry-48a6...",
+            "layer": "working_tree",
+            "path": "README.md",
+            "additions": 1,
+            "deletions": 0,
+            "status": "modified",
+            "preview": {
+              "kind": "text_diff",
+              "content": "diff --git a/README.md b/README.md\n..."
+            }
+          }
+        ]
+      },
+      {
+        "kind": "untracked",
+        "complete": true,
+        "files": [
+          {
+            "id": "review-entry-a73c...",
+            "layer": "untracked",
+            "path": "notes.txt",
+            "additions": 0,
+            "deletions": 0,
+            "status": "untracked",
+            "size_bytes": 12,
+            "preview": {
+              "kind": "text",
+              "content": "draft notes\n"
+            }
+          }
+        ]
+      }
+    ],
+    "discard": {
+      "available": true,
+      "revision": "workspace-sha256:6cc8..."
+    }
   }
 }
 ```
 
-`revision` is an opaque, content-derived concurrency token for the complete raw
-unstaged tracked patch, including any final newline. Hecate captures that patch
-through GitRunner's hardened passive view. When the selected workspace is
-nested inside a larger checkout, the patch, staged-state check, and returned
-paths remain scoped to the selected workspace. It is not patch content, a
-durable identifier, or a value clients should log or persist. Because someone
-with a known complete unstaged patch can compare its digest for equality, treat
-the revision as sensitive operational metadata even though it does not reveal
-the patch by itself.
+Each layer has its own `complete` flag and may carry `omitted_count`. Each file
+has an opaque `id` that distinguishes the same path across layers; clients must
+use that id for review-row state rather than treating `path` as globally unique.
+The id is not a mutation token. `review_complete` is true only when every layer
+and the represented Git state are complete. `review_issues`, when present,
+contains `{kind, path}` records for state that Git's ordinary patches cannot
+represent safely; `review_issues_omitted_count` reports any additional issues
+beyond the bounded returned list. Issue kinds include `intent_to_add`,
+`assume_unchanged`, `skip_worktree`, `skip_worktree_assume_unchanged`, and
+`unmerged`.
 
-If any staged change exists in the scoped workspace—staged-only or mixed with
-unstaged edits—Hecate returns `422 invalid_request` without a diff revision.
-The operator must unstage those changes, refresh, and review the resulting
-index-to-worktree patch before discarding. Hecate never represents staged-only
-state as a clean empty patch or issues authority for only the visible half of a
-mixed change. Sessions without a workspace return an empty diff response with
-the deterministic empty-patch revision. For a Git workspace, that empty
-revision is issued only after the staged-state check passes, and means only that
-there is no unstaged tracked patch; it does not claim that untracked files are
-absent. Non-Git workspaces return `400 invalid_request`. If the unstaged tracked
-patch exceeds the 4 MiB safe review limit, Hecate returns
-`422 invalid_request` instead of issuing a revision that could authorize an
-incomplete discard.
+Every file includes one inline `preview` state:
+
+| `preview.kind`      | Meaning                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `text_diff`         | Bounded unified diff for a staged or working-tree tracked file.                           |
+| `text`              | Bounded UTF-8 body of an untracked regular file.                                          |
+| `binary`            | Binary content was detected and not returned.                                             |
+| `too_large`         | Body was omitted because of a per-file, layer, or total limit; `reason` identifies which. |
+| `symlink`           | The entry is a symlink; Hecate did not follow it.                                         |
+| `special`           | The entry is not a safely readable regular file.                                          |
+| `nested_repository` | The entry is an embedded repository or tracked Gitlink; Hecate did not open its contents. |
+| `conflict`          | Git reports an unmerged path.                                                             |
+| `unavailable`       | A stable preview could not be proved; `reason` gives a bounded classification.            |
+
+For a tracked Gitlink, `nested_repository` carries `reason=gitlink`; that
+working-tree entry is read-only because a root patch cannot safely restore the
+nested repository state.
+
+Untracked text is capped at 256 KiB per file. Inline bodies share one 4 MiB
+response-content budget with tracked previews and the duplicated legacy
+projection. Reaching a limit leaves the entry visible with a typed preview
+state. A truncated tracked layer, omitted entry list, or omitted tracked text
+preview marks that layer incomplete; an intentionally metadata-only untracked
+entry can remain inventory-complete. Hecate snapshots effective external Git
+excludes before inventory and omits paths ignored by those rules. It opens
+untracked previews relative to a pinned workspace root, refuses symlinks and
+non-regular or unstable entries, and verifies identity again after the bounded
+read. Linux/macOS passive Git review rejects recognized unsupported descendant
+mounts beneath the selected scope and canonical Git metadata/object trees, and
+rejects non-empty object alternates. Initial bounded Git discovery still occurs
+before those canonical paths are known; Windows Git traversal can also encounter
+a nested junction on an otherwise supported fixed drive. Keep the selected
+repository, its config includes, and Git object storage on trusted local media.
+
+`discard` is the only mutation-capability projection. `available=true` means
+Hecate separately captured the exact, complete raw **unstaged tracked** patch
+(index → worktree), including its final newline, and `discard.revision` is the
+opaque concurrency token binding those bytes to the identity of the reviewed
+workspace root. Staged changes and untracked
+files remain fully reviewable but are never discardable. Staged state,
+intent-to-add, assume-unchanged, skip-worktree, unmerged paths, incomplete or
+truncated working-tree previews, tracked Gitlinks, or a discard-capture failure leave
+`available=false` with a bounded `reason` such as `staged_changes`,
+`review_incomplete`, `working_tree_too_large`,
+`working_tree_preview_incomplete`, or `discard_capture_failed`. A binary tracked
+layer can be inventory-complete but non-exact, so it remains reviewable metadata
+while `working_tree_preview_incomplete` closes discard. Persistent snapshot drift
+returns HTTP `409` rather than becoming a discard reason. A discard response
+can additionally close a subsequent mutation with `refresh_required`,
+`cleanup_failed`, or `mutation_outcome_unknown`; refresh and inspect Git before
+continuing in those states.
+
+The top-level `revision`, `diff_stat`, `diff`, and `files` fields are a
+working-tree-only compatibility projection for older clients. They never add
+authority: `revision`, when present, is a legacy patch-only `sha256:` display
+digest, while the root-bound `discard.revision` uses the distinct
+`workspace-sha256:` scheme and is the only mutation precondition. `diff`
+contains only safe text patches, and `files` does not include staged or
+untracked entries. New clients must read `layers` for review and
+`discard.available` / `discard.revision` for mutation; never submit the
+top-level revision. Do not log or persist either revision field. Someone who
+already knows a complete patch can use the display digest to test equality, so
+both values are sensitive operational metadata.
+
+Staged-only and mixed staged/working-tree workspaces return `200` with all
+visible layers; staged state closes discard instead of making GET fail. A
+session without a workspace returns a clean three-layer review with no
+top-level revision. A clean Git workspace may retain the exact empty-patch
+compatibility revision, but `discard.available=false` because there are no
+working-tree changes. Non-Git workspaces return `400 invalid_request`. An
+inventory too large to enumerate safely or an unsafe path representation
+returns `422 invalid_request`; a workspace that keeps changing during both
+capture attempts returns `409 conflict`.
+
+Responses set `Cache-Control: private, no-store`. In remote runtime mode, an
+authorized caller can therefore receive raw bounded text from untracked files;
+protect this route with the same operator authentication and transport controls
+as the rest of the runtime. Hecate records only low-cardinality counts,
+completeness, and discard-reason telemetry for review—never paths, preview
+content, or revision values.
 
 ### `GET /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path}`
 
-Returns the live unified diff for one file currently present in the session
-workspace diff. Encode the path as a URL path component.
+Returns the live unified diff for one file in the legacy top-level
+working-tree compatibility projection. Encode the path as a URL path component.
+Layered clients already receive tracked diffs inline and should not use this
+path-keyed endpoint for staged or untracked entries.
 
 ```json
 GET /hecate/v1/chat/sessions/chat_.../workspace-diff/files/README.md
@@ -6238,15 +6354,22 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff/files/README.md
 }
 ```
 
-The path must appear in the current workspace diff; Hecate rejects arbitrary
-paths.
+The path must be a current tracked working-tree change; Hecate rejects arbitrary
+paths. This compatibility lookup performs a dedicated, literal-path capture
+with a 256 KiB patch limit. It does not capture unrelated tracked patches or
+open untracked bodies. A binary, oversized, Gitlink, conflict, or otherwise
+metadata-only tracked entry returns `422 invalid_request` instead of
+misreporting a snapshot race; only an actual concurrent capture change returns
+`409 conflict`. The response also uses the private, no-store `Cache-Control`
+policy.
 
 ### `GET /hecate/v1/chat/sessions/{id}/workspace-files`
 
-Returns the current file tree for the chat session's selected workspace. This
-surface is intentionally separate from `workspace-diff`: clients can browse and
-search the full workspace file tree without mixing unchanged files into the
-changed-file review flow. It returns metadata, not unchanged file contents.
+Returns a current, curated file tree for the chat session's selected workspace.
+This surface is intentionally separate from `workspace-diff`: clients can browse
+and search unchanged workspace metadata without mixing it into the changed-file
+review flow. It returns metadata, not unchanged file contents, and omits Hecate,
+Git, dependency, cache, and build-output directories from traversal.
 
 The operator UI renders this as a **Files** tab. The tree is collapsed by
 default, while search expands matching directories.
@@ -6271,78 +6394,129 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-files
         "status": "modified",
         "size_bytes": 2048
       }
-    ],
-    "truncated": false
+    ]
   }
 }
 ```
 
-Sessions without a workspace return an empty file list. The response may set
-`truncated: true` when the workspace has more entries than the UI should render
-eagerly.
+Sessions without a workspace return an empty file list. The response is
+`private, no-store`. The optional `truncated` field is omitted when false. It is
+true when traversal stops after 5,000 returned entries or cannot enter a nested
+filesystem safely. Browsing is limited to supported local filesystem classes.
+Linux/macOS do not recurse into recognized nested network, FUSE, or unknown
+mounts and set `truncated: true` when such traversal is blocked. Windows requires
+a fixed or RAM-backed drive, but nested junction/reparse traversal remains a
+host-policy boundary. Hecate fails the request closed when the selected root
+itself cannot be classified safely. An
+entry whose type cannot be inspected without crossing that boundary uses
+`kind: "unavailable"` rather than being mislabeled as a regular file.
+Classification gates tree traversal and content reads; establishing the selected
+root's canonical identity may first resolve an operator-selected symlink and
+inspect root metadata. Workspace roots and symlink targets must therefore be on
+healthy local storage.
 
 ### `POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert`
 
 Discards selected unstaged tracked changes by conditionally reverse-applying
 the exact index-to-worktree Git patch the operator reviewed. Pass a non-empty
-`paths` array to discard selected files, or an empty array to discard every
-unstaged tracked file in that patch. This endpoint does not discard staged
+`paths` array to discard selected files, or an explicit empty array to discard
+every unstaged tracked file in that patch. Omitted or `null` `paths` fail closed;
+they are never interpreted as discard-all. This endpoint does not discard staged
 index changes or untracked files. It is the only chat endpoint that mutates
-workspace files; stored per-message diffs remain read-only evidence.
+workspace files; stored per-message diffs and all three review layers remain
+read-only evidence. The body must be one JSON object, may contain only the
+documented fields, and is capped at 1 MiB.
+The response uses the private, no-store `Cache-Control` policy.
 
 ```json
 POST /hecate/v1/chat/sessions/chat_.../workspace-diff/revert
 {
   "paths": ["README.md"],
-  "expected_revision": "sha256:6cc8..."
+  "expected_revision": "workspace-sha256:6cc8..."
 }
 
 → 200
 {
   "object": "chat_workspace_diff",
+  "discard_result": {
+    "outcome": "applied"
+  },
   "data": {
     "workspace": "/Users/alice/project",
     "revision": "sha256:e3b0...",
+    "review_complete": true,
     "has_changes": false,
-    "files": []
+    "files": [],
+    "layers": [
+      { "kind": "staged", "complete": true, "files": [] },
+      { "kind": "working_tree", "complete": true, "files": [] },
+      { "kind": "untracked", "complete": true, "files": [] }
+    ],
+    "discard": {
+      "available": false,
+      "reason": "no_working_tree_changes"
+    }
   }
 }
 ```
 
-`expected_revision` is required and must be copied from the exact diff the
-operator confirmed. Before mutation, Hecate:
+`expected_revision` is required and must be copied from
+`data.discard.revision` in the exact layered review the operator confirmed.
+Entry ids, read-only review layers, and legacy top-level diff fields do not
+authorize this endpoint. Before mutation, Hecate:
 
-1. closes and drains the owning chat's per-session lifecycle;
-2. acquires an exclusive closure from the one process-local workspace registry,
+1. validates the strict request body, captures a fresh exact discard snapshot,
+   restricts `paths` to that snapshot, and compares `expected_revision`;
+2. closes and drains the owning chat's per-session lifecycle;
+3. acquires an exclusive closure from the one process-local workspace registry,
    using canonical paths and treating parent and child roots as overlapping;
-3. rereads the authoritative session and scans durable non-terminal task runs
-   plus other active chat sessions for overlapping workspace roots; and
-4. verifies again that the scoped workspace has no staged changes, captures the
-   complete raw scoped unstaged tracked patch, and compares its revision with
-   `expected_revision`.
+4. rereads the authoritative session and scans durable non-terminal task runs
+   plus other active chat sessions for overlapping workspace roots through
+   bounded, paginated active-owner projections; and
+5. verifies the canonical workspace identity, hidden index flags, and staged
+   state again, recaptures the complete raw scoped unstaged tracked patch, and
+   compares its workspace-bound discard revision with `expected_revision`.
 
 Task provisioning/start admission/execution, External Agent ACP turns and live
 ACP terminals, task-patch apply/revert, and operator terminals use writer leases
 from the same registry. A live overlapping writer, a durable active owner, or an
-owning session that is `queued`, `running`, or `awaiting_approval` returns
-`409 chat.agent_session_busy`, even if a caller bypasses the UI. The operator
-console disables discard controls during known active work.
+owning session in an active status such as `pending`, `queued`, `running`,
+`in_progress`, or `awaiting_approval` returns `409 chat.agent_session_busy`, even
+if a caller bypasses the UI. Unknown non-empty durable chat session or message
+statuses also fail closed. The operator console disables discard controls during
+known active work.
 
-With the closures still held, Hecate reserves Git's conventional real-index
-lock, rechecks that no scoped change was staged after the final snapshot,
-proves that the reviewed patch's old side still applies to the live index
-baseline, and reverse-applies selected paths from those exact reviewed patch
-bytes. Index contention, a committed or staged baseline change, or an
-overlapping edit from an external editor or another process returns `409
-conflict` without changing files. Unrelated and non-overlapping later edits are
-preserved. Only paths present in the reviewed diff can be discarded. A
-successful discard returns a newly computed revision for the remaining live
-diff.
+With the closures still held, Hecate pins and rechecks the selected workspace
+directory identity, reserves Git's conventional real-index lock, rechecks
+hidden flags and staged state, proves that the reviewed patch's old side still
+applies to the live index baseline, and runs a non-mutating reverse-apply
+preflight. Index contention, a committed or staged baseline change, a replaced
+workspace root detected by those checks, or an ordinary overlapping edit
+returns `409 conflict` before mutation. Hecate then reverse-applies selected
+paths from the exact reviewed bytes under a server-owned 30-second context, so
+a browser or proxy disconnect cannot cancel the destructive subprocess.
+Unrelated and non-overlapping later edits are preserved. Only paths present in
+the exact unstaged tracked snapshot can be discarded.
 
-Any staged state observed during review or the final pre-mutation capture
-returns `422 invalid_request` without issuing a new revision or changing files.
-Unstage the scoped changes, refresh, and review again. Full staged-layer review
-and discard is not part of this endpoint's current contract.
+`discard_result.outcome` is `applied` when Git completed the mutation or
+`outcome_unknown` when the mutating subprocess itself failed after the safe
+preflight (for example an I/O failure, deadline, or late external race). The
+latter is deliberately not reported as a clean conflict: selected files may be
+partially restored. `cleanup_failed=true` means releasing the Git index
+reservation failed; it does not by itself prove whether mutation completed.
+Only `outcome=applied` confirms the apply completed, while
+`outcome=outcome_unknown` can be combined with the cleanup warning.
+`refresh_required=true` accompanies either warning and also appears when Hecate
+could not capture a fresh layered review after a completed apply. In every such
+case discard remains unavailable in the returned review and the operator must
+refresh, inspect every selected file, and check Git before continuing. These
+fixed fields never expose a path, patch, revision, or raw process error.
+
+Staged changes are visible in GET Review but block discard. Intent-to-add,
+assume-unchanged, skip-worktree, unmerged state, an incomplete working-tree
+snapshot, or an oversized exact patch also prevents Hecate from issuing or
+accepting discard authority. Refresh after resolving that Git state; do not
+derive a token from display content.
 
 The shared registry coordinates one Hecate process and is not a distributed
 lock. The transient Git index reservation coordinates with well-behaved Git
@@ -6353,17 +6527,27 @@ atomic exclusion.
 
 Status codes:
 
-- `200 OK` with the refreshed workspace diff and revision.
-- `400 invalid_request` when `expected_revision` is missing or a requested path
-  is not present in the reviewed diff.
+- `200 OK` with `discard_result` and the refreshed layered workspace review,
+  or an explicitly incomplete `refresh_required` review when post-mutation
+  state could not be recaptured. `outcome_unknown` is still `200` because a
+  mutation may already have occurred; it is never presented as a no-op error.
+- `400 invalid_request` when the JSON is malformed, has unknown fields or
+  trailing values, `paths` is omitted or null, `expected_revision` is missing,
+  a requested path is not present in the exact discard snapshot, or the selected
+  workspace is missing or is not a Git worktree.
+- `404 not_found` when the chat session does not exist.
 - `409 conflict` when the workspace revision changed after review, Git's index
-  is busy or becomes staged after the final snapshot, or the exact patch no
-  longer applies because a later edit overlaps a selected hunk.
+  is busy, hidden or staged state appears after the final snapshot, or the exact
+  patch no longer applies because a later edit overlaps a selected hunk.
 - `409 chat.agent_session_busy` while the selected chat or another overlapping
   workspace owner has active work.
-- `422 invalid_request` when the scoped workspace has any staged change
-  (staged-only or mixed), or when the complete unstaged tracked patch exceeds
-  the safe review limit.
+- `413 invalid_request` when the request body exceeds 1 MiB.
+- `422 invalid_request` when the initial discard snapshot is unavailable
+  because the scoped workspace has staged or hidden index state, unsafe path
+  representation, or an exact unstaged tracked patch above the safe limit.
+- `500 gateway_error` when Hecate cannot capture or apply the snapshot for an
+  unclassified internal failure, cannot verify durable ownership, or cannot
+  release a pre-mutation Git index reservation safely.
 
 ### `GET /hecate/v1/chat/sessions/{id}/stream`
 

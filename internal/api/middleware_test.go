@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"log/slog"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -214,14 +216,96 @@ func TestOTelHTTPSpanMiddlewareEmitsRequestSpan(t *testing.T) {
 	if got := attrs["http.request.method"]; got != "GET" {
 		t.Errorf("http.request.method = %q, want GET", got)
 	}
-	if got := attrs["http.route"]; got != "GET /healthz" {
-		t.Errorf("http.route = %q, want %q", got, "GET /healthz")
+	if got := attrs["http.route"]; got != "/healthz" {
+		t.Errorf("http.route = %q, want %q", got, "/healthz")
 	}
 	if got := intAttrs["http.response.status_code"]; got != 200 {
 		t.Errorf("http.response.status_code = %d, want 200", got)
 	}
 	if got := attrs["hecate.request_id"]; got == "" {
 		t.Error("hecate.request_id attribute missing")
+	}
+}
+
+func TestLoggingMiddlewareUsesRoutePatternInsteadOfSensitivePathValues(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/{id}/files/{path...}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := LoggingMiddleware(logger)(mux)
+	req := httptest.NewRequest(http.MethodGet, "/sessions/session-1/files/secrets/token.txt", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logLine := output.String()
+	if strings.Contains(logLine, "session-1") || strings.Contains(logLine, "secrets/token.txt") {
+		t.Fatalf("request log exposed route values: %s", logLine)
+	}
+	if !strings.Contains(logLine, `"http.route":"/sessions/{id}/files/{path...}"`) {
+		t.Fatalf("request log = %s, want sanitized route pattern", logLine)
+	}
+	if strings.Contains(logLine, `"url.path"`) {
+		t.Fatalf("request log repurposed url.path for a route template: %s", logLine)
+	}
+
+	output.Reset()
+	req = httptest.NewRequest(http.MethodGet, "/unmatched/session-1/secrets/token.txt", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	logLine = output.String()
+	if strings.Contains(logLine, "session-1") || strings.Contains(logLine, "secrets/token.txt") {
+		t.Fatalf("unmatched request log exposed URL values: %s", logLine)
+	}
+	if strings.Contains(logLine, `"http.route"`) || strings.Contains(logLine, `"url.path"`) {
+		t.Fatalf("unmatched request log emitted a path or route: %s", logLine)
+	}
+}
+
+func TestHTTPRoutePatternRemovesMethodAndHost(t *testing.T) {
+	for _, test := range []struct {
+		pattern string
+		want    string
+	}{
+		{pattern: "GET /sessions/{id}", want: "/sessions/{id}"},
+		{pattern: "POST example.test/sessions/{id}", want: "/sessions/{id}"},
+		{pattern: "/healthz", want: "/healthz"},
+		{pattern: "", want: ""},
+	} {
+		if got := httpRoutePattern(test.pattern); got != test.want {
+			t.Errorf("httpRoutePattern(%q) = %q, want %q", test.pattern, got, test.want)
+		}
+	}
+}
+
+func TestOTelHTTPSpanMiddlewareOmitsRouteForUnmatchedSensitivePath(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exporter)))
+	defer tp.Shutdown(t.Context())
+
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(previous) })
+	httpServerTracer = tp.Tracer("github.com/hecatehq/hecate/internal/api")
+	t.Cleanup(func() {
+		httpServerTracer = otel.Tracer("github.com/hecatehq/hecate/internal/api")
+	})
+
+	mux := http.NewServeMux()
+	handler := OTelHTTPSpanMiddleware(mux)
+	req := httptest.NewRequest(http.MethodGet, "/unmatched/session-1/secrets/token.txt", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("span count = %d, want 1", len(spans))
+	}
+	for _, attr := range spans[0].Attributes {
+		if attr.Key == semconv.HTTPRouteKey {
+			t.Fatalf("unmatched request recorded route value %q", attr.Value.AsString())
+		}
 	}
 }
 

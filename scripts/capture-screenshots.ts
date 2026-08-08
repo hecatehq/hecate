@@ -918,34 +918,42 @@ async function routeWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
       object: "chat_workspace_diff",
       data: {
         workspace: "/Users/alice/dev/hecate",
+        revision: "sha256:docs-workspace-review",
         diff_stat: docsWorkspaceDiffStat,
         diff: docsWorkspaceDiff,
         has_changes: true,
         files: docsWorkspaceDiffFiles,
-      },
-    });
-  });
-  await page.route(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/files/**`, (route) => {
-    const url = new URL(route.request().url());
-    const encodedPath = url.pathname.split("/workspace-diff/files/")[1] ?? "";
-    const filePath = decodeURIComponent(encodedPath);
-    const file = docsWorkspaceDiffFiles.find((candidate) => candidate.path === filePath);
-    const diff = docsWorkspaceDiffByPath[filePath];
-    if (!file || !diff) {
-      route.fulfill({
-        status: 404,
-        contentType: "application/json",
-        body: JSON.stringify({
-          error: { message: "File diff not found" },
-        }),
-      });
-      return;
-    }
-    fulfillJSON(route, {
-      object: "chat_workspace_file_diff",
-      data: {
-        ...file,
-        diff,
+        review_complete: true,
+        layers: [
+          { kind: "staged", complete: true, files: [] },
+          {
+            kind: "working_tree",
+            complete: true,
+            files: [
+              {
+                id: "docs-review-runtime-working",
+                layer: "working_tree",
+                ...docsWorkspaceDiffFiles[0],
+                preview: {
+                  kind: "text_diff",
+                  content: docsWorkspaceDiffByPath["docs/runtime-api.md"],
+                },
+              },
+              {
+                id: "docs-review-ui-working",
+                layer: "working_tree",
+                ...docsWorkspaceDiffFiles[1],
+                preview: {
+                  kind: "text_diff",
+                  content:
+                    docsWorkspaceDiffByPath["ui/src/features/chats/ChatWorkspaceChangesPanel.tsx"],
+                },
+              },
+            ],
+          },
+          { kind: "untracked", complete: true, files: [] },
+        ],
+        discard: { available: true, revision: "sha256:docs-workspace-review" },
       },
     });
   });
@@ -958,6 +966,13 @@ async function routeWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
         diff: "",
         has_changes: false,
         files: [],
+        review_complete: true,
+        layers: [
+          { kind: "staged", complete: true, files: [] },
+          { kind: "working_tree", complete: true, files: [] },
+          { kind: "untracked", complete: true, files: [] },
+        ],
+        discard: { available: false, reason: "no_working_tree_changes" },
       },
     });
   });
@@ -965,7 +980,6 @@ async function routeWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
 
 async function unrouteWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
   await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff`);
-  await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/files/**`);
   await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/revert`);
 }
 
@@ -2579,12 +2593,13 @@ async function main() {
   await routeWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);
   await page.getByRole("button", { name: "Workspace changes" }).click();
   await page.getByRole("region", { name: "Workspace review" }).waitFor({ timeout: 5_000 });
-  await page.getByLabel("Search changed files").fill("runtime");
-  await page.getByLabel("Changed files", { exact: true }).waitFor({ timeout: 5_000 });
-  await page.getByRole("button", { name: "Copy complete workspace patch" }).waitFor({
+  await page.getByLabel("Search workspace changes").fill("runtime");
+  await page.getByRole("region", { name: "Working tree changes" }).waitFor({ timeout: 5_000 });
+  await page.getByRole("button", { name: "Copy diff docs/runtime-api.md" }).waitFor({
     timeout: 5_000,
   });
-  await page.getByRole("region", { name: "Diff docs/runtime-api.md" }).waitFor({ timeout: 5_000 });
+  await page.getByRole("button", { name: /^Expand diff docs\/runtime-api\.md;/ }).click();
+  await page.getByRole("region", { name: "diff docs/runtime-api.md" }).waitFor({ timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat-workspace-diff");
   await unrouteWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);

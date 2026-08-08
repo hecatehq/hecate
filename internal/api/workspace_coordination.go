@@ -8,12 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/localfs"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-const workspaceOwnerScanPageSize = 200
+const (
+	workspaceOwnerScanPageSize   = 200
+	workspaceOwnerScanMaxEntries = 5000
+)
 
 func (h *Handler) acquireWorkspaceWriter(w http.ResponseWriter, ctx context.Context, workspace string) (*workspacecoord.WriterLease, bool) {
 	if h == nil || h.workspaceCoordinator == nil {
@@ -72,21 +77,32 @@ func (h *Handler) chatWorkspaceDurableOwner(ctx context.Context, workspaceKey, c
 	if h == nil || h.taskStore == nil {
 		return "", false, errors.New("task store is unavailable")
 	}
+	inspector, err := localfs.NewInspector()
+	if err != nil {
+		return "", false, fmt.Errorf("inspect durable workspace owner filesystems: %w", err)
+	}
 	afterID := ""
+	taskScanned := 0
 	for {
+		pageLimit := min(workspaceOwnerScanPageSize, workspaceOwnerScanMaxEntries-taskScanned+1)
 		runs, err := h.taskStore.ListRunsByFilter(ctx, taskstate.RunFilter{
-			Limit:     workspaceOwnerScanPageSize,
-			OrderByID: true,
-			AfterID:   afterID,
+			ExcludeStatuses: []string{"completed", "failed", "cancelled"},
+			Limit:           pageLimit,
+			OrderByID:       true,
+			AfterID:         afterID,
 		})
 		if err != nil {
 			return "", false, fmt.Errorf("list task runs: %w", err)
+		}
+		taskScanned += len(runs)
+		if taskScanned > workspaceOwnerScanMaxEntries {
+			return "", false, errors.New("task workspace owner inventory exceeds the safe scan limit")
 		}
 		for _, run := range runs {
 			if types.IsTerminalTaskRunStatus(strings.TrimSpace(run.Status)) {
 				continue
 			}
-			matches, err := workspacePathOverlapsCanonical(run.WorkspacePath, workspaceKey)
+			matches, err := workspacePathOverlapsCanonical(inspector, run.WorkspacePath, workspaceKey)
 			if err != nil {
 				return "", false, fmt.Errorf("verify task workspace: %w", err)
 			}
@@ -94,7 +110,7 @@ func (h *Handler) chatWorkspaceDurableOwner(ctx context.Context, workspaceKey, c
 				return strings.TrimSpace(run.Status), true, nil
 			}
 		}
-		if len(runs) < workspaceOwnerScanPageSize {
+		if len(runs) < pageLimit {
 			break
 		}
 		nextID := strings.TrimSpace(runs[len(runs)-1].ID)
@@ -107,38 +123,63 @@ func (h *Handler) chatWorkspaceDurableOwner(ctx context.Context, workspaceKey, c
 	if h.agentChat == nil {
 		return "", false, errors.New("chat store is unavailable")
 	}
-	sessions, err := h.agentChat.List(ctx)
-	if err != nil {
-		return "", false, fmt.Errorf("list chat sessions: %w", err)
-	}
-	for _, session := range sessions {
-		if strings.TrimSpace(session.ID) == strings.TrimSpace(currentSessionID) {
-			continue
-		}
-		matches, err := workspacePathOverlapsCanonical(session.Workspace, workspaceKey)
+	afterSessionID := ""
+	chatScanned := 0
+	for {
+		pageLimit := min(workspaceOwnerScanPageSize, workspaceOwnerScanMaxEntries-chatScanned+1)
+		sessions, err := h.agentChat.ListWorkspaceOwnerSummaries(ctx, afterSessionID, pageLimit)
 		if err != nil {
-			return "", false, fmt.Errorf("verify chat workspace: %w", err)
+			return "", false, fmt.Errorf("list chat workspace owners: %w", err)
 		}
-		if !matches {
-			continue
+		chatScanned += len(sessions)
+		if chatScanned > workspaceOwnerScanMaxEntries {
+			return "", false, errors.New("chat workspace owner inventory exceeds the safe scan limit")
 		}
-		if chatWorkspaceActiveStatus(session.Status) {
-			return strings.TrimSpace(session.Status), true, nil
-		}
-		for i := len(session.Messages) - 1; i >= 0; i-- {
-			if chatWorkspaceActiveStatus(session.Messages[i].Status) {
-				return strings.TrimSpace(session.Messages[i].Status), true, nil
+		for _, session := range sessions {
+			if strings.TrimSpace(session.ID) == strings.TrimSpace(currentSessionID) {
+				continue
+			}
+			matches, err := workspacePathOverlapsCanonical(inspector, session.Workspace, workspaceKey)
+			if err != nil {
+				return "", false, fmt.Errorf("verify chat workspace: %w", err)
+			}
+			if !matches {
+				continue
+			}
+			if chat.IsPotentialWorkspaceOwnerStatus(session.Status) {
+				return strings.TrimSpace(session.Status), true, nil
+			}
+			if chat.IsPotentialWorkspaceOwnerStatus(session.ActiveMessageStatus) {
+				return strings.TrimSpace(session.ActiveMessageStatus), true, nil
 			}
 		}
+		if len(sessions) < pageLimit {
+			break
+		}
+		nextID := strings.TrimSpace(sessions[len(sessions)-1].ID)
+		if nextID == "" || nextID <= afterSessionID {
+			return "", false, errors.New("chat workspace owner scan did not advance")
+		}
+		afterSessionID = nextID
 	}
 	return "", false, nil
 }
 
-func workspacePathOverlapsCanonical(candidate, workspaceKey string) (bool, error) {
+func workspacePathOverlapsCanonical(inspector *localfs.Inspector, candidate, workspaceKey string) (bool, error) {
 	candidate = strings.TrimSpace(candidate)
 	workspaceKey = strings.TrimSpace(workspaceKey)
 	if candidate == "" || workspaceKey == "" {
 		return false, nil
+	}
+	// Durable owner rows can outlive the filesystem they referenced. Refuse a
+	// known network, userspace, or unknown mount before canonicalization so one
+	// stale owner cannot make this destructive-admission check enter unbounded
+	// repository-selected I/O. Unknown identity still fails the discard closed.
+	if inspector == nil {
+		return false, errors.New("workspace filesystem inspector is unavailable")
+	}
+	if err := inspector.EnsurePath(candidate); err != nil {
+		return false, fmt.Errorf("verify durable workspace owner: %w", err)
 	}
 	canonical, err := workspacecoord.CanonicalWorkspace(candidate)
 	if err == nil {

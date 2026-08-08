@@ -503,6 +503,41 @@ exit watcher. New operator-terminal behavior needs app-layer tests, API
 loopback/forwarded-header tests, shutdown cleanup coverage, and docs in
 `docs/operator/security.md` / `docs/runtime/runtime-api.md`.
 
+Workspace review and discard have separate typed contracts. `SnapshotReview`
+returns read-only staged (HEAD → index), working-tree (index → worktree), and
+untracked layers and must never carry or imply mutation authority. Capture
+status before and after the tracked patches, compare the exact scoped path
+sets, and surface a bounded incomplete review when content cannot be represented
+safely. Snapshot effective external Git excludes into the passive view before
+inventory; do not leak ignored untracked paths. Intent-to-add,
+assume-unchanged, skip-worktree, and unmerged paths become typed review issues.
+A staged-only or mixed workspace remains reviewable and must not make GET
+return `422`.
+
+Project the API as three fixed layer records with opaque `(layer, path)` entry
+ids, per-layer `complete` / `omitted_count`, top-level `review_complete`,
+bounded `review_issues` / `review_issues_omitted_count`, and an inline preview
+state. Supported preview kinds are `text_diff`, `text`, `binary`, `too_large`,
+`symlink`, `special`, `nested_repository`, `conflict`, and `unavailable`.
+Tracked Gitlinks use `nested_repository` with `reason=gitlink` and make discard
+unavailable. Do not add a generic raw-path preview route. Untracked text is
+limited to 256 KiB per file and shares one 4 MiB response-content budget with
+tracked previews and duplicated legacy content. Open it only through a pinned
+WorkspaceFS stable regular-file handle: no-follow every path component, refuse
+special files, identity drift, and hardlinks, refuse Unix cross-device entries,
+use Windows `os.Root` confinement, and recheck the opened identity after the
+bounded read. Binary or unsafe content gets metadata only.
+
+Only a separately captured exact complete unstaged tracked `DiffSnapshot` may
+populate `data.discard.available/revision`. Keep top-level
+`revision` / `diff_stat` / `diff` / `files` as a working-tree-only compatibility
+projection; it is never additional authority. Sessions without a workspace
+return clean fixed layers with no compatibility revision. Set
+`Cache-Control: private, no-store` on live review and discard responses. Remote
+runtimes may return raw bounded untracked text to an authorized operator, so
+never log or trace path, preview content, or revision; telemetry may carry only
+low-cardinality counts, completeness, availability, and bounded reasons.
+
 Workspace discard is a cross-runtime ownership boundary. API composition must
 create one `workspacecoord.Registry` and share that exact instance with the
 orchestrator runner, External Agent chat dispatch, task-patch handlers, operator
@@ -537,28 +572,42 @@ placement path.
 
 The current-workspace discard handler must preserve this order:
 
-1. Validate the client revision and reviewed path set without mutating files.
+1. Accept exactly one known-field JSON object up to 1 MiB. Require `paths` to be
+   a present, non-null array; only an explicit empty array means every reviewed
+   path. Capture the current exact discard `DiffSnapshot`, compare
+   `expected_revision` with the reviewed `data.discard.revision`, and allow only
+   paths from that snapshot without mutating files.
 2. Close and drain the owning `agentChatLive` session lifecycle, then acquire an
    exclusive overlapping-root closure from the shared workspace registry.
 3. Reread the authoritative session and complete the durable active-owner scan
    for non-terminal task runs and other active chat sessions on overlapping
-   roots. Paginate task runs until exhaustion; a page size is not a safety
-   limit.
+   roots. Query only active/non-terminal projections, paginate them in stable id
+   order, and apply the bounded inventory ceiling to that projection—not to all
+   historical terminal rows. Unknown non-terminal task statuses and unknown
+   non-empty chat session or message statuses must remain in the fail-closed
+   result set.
 4. Capture a fresh complete raw **unstaged tracked** `DiffSnapshot` (index →
-   worktree) through GitRunner's scoped passive view and compare its revision
-   byte-for-byte with the reviewed token. Before returning a snapshot, inspect
-   the scoped index state and fail closed if any staged change exists.
-5. Reserve Git's conventional real-index lock, recheck scoped staged state,
-   prove that the reviewed patch's old side still applies to the live index
-   baseline, and conditionally reverse-apply selected paths from that exact raw
-   snapshot while the reservation is held. Map index contention, a committed or
-   staged baseline change, or a patch that no longer applies to `409` without
-   changing any selected file, then refresh the live snapshot after success.
+   worktree) through GitRunner's scoped passive view and compare its root-bound
+   `DiscardRevision` byte-for-byte with the reviewed token. Never accept the
+   legacy patch-only `Revision`. Before returning a snapshot, inspect
+   hidden index flags and scoped staged state and fail closed if either makes
+   the patch incomplete.
+5. Switch to a bounded server-owned context, carry and recheck the reviewed
+   workspace-root identity, reserve Git's conventional real-index lock through
+   handle-relative cleanup, recheck visibility and staged state, prove that the
+   reviewed patch's old side still applies to the live index baseline, and run
+   a non-mutating reverse-apply preflight. Map failures through that preflight
+   to `409` without mutation. Treat any error from the real mutating apply as an
+   operator-visible `outcome_unknown` state, surface post-apply cleanup failure,
+   suppress further discard authority, and refresh the layered review on a
+   best-effort basis.
 
-Never authorize discard from diff stats, trimmed output, a capped prefix, a
-stored message diff, or a second independently generated patch. The
-conditional reverse apply must preserve unrelated and non-overlapping later
-edits while rejecting overlapping drift atomically. The registry is
+Never authorize discard from review layers, opaque entry ids, legacy top-level
+fields, diff stats, trimmed output, a capped prefix, a stored message diff, or a
+second independently generated patch. The conditional reverse apply must
+preserve unrelated and non-overlapping later edits. Only the preflight can
+classify overlapping drift as a no-mutation conflict; do not claim atomic
+rollback for an I/O, deadline, or late-race failure from the real apply. The registry is
 process-local coordination, not a distributed lock. The transient Git index
 reservation coordinates with well-behaved Git index writers only; it does not
 exclude direct filesystem or non-cooperating index writes. The durable-owner
@@ -566,17 +615,16 @@ scan catches persisted queued/recovered Hecate work, and conditional apply
 protects against overlapping edits from another process or an external editor;
 retain every fail-closed layer and document the residual boundary accurately.
 
-The current discard contract intentionally covers only the scoped
-index-to-worktree patch for tracked files. It does not cover staged index
-changes or untracked-file deletion. A staged-only workspace must never produce
-the deterministic empty-patch revision, and mixed staged/unstaged state must
-never issue authority for only the visible layer. Map either case to
-`422 invalid_request` before returning a diff or attempting discard, with an
-operator action to unstage the scoped changes and refresh/review again. Keep the
-staged-state check inside the same hardened, nested-workspace-scoped Git seam;
-staged changes elsewhere in the surrounding checkout must not block a nested
-workspace. Full two-layer staged review/discard requires an explicit typed
-contract and is a separate product slice.
+The discard contract intentionally covers only the scoped index-to-worktree
+patch for ordinary tracked files. It does not cover staged index changes,
+Gitlinks, or untracked-file deletion. Staged-only and mixed workspaces return a
+layered read-only GET response but must set `discard.available=false`; the
+mutation endpoint returns `422` if a caller nevertheless tries to acquire an
+initial exact snapshot. Intent-to-add, assume-unchanged, skip-worktree,
+unmerged state, incomplete/truncated working previews, and tracked Gitlinks also
+close discard. Keep these checks inside the same hardened,
+nested-workspace-scoped Git seam; state elsewhere in the surrounding checkout
+must not block a nested workspace.
 
 Native `agent_loop` terminal tools (`terminal_open`, `terminal_write`,
 `terminal_read`, `terminal_wait`, `terminal_kill`) live behind the

@@ -255,6 +255,59 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	return items, nil
 }
 
+func (s *SQLiteStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("workspace owner summary limit must be positive")
+	}
+	rows, err := s.client.DB().QueryContext(
+		ctx,
+		fmt.Sprintf(
+			`SELECT s.id, s.workspace, s.status,
+			        COALESCE((
+			          SELECT m.status
+			          FROM %s AS m
+			          WHERE m.session_id = s.id
+			            AND LOWER(TRIM(COALESCE(m.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
+			          ORDER BY m.sequence DESC
+			          LIMIT 1
+			        ), '') AS active_message_status
+			 FROM %s AS s
+			 WHERE s.id > ?
+			   AND (
+			     LOWER(TRIM(COALESCE(s.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
+			     OR EXISTS (
+			       SELECT 1 FROM %s AS active
+			       WHERE active.session_id = s.id
+			         AND LOWER(TRIM(COALESCE(active.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
+			     )
+			   )
+			 ORDER BY s.id ASC
+			 LIMIT ?`,
+			s.messagesTable,
+			s.sessionsTable,
+			s.messagesTable,
+		),
+		afterID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list sqlite chat workspace owner summaries: %w", err)
+	}
+	defer rows.Close()
+	items := make([]WorkspaceOwnerSummary, 0, min(limit, 64))
+	for rows.Next() {
+		var item WorkspaceOwnerSummary
+		if err := rows.Scan(&item.ID, &item.Workspace, &item.Status, &item.ActiveMessageStatus); err != nil {
+			return nil, fmt.Errorf("scan sqlite chat workspace owner summary: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sqlite chat workspace owner summaries: %w", err)
+	}
+	return items, nil
+}
+
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	tx, err := s.client.DB().BeginTx(ctx, nil)
 	if err != nil {

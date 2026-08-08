@@ -384,8 +384,14 @@ A new read stops the previous one, and changing chats stops playback.
 ### Review workspace changes
 
 Workspace changes sit beside the chat as session context. You can inspect the
-current Git diff, filter changed files, copy patches, and discard selected
-files without digging through transcript noise.
+current staged, working-tree, and untracked layers without digging through
+transcript noise. Expand tracked files for bounded rich diffs or untracked
+regular text files for bounded inline previews; binary, oversized, symlink,
+special-file, conflict, and nested-repository entries stay visible as explicit
+metadata states. Staged and untracked entries are review-only. Hecate offers
+discard only for an exact, complete unstaged tracked snapshot, so the control
+closes when staged or hidden index state, conflicts, truncation, or concurrent
+workspace changes make that authority ambiguous.
 
 ![Chats workspace with the Workspace changes panel open, file tree filtering, and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
 

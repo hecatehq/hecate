@@ -749,7 +749,7 @@ environment that starts Hecate.
    - a file-count badge when the turn reports workspace changes
    - the header workspace-changes button opens the current workspace panel:
      **Review** shows changed files with collapsible rich diffs, while **Files**
-     shows the full workspace tree separately
+     shows the bounded, curated workspace tree separately
    - raw ACP diagnostics under the inline diagnostic disclosure when they differ
      from the normalized transcript, except when private resource-link staging
      requires them to be withheld
@@ -1065,17 +1065,20 @@ External agents are stable enough for alpha use when the operator
 accepts the trusted-subprocess model: Codex, Claude Code, Cursor Agent, and Grok Build run as
 their own runtimes in the selected workspace while Hecate supervises lifecycle,
 approvals, output capture, diagnostics, observability, guardrails, captured
-turn diffs, current workspace diff review, and full workspace file-tree
-browsing and search.
+turn diffs, current staged/working-tree/untracked workspace review, and bounded
+curated workspace file-tree browsing and search. Workspace review is Hecate-owned and
+uses the same contract for every supervised agent; it does not depend on an
+adapter exposing a provider-specific diff shape.
 
 ## Future enhancements
 
 - Patch review is intentionally "already applied" for now. Hecate captures
-  per-turn diff data in the transcript and exposes a separate current-workspace
-  Git diff panel that can inspect or discard selected tracked paths from the
-  live working tree. A fuller review surface with side-by-side hunks, richer
-  batch selection, untracked-file handling, and artifact history is still
-  future work.
+  per-turn diff data in the transcript and exposes a separate live Workspace
+  review with staged, working-tree, and untracked groups. Staged and untracked
+  entries are read-only; only an exact complete unstaged tracked snapshot can
+  authorize selected-path discard. Side-by-side hunks, staging/unstaging,
+  untracked-file deletion, conflict resolution, richer batch actions, and
+  artifact history remain future work.
 - Adapter-specific ACP mappers can make Codex, Claude Code, Cursor Agent, and Grok Build progress
   updates prettier over time. The current generic mapper plus raw diagnostics is
   sufficient for alpha stability.

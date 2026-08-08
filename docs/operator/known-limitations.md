@@ -301,10 +301,30 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   and require the underlying CLI and ACP adapter to start successfully. A
   missing or rejected executable and absent required remote credentials remain
   actual launch gates.
-- Patch review is alpha-grade: Hecate keeps captured per-turn Git diffs as
-  read-only evidence and can discard selected paths from a separately refreshed,
-  revision-bound live unstaged tracked workspace patch. Staged and untracked
-  changes plus a full side-by-side review workspace are not supported yet.
+- Workspace review is alpha-grade: Hecate keeps captured per-turn Git diffs as
+  historical evidence and separately reviews live staged, working-tree, and
+  untracked layers with bounded inline previews. Staged and untracked entries
+  are read-only; Hecate can discard selected paths only from an exact,
+  revision-bound, complete unstaged tracked snapshot. Untracked deletion,
+  staging/unstaging, Gitlink/submodule discard, conflict resolution,
+  side-by-side hunks, and artifact history are not part of this surface yet.
+  Stable previews reject hardlinks on Unix and Windows. Linux/macOS review also
+  rejects recognized network, FUSE, and unknown descendant mounts beneath the
+  selected workspace and canonical Git metadata/object trees; Git object
+  alternates are unsupported. Initial bounded Git discovery still runs before
+  those canonical paths are known and can parse live repository configuration.
+  OS symlink resolution and root metadata inspection also occur while Hecate
+  establishes identity. Windows proves a fixed/RAM drive and stable preview
+  handles, but a Git child can still encounter a nested junction/reparse target.
+  Those operations and a failing physical local disk are not synchronously
+  cancellable, so selected roots, config includes, Git object stores, link
+  targets, and host storage health remain availability boundaries. Same-device
+  bind mounts and allowlisted overlay backing stores still require host policy.
+  Discard rechecks the reviewed workspace directory identity before and after
+  Git apply, but Git still enters the worktree by pathname. An adversarial
+  same-user process can race a root replacement inside the final syscall
+  interval; Hecate reports a post-check mismatch as an unknown outcome, while
+  host process/filesystem isolation remains the prevention boundary.
 
 ## Deployment
 
