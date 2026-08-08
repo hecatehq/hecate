@@ -438,7 +438,8 @@ Hecate keeps one process-wide backend selector for Hecate-owned state.
 | `HECATE_BACKEND` | local default; resets on restart | Docker default; persists to `HECATE_SQLITE_PATH` | Remote runtime option; persists to `HECATE_POSTGRES_URL` |
 
 This backend covers settings, encrypted provider credentials, audit and usage
-history, Agent Presets, chat sessions, external-agent approvals and grants,
+history, Work policies (stored/API field: `agent_preset`), chat sessions,
+external-agent approvals and grants,
 chat attachment bodies, Tasks, the task queue, Task Schedules and their
 occurrence ledger, and Hecate's project-runtime overlays.
 

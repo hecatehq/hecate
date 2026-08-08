@@ -108,8 +108,9 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   and configured `web_search`, and `all_tools`). Unknown policy names are
   rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
-- Native project-assignment launches enforce Agent Preset surface, tools, write,
-  and network posture. The task snapshots the preset id, tools setting, and
+- Native project-assignment launches enforce Work policy surface, tools, write,
+  and network posture. The stable stored/API field remains `agent_preset`. The
+  task snapshots the policy id, tools setting, and
   effective sandbox flags. Tools-disabled tasks run as supervised model-only
   tasks: they expose no native or MCP tools, start no MCP host, and reject
   unexpected tool calls before dispatch. Legacy tasks without the tools snapshot
@@ -142,7 +143,7 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   browser, URL-check endpoint, or interactive browser controls.
 - Native browser evidence is a deliberately narrow alpha capability, not
   browser automation. It is available only to a local native project-assignment
-  task whose Agent Preset snapshots an exact-origin allowlist and only when the
+  task whose Work policy snapshots an exact-origin allowlist and only when the
   operator configured a local Chromium-compatible executable. Every call needs
   approval and creates a fresh script-disabled browser profile; Hecate does not import host
   cookies, reuse logins, keep profile state, allow downloads, or retain
@@ -232,7 +233,7 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   memory/source policy, skills, browser evidence, MCP selection, approval
   defaults, or External Agent options. Native project assignments can include
   bounded project memory and portable `AGENTS.md` workspace-instruction bodies
-  when the resolved Agent Preset explicitly asks for inclusion. Broader
+  when the resolved Work policy explicitly asks for inclusion. Broader
   prompt-content policy for chats, external-agent starts, host-specific guidance
   files, and arbitrary project source documents is still beta-hardening work.
   Tools-on chat still uses the selected workspace with the current chat runtime
@@ -291,10 +292,10 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   evasive agent can transform a path or split it into unrelated short message
   or activity records that are not individually recognizable as that alias.
 - Agent auth and billing state belongs to the underlying CLI account. Hecate
-  can classify common failures during a fresh chat launch or optional
-  diagnostics and surface friendly hints, but operators still need to use each
+  can classify common failures during a fresh chat launch or the automatic
+  Connections check and surface friendly hints, but operators still need to use each
   agent's own login/status flow when credentials expire.
-- Cached diagnostics and readiness fixtures are advisory only. They can force
+- Cached check results and readiness fixtures are advisory only. They can force
   Connections and Chats status states for UI testing, but they do not authorize
   or block a later launch. Real External Agent chats re-resolve the executable
   and require the underlying CLI and ACP adapter to start successfully. A

@@ -143,7 +143,8 @@ export function ConnectionsPanel({
   const [agentAdapterAutomaticCheckErrorByID, setAgentAdapterAutomaticCheckErrorByID] = useState<
     Map<string, string>
   >(() => new Map());
-  const checkedAgentAdapterIDsRef = useRef(new Set<string>());
+  const completedAgentAdapterCheckIDsRef = useRef(new Set<string>());
+  const agentAdapterCheckAttemptsRef = useRef(new Map<string, Promise<boolean>>());
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -172,24 +173,35 @@ export function ConnectionsPanel({
           adapter.available &&
           Boolean(adapter.id) &&
           !agentAdapterHealthByID.has(adapter.id) &&
-          !checkedAgentAdapterIDsRef.current.has(adapter.id),
+          !completedAgentAdapterCheckIDsRef.current.has(adapter.id),
       )
       .map((adapter) => adapter.id);
     if (adapterIDs.length === 0) return;
 
-    for (const adapterID of adapterIDs) checkedAgentAdapterIDsRef.current.add(adapterID);
+    const attempts = adapterIDs.map((adapterID) => {
+      const existingAttempt = agentAdapterCheckAttemptsRef.current.get(adapterID);
+      if (existingAttempt) return { adapterID, attempt: existingAttempt };
+
+      // StrictMode restarts effects during development. Keep the bounded
+      // session attempt in a ref so the restarted effect observes the same
+      // result rather than launching another adapter process or losing it.
+      const attempt = Promise.resolve()
+        .then(() => probeAgentAdapter(adapterID, { notify: false, refreshCatalog: false }))
+        .then((result) => result?.ok !== false)
+        .catch(() => false);
+      agentAdapterCheckAttemptsRef.current.set(adapterID, attempt);
+      return { adapterID, attempt };
+    });
     let active = true;
-    void Promise.allSettled(
-      adapterIDs.map((adapterID) =>
-        probeAgentAdapter(adapterID, { notify: false, refreshCatalog: false }),
-      ),
+    void Promise.all(
+      attempts.map(async ({ adapterID, attempt }) => ({ adapterID, succeeded: await attempt })),
     ).then((outcomes) => {
       if (!active) return;
+      outcomes.forEach(({ adapterID }) => completedAgentAdapterCheckIDsRef.current.add(adapterID));
       setAgentAdapterAutomaticCheckErrorByID((current) => {
         const next = new Map(current);
-        outcomes.forEach((outcome, index) => {
-          const adapterID = adapterIDs[index]!;
-          if (outcome.status === "fulfilled" && outcome.value?.ok !== false) {
+        outcomes.forEach(({ adapterID, succeeded }) => {
+          if (succeeded) {
             next.delete(adapterID);
             return;
           }

@@ -171,10 +171,12 @@ function externalAgentSetupMessage(
       case "billing":
         return (
           readiness.detail ||
-          `Check ${agent}'s billing or subscription, then retry the chat. Diagnostics in Connections are optional.`
+          `Check ${agent}'s billing or subscription, then retry the chat. Connections runs an automatic check; use Check again after fixing setup.`
         );
       case "issue":
-        return readiness.detail || `Retry the chat, or use Connections diagnostics for details.`;
+        return (
+          readiness.detail || `Retry the chat, or open Connections and use Check again for details.`
+        );
       default:
         break;
     }

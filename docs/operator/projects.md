@@ -17,13 +17,17 @@ register local skills, or launch work against files.
    workspace guidance and local skill metadata, then review the proposed memory
    candidates and role changes before applying them. A rootless project starts
    directly with **Create first work**.
-4. Set provider, model, Agent Preset, memory, and source defaults when the
+4. Set provider, model, Work policy, memory, and source defaults when the
    project should launch Hecate Chat, Hecate Tasks, or External Agents.
 5. Review and create the first work item.
 
 The guided start stays on Project Overview until the first work item exists.
 It presents one primary action at a time; supporting setup choices remain
 available without competing with that action.
+
+The UI calls reusable launch posture **Work policies**. The stable stored and
+API field remains `agent_preset` while that alpha-era identifier is retired from
+operator-facing language.
 
 | Guided state           | Primary action                       | Operator control                                                                        |
 | ---------------------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -165,7 +169,7 @@ launch prerequisites.
 
 The project header's **Needs Attention** panel is server-derived from
 `GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations
-signals such as missing defaults, missing roots, Agent Preset or skill
+signals such as missing defaults, missing roots, Work policy or skill
 reference issues, pending handoffs, review follow-up, stale assignment links,
 empty memory/context posture, and pending memory candidates. The menu also
 shows the server summary counts for setup, memory, context, and work follow-up
@@ -232,7 +236,7 @@ when lower-priority work is hidden by the cap.
 Memory/Context source edits use typed server mutations per source. Adding,
 editing, or deleting a source changes project source metadata only; it does not
 read local files, fetch remote content, write memory, or change launch context
-policy until the operator separately chooses a launch or Agent Preset posture
+policy until the operator separately chooses a launch or Work policy posture
 that includes enabled sources.
 
 Use the top Project Operations action for the single most useful operator step,
@@ -481,7 +485,7 @@ the workspace body with a full-width inspector. Focus moves to the Settings
 heading; **Back** or a successful save returns to the exact project control that
 opened it, including after the project refreshes. Settings and its navigation
 stay locked while a save is in progress so later edits are not lost. Timeline,
-Memory, Skills, sources, roots, roles, and Agent Presets remain supporting
+Memory, Skills, sources, roots, roles, and Work policies remain supporting
 surfaces. They do not create a second project state outside Cairnline or launch
 work without operator confirmation.
 
@@ -503,7 +507,7 @@ until those journeys break down in real Hecate development work.
 
 For Hecate-on-Hecate coding, register the checkout as a project root and keep
 **Isolated copy** as the default workspace mode. Use a `hecate_task`-compatible
-Agent Preset with tools and writes enabled; choose its network posture together
+Work policy with tools and writes enabled; choose its network posture together
 with the host sandbox. Semantic code intelligence can run network-denied under
 `bwrap` or `sandbox-exec`, while a wrapper-less host requires an explicitly
 network-enabled task. Normal write and shell approval policies still apply.
@@ -551,7 +555,7 @@ sibling workspaces outside the registered project root.
 
 Hecate's Projects API and cockpit use the embedded [Cairnline](https://github.com/hecatehq/cairnline) coordination store. Cairnline owns the portable project graph: project identity, roots, context-source and skill metadata, roles, work items, assignments, evidence, reviews, handoffs, accepted project memory, memory candidates, and Project Assistant proposal records.
 
-Hecate owns the host-specific layer around that graph: runtime host identity, Agent Presets, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy. A remote operator can supervise this layer on its named runtime host, but the browser does not move running work or host-local state to another device.
+Hecate owns the host-specific layer around that graph: runtime host identity, Work policies, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy. A remote operator can supervise this layer on its named runtime host, but the browser does not move running work or host-local state to another device.
 
 The Hecate facade remains at `/hecate/v1/projects*`, so the Projects UI does not depend on Cairnline's transport. Hecate stores embedded Cairnline state under its local data directory. There is no Hecate-native coordination backend, backend selector, mirror, or migration endpoint. A process-local project mutation fence only prevents Hecate cleanup rollback from interleaving with an acknowledged facade write to the same Cairnline graph; it does not store or duplicate coordination records. Multi-project Project Assistant operations, including chat moves, admit their complete project set together. Alpha dogfood records created by the removed native store are intentionally not migrated.
 
@@ -559,7 +563,7 @@ Cairnline itself remains agent-neutral and can also be used directly over MCP by
 
 Cross-host continuity therefore has two distinct checks: the project
 coordination graph must be reachable on the target host, and that host must have
-the required project root, Agent Preset, provider/model route, credentials, and
+the required project root, Work policy, provider/model route, credentials, and
 External Agent adapter. Hecate does not currently claim that a task, chat, or
 running process can migrate between runtime hosts.
 
