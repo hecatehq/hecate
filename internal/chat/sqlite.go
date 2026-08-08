@@ -20,6 +20,7 @@ type SQLiteStore struct {
 	backend                string
 	sessionsTable          string
 	messagesTable          string
+	workspaceOwnersTable   string
 	messageRequestsTable   string
 	messageRequestInstance string
 	messageRequestNow      func() time.Time
@@ -47,6 +48,7 @@ func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, e
 		backend:                client.Backend(),
 		sessionsTable:          client.QualifiedTable("chat_sessions"),
 		messagesTable:          client.QualifiedTable("chat_messages"),
+		workspaceOwnersTable:   client.QualifiedTable("chat_workspace_owners"),
 		messageRequestsTable:   client.QualifiedTable("chat_message_requests"),
 		messageRequestInstance: instanceID,
 		messageRequestNow:      time.Now,
@@ -262,30 +264,18 @@ func (s *SQLiteStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID s
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.workspace, s.status,
-			        COALESCE((
-			          SELECT m.status
-			          FROM %s AS m
-			          WHERE m.session_id = s.id
-			            AND LOWER(TRIM(COALESCE(m.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
-			          ORDER BY m.sequence DESC
-			          LIMIT 1
-			        ), '') AS active_message_status
-			 FROM %s AS s
-			 WHERE s.id > ?
+			`SELECT owner.session_id, owner.workspace, owner.status,
+			        owner.active_message_count > 0
+			 FROM %s AS owner
+			 WHERE owner.session_id > ?
 			   AND (
-			     LOWER(TRIM(COALESCE(s.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
-			     OR EXISTS (
-			       SELECT 1 FROM %s AS active
-			       WHERE active.session_id = s.id
-			         AND LOWER(TRIM(COALESCE(active.status, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')
-			     )
+			     %s
+			     OR owner.active_message_count > 0
 			   )
-			 ORDER BY s.id ASC
+			 ORDER BY owner.session_id ASC
 			 LIMIT ?`,
-			s.messagesTable,
-			s.sessionsTable,
-			s.messagesTable,
+			s.workspaceOwnersTable,
+			potentialWorkspaceOwnerStatusSQL("owner.status"),
 		),
 		afterID,
 		limit,
@@ -297,7 +287,7 @@ func (s *SQLiteStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID s
 	items := make([]WorkspaceOwnerSummary, 0, min(limit, 64))
 	for rows.Next() {
 		var item WorkspaceOwnerSummary
-		if err := rows.Scan(&item.ID, &item.Workspace, &item.Status, &item.ActiveMessageStatus); err != nil {
+		if err := rows.Scan(&item.ID, &item.Workspace, &item.Status, &item.HasPotentialActiveMessage); err != nil {
 			return nil, fmt.Errorf("scan sqlite chat workspace owner summary: %w", err)
 		}
 		items = append(items, item)
@@ -482,6 +472,15 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 }
 
 func (s *SQLiteStore) appendMessageTx(ctx context.Context, tx storage.Tx, sessionID string, message Message) error {
+	if s.client.Dialect() == storage.DialectPostgres {
+		var lockedID string
+		if err := tx.QueryRowContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ? FOR UPDATE`, s.sessionsTable), sessionID).Scan(&lockedID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("agent chat session %q not found", sessionID)
+			}
+			return fmt.Errorf("lock agent chat session for message append: %w", err)
+		}
+	}
 	var nextSeq int
 	if err := tx.QueryRowContext(
 		ctx,
@@ -898,6 +897,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := s.ensureWorkspaceOwnerProjection(ctx); err != nil {
+		return err
+	}
 
 	messagesIndex := strings.Trim(s.messagesTable, `"`) + "_session_seq_idx"
 	if _, err := s.client.DB().ExecContext(
@@ -912,6 +914,294 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (updated_at)`, sessionsIndex, s.sessionsTable),
 	); err != nil {
 		return fmt.Errorf("migrate sqlite agent chat sessions index: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureWorkspaceOwnerProjection(ctx context.Context) error {
+	sessionsUnquoted := strings.Trim(s.sessionsTable, `"`)
+	messagesUnquoted := strings.Trim(s.messagesTable, `"`)
+	ownersUnquoted := strings.Trim(s.workspaceOwnersTable, `"`)
+	messageOwnerIndex := storage.BoundedIdentifier(messagesUnquoted + "_workspace_owner_active_idx")
+	ownerIndex := storage.BoundedIdentifier(ownersUnquoted + "_active_id_idx")
+	triggerNames := s.workspaceOwnerTriggerNames()
+	triggersInstalled, err := s.workspaceOwnerTriggersInstalled(ctx, triggerNames)
+	if err != nil {
+		return err
+	}
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin %s chat workspace owner migration: %w", s.backend, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			session_id TEXT PRIMARY KEY REFERENCES %s(id) ON DELETE CASCADE,
+			workspace TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT '',
+			active_message_count BIGINT NOT NULL DEFAULT 0
+		)
+	`, s.workspaceOwnersTable, s.sessionsTable)); err != nil {
+		return fmt.Errorf("create %s chat workspace owner projection: %w", s.backend, err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE INDEX IF NOT EXISTS "%s"
+		ON %s (session_id, sequence DESC)
+		WHERE %s
+	`, messageOwnerIndex, s.messagesTable, potentialWorkspaceOwnerStatusSQL("status"))); err != nil {
+		return fmt.Errorf("index %s active chat messages: %w", s.backend, err)
+	}
+	if !triggersInstalled {
+		if err := s.installWorkspaceOwnerTriggers(ctx, tx, triggerNames); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s`, s.workspaceOwnersTable)); err != nil {
+			return fmt.Errorf("clear %s chat workspace owner projection: %w", s.backend, err)
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			INSERT INTO %s (session_id, workspace, status, active_message_count)
+			SELECT session.id, session.workspace, session.status,
+			       COALESCE((
+			         SELECT COUNT(*)
+			         FROM %s AS message
+			         WHERE message.session_id = session.id
+			           AND %s
+			       ), 0)
+			FROM %s AS session
+		`, s.workspaceOwnersTable, s.messagesTable,
+			potentialWorkspaceOwnerStatusSQL("message.status"), s.sessionsTable)); err != nil {
+			return fmt.Errorf("backfill %s chat workspace owner projection: %w", s.backend, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS "%s_workspace_owner_id_idx"`, sessionsUnquoted)); err != nil {
+		return fmt.Errorf("drop %s legacy chat workspace owner index: %w", s.backend, err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE INDEX IF NOT EXISTS "%s"
+		ON %s (session_id ASC)
+		WHERE %s OR active_message_count > 0
+	`, ownerIndex, s.workspaceOwnersTable,
+		potentialWorkspaceOwnerStatusSQL("status"),
+	)); err != nil {
+		return fmt.Errorf("index %s chat workspace owners: %w", s.backend, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s chat workspace owner migration: %w", s.backend, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) workspaceOwnerTriggerNames() []string {
+	ownersUnquoted := strings.Trim(s.workspaceOwnersTable, `"`)
+	return []string{
+		storage.BoundedIdentifier(ownersUnquoted + "_v1_session_insert"),
+		storage.BoundedIdentifier(ownersUnquoted + "_v1_session_update"),
+		storage.BoundedIdentifier(ownersUnquoted + "_v1_message_insert"),
+		storage.BoundedIdentifier(ownersUnquoted + "_v1_message_update"),
+	}
+}
+
+func (s *SQLiteStore) workspaceOwnerTriggersInstalled(ctx context.Context, triggerNames []string) (bool, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(triggerNames)), ",")
+	args := make([]any, 0, len(triggerNames))
+	for _, name := range triggerNames {
+		args = append(args, name)
+	}
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'trigger' AND name IN (%s)
+	`, placeholders)
+	if s.client.Dialect() == storage.DialectPostgres {
+		query = fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM information_schema.triggers
+			WHERE trigger_schema = current_schema()
+			  AND trigger_name IN (%s)
+		`, placeholders)
+	}
+	var count int
+	if err := s.client.DB().QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return false, fmt.Errorf("inspect %s chat workspace owner triggers: %w", s.backend, err)
+	}
+	return count == len(triggerNames), nil
+}
+
+func (s *SQLiteStore) installWorkspaceOwnerTriggers(ctx context.Context, tx storage.Tx, triggerNames []string) error {
+	if s.client.Dialect() == storage.DialectPostgres {
+		return s.installPostgresWorkspaceOwnerTriggers(ctx, tx, triggerNames)
+	}
+	return s.installSQLiteWorkspaceOwnerTriggers(ctx, tx, triggerNames)
+}
+
+func (s *SQLiteStore) installSQLiteWorkspaceOwnerTriggers(ctx context.Context, tx storage.Tx, triggerNames []string) error {
+	for _, name := range triggerNames {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS "%s"`, name)); err != nil {
+			return fmt.Errorf("drop sqlite chat workspace owner trigger %q: %w", name, err)
+		}
+	}
+	messageCount := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s AS message
+		WHERE message.session_id = NEW.id AND %s
+	`, s.messagesTable, potentialWorkspaceOwnerStatusSQL("message.status"))
+	for _, trigger := range []struct {
+		name  string
+		event string
+	}{
+		{name: triggerNames[0], event: "INSERT"},
+		{name: triggerNames[1], event: "UPDATE OF workspace, status"},
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER "%s"
+			AFTER %s ON %s
+			BEGIN
+				INSERT INTO %s (session_id, workspace, status, active_message_count)
+				VALUES (NEW.id, NEW.workspace, NEW.status, COALESCE((%s), 0))
+				ON CONFLICT(session_id) DO UPDATE SET
+					workspace = excluded.workspace,
+					status = excluded.status;
+			END
+		`, trigger.name, trigger.event, s.sessionsTable, s.workspaceOwnersTable, messageCount)); err != nil {
+			return fmt.Errorf("create sqlite chat workspace owner trigger %q: %w", trigger.name, err)
+		}
+	}
+	for _, trigger := range []struct {
+		name  string
+		event string
+		delta string
+	}{
+		{
+			name:  triggerNames[2],
+			event: "INSERT",
+			delta: fmt.Sprintf("CASE WHEN %s THEN 1 ELSE 0 END", potentialWorkspaceOwnerStatusSQL("NEW.status")),
+		},
+		{
+			name:  triggerNames[3],
+			event: "UPDATE OF status",
+			delta: fmt.Sprintf("(CASE WHEN %s THEN 1 ELSE 0 END) - (CASE WHEN %s THEN 1 ELSE 0 END)", potentialWorkspaceOwnerStatusSQL("NEW.status"), potentialWorkspaceOwnerStatusSQL("OLD.status")),
+		},
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER "%s"
+			AFTER %s ON %s
+			BEGIN
+				INSERT INTO %s (session_id, workspace, status, active_message_count)
+				SELECT session.id, session.workspace, session.status,
+				       COALESCE((
+				         SELECT COUNT(*)
+				         FROM %s AS message
+				         WHERE message.session_id = session.id AND %s
+				       ), 0)
+				FROM %s AS session
+				WHERE session.id = NEW.session_id
+				ON CONFLICT(session_id) DO UPDATE SET
+					workspace = excluded.workspace,
+					status = excluded.status,
+					active_message_count = MAX(0, active_message_count + (%s));
+			END
+		`, trigger.name, trigger.event, s.messagesTable, s.workspaceOwnersTable,
+			s.messagesTable, potentialWorkspaceOwnerStatusSQL("message.status"),
+			s.sessionsTable, trigger.delta)); err != nil {
+			return fmt.Errorf("create sqlite chat workspace owner trigger %q: %w", trigger.name, err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) installPostgresWorkspaceOwnerTriggers(ctx context.Context, tx storage.Tx, triggerNames []string) error {
+	ownersUnquoted := strings.Trim(s.workspaceOwnersTable, `"`)
+	sessionFunction := storage.BoundedIdentifier(ownersUnquoted + "_v1_sync_session_fn")
+	messageFunction := storage.BoundedIdentifier(ownersUnquoted + "_v1_sync_message_fn")
+	for index, name := range triggerNames {
+		table := s.messagesTable
+		if index < 2 {
+			table = s.sessionsTable
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS "%s" ON %s`, name, table)); err != nil {
+			return fmt.Errorf("drop postgres chat workspace owner trigger %q: %w", name, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION "%s"() RETURNS TRIGGER
+		LANGUAGE plpgsql AS $hecate$
+		BEGIN
+			INSERT INTO %s (session_id, workspace, status, active_message_count)
+			VALUES (
+				NEW.id,
+				NEW.workspace,
+				NEW.status,
+				COALESCE((
+					SELECT COUNT(*)
+					FROM %s AS message
+					WHERE message.session_id = NEW.id AND %s
+				), 0)
+			)
+			ON CONFLICT(session_id) DO UPDATE SET
+				workspace = EXCLUDED.workspace,
+				status = EXCLUDED.status;
+			RETURN NEW;
+		END;
+		$hecate$
+	`, sessionFunction, s.workspaceOwnersTable, s.messagesTable,
+		potentialWorkspaceOwnerStatusSQL("message.status"))); err != nil {
+		return fmt.Errorf("create postgres chat workspace session projection function: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION "%s"() RETURNS TRIGGER
+		LANGUAGE plpgsql AS $hecate$
+		DECLARE
+			active_delta INTEGER;
+		BEGIN
+			-- Older gateways append before updating their session projection. Lock
+			-- the session here so every version reaches the owner row in the same
+			-- session -> message -> owner order used by message RMW paths.
+			PERFORM 1 FROM %s WHERE id = NEW.session_id FOR UPDATE;
+			active_delta := CASE WHEN %s THEN 1 ELSE 0 END;
+			IF TG_OP = 'UPDATE' THEN
+				active_delta := active_delta - CASE WHEN %s THEN 1 ELSE 0 END;
+			END IF;
+			INSERT INTO %s AS owner (session_id, workspace, status, active_message_count)
+			SELECT session.id, session.workspace, session.status,
+			       COALESCE((
+			         SELECT COUNT(*)
+			         FROM %s AS message
+			         WHERE message.session_id = session.id AND %s
+			       ), 0)
+			FROM %s AS session
+			WHERE session.id = NEW.session_id
+			ON CONFLICT(session_id) DO UPDATE SET
+				workspace = EXCLUDED.workspace,
+				status = EXCLUDED.status,
+				active_message_count = GREATEST(0, owner.active_message_count + active_delta);
+			RETURN NEW;
+		END;
+		$hecate$
+	`, messageFunction, s.sessionsTable,
+		potentialWorkspaceOwnerStatusSQL("NEW.status"),
+		potentialWorkspaceOwnerStatusSQL("OLD.status"),
+		s.workspaceOwnersTable, s.messagesTable,
+		potentialWorkspaceOwnerStatusSQL("message.status"), s.sessionsTable)); err != nil {
+		return fmt.Errorf("create postgres chat workspace message projection function: %w", err)
+	}
+	for _, trigger := range []struct {
+		name     string
+		event    string
+		table    string
+		function string
+	}{
+		{name: triggerNames[0], event: "INSERT", table: s.sessionsTable, function: sessionFunction},
+		{name: triggerNames[1], event: "UPDATE OF workspace, status", table: s.sessionsTable, function: sessionFunction},
+		{name: triggerNames[2], event: "INSERT", table: s.messagesTable, function: messageFunction},
+		{name: triggerNames[3], event: "UPDATE OF status", table: s.messagesTable, function: messageFunction},
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER "%s"
+			AFTER %s ON %s
+			FOR EACH ROW EXECUTE FUNCTION "%s"()
+		`, trigger.name, trigger.event, trigger.table, trigger.function)); err != nil {
+			return fmt.Errorf("create postgres chat workspace owner trigger %q: %w", trigger.name, err)
+		}
 	}
 	return nil
 }
@@ -1572,4 +1862,11 @@ func updateSessionAfterMessage(ctx context.Context, tx txRunner, table string, s
 		return fmt.Errorf("update sqlite agent chat session timestamp: %w", err)
 	}
 	return nil
+}
+
+func potentialWorkspaceOwnerStatusSQL(expression string) string {
+	return fmt.Sprintf(
+		"LOWER(TRIM(COALESCE(%s, ''))) NOT IN ('', 'idle', 'completed', 'failed', 'cancelled')",
+		expression,
+	)
 }

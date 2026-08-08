@@ -544,10 +544,11 @@ Workspace discard is a cross-runtime ownership boundary. API composition must
 create one `workspacecoord.Registry` and share that exact instance with the
 orchestrator runner, External Agent chat dispatch, task-patch handlers, operator
 terminal application, and destructive chat workspace mutations. Registry keys
-are canonical paths with symlinks resolved. Darwin and Windows overlap checks
-conservatively case-fold components so existing and future case aliases cannot
-split one physical coordination domain; accept conservative conflicts for
-case-only paths on a case-sensitive Darwin volume. Treat equal and
+are canonical paths with symlinks resolved. Darwin overlap checks conservatively
+normalize components to Unicode NFD before case folding so case and NFC/NFD
+aliases cannot split one physical coordination domain; Windows retains
+case-folded comparison. Accept conservative conflicts for aliases on stricter
+Darwin volumes. Treat equal and
 ancestor/descendant roots as overlapping in both directions because a writer at
 the parent can change a child; independent siblings may proceed concurrently.
 Acquire a writer lease before task provisioning creates, clones, copies, or
@@ -587,7 +588,10 @@ The current-workspace discard handler must preserve this order:
    order, and apply the bounded inventory ceiling to that projection—not to all
    historical terminal rows. Unknown non-terminal task statuses and unknown
    non-empty chat session or message statuses must remain in the fail-closed
-   result set.
+   result set. SQL projections must be maintained by database triggers from the
+   canonical run payload and chat session/message rows so a rolling older
+   gateway cannot bypass them; memory stores must update their ordered
+   projections on every mutation path.
 4. Capture a fresh complete raw **unstaged tracked** `DiffSnapshot` (index →
    worktree) through GitRunner's scoped passive view and compare its root-bound
    `DiscardRevision` byte-for-byte with the reviewed token. Never accept the

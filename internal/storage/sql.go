@@ -2,16 +2,33 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"strings"
 )
 
 type Dialect string
 
 const (
-	DialectSQLite   Dialect = "sqlite"
-	DialectPostgres Dialect = "postgres"
+	DialectSQLite         Dialect = "sqlite"
+	DialectPostgres       Dialect = "postgres"
+	sqlIdentifierMaxBytes         = 63
 )
+
+// BoundedIdentifier returns a sanitized SQL object identifier that remains
+// unique when PostgreSQL enforces its 63-byte identifier limit. SQLite uses
+// the same names so migrations and tests stay backend-neutral.
+func BoundedIdentifier(value string) string {
+	value = sanitizeIdentifier(value, "hecate_object")
+	if len(value) <= sqlIdentifierMaxBytes {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	hash := hex.EncodeToString(digest[:8])
+	prefixLength := sqlIdentifierMaxBytes - len(hash) - 1
+	return value[:prefixLength] + "_" + hash
+}
 
 type DB interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)

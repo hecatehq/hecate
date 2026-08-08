@@ -154,11 +154,11 @@ func keysNeedCaseFold(_, _ string) bool {
 func pathContainsFold(root, candidate string) bool {
 	rootVolume, rootParts := foldedPathParts(root)
 	candidateVolume, candidateParts := foldedPathParts(candidate)
-	if !strings.EqualFold(rootVolume, candidateVolume) || len(candidateParts) < len(rootParts) {
+	if !pathPartEqualFold(rootVolume, candidateVolume) || len(candidateParts) < len(rootParts) {
 		return false
 	}
 	for index := range rootParts {
-		if !strings.EqualFold(rootParts[index], candidateParts[index]) {
+		if !pathPartEqualFold(rootParts[index], candidateParts[index]) {
 			return false
 		}
 	}

@@ -520,7 +520,12 @@ function AuthenticatedShell({
   useEffect(() => {
     const chatID = chatNavigation?.chatID;
     const currentSessionID = chat.actions.currentActiveChatSessionID();
-    if (chatWorkspaceDiscardPending && chatID && currentSessionID && chatID !== currentSessionID) {
+    if (
+      chatWorkspaceDiscardPending &&
+      chatNavigation !== undefined &&
+      currentSessionID &&
+      chatID !== currentSessionID
+    ) {
       routedChatSelectionRef.current = null;
       setNoticeMessageRef.current("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
       onChatNavigate?.({ chatID: currentSessionID, messageID: null }, "replace");
@@ -551,7 +556,13 @@ function AuthenticatedShell({
       cancelled = true;
       controller.abort();
     };
-  }, [activeWorkspace, chatNavigation?.chatID, chatWorkspaceDiscardPending, onChatNavigate]);
+  }, [
+    activeWorkspace,
+    chatNavigation?.chatID,
+    chatNavigation !== undefined,
+    chatWorkspaceDiscardPending,
+    onChatNavigate,
+  ]);
 
   function openTaskFromChat(taskID: string, runID?: string) {
     invalidateTaskChatNavigation();

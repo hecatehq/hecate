@@ -139,8 +139,8 @@ func (h *Handler) chatWorkspaceDurableOwner(ctx context.Context, workspaceKey, c
 			if chat.IsPotentialWorkspaceOwnerStatus(session.Status) {
 				return strings.TrimSpace(session.Status), true, nil
 			}
-			if chat.IsPotentialWorkspaceOwnerStatus(session.ActiveMessageStatus) {
-				return strings.TrimSpace(session.ActiveMessageStatus), true, nil
+			if session.HasPotentialActiveMessage {
+				return "active_message", true, nil
 			}
 		}
 		if len(sessions) < pageLimit {

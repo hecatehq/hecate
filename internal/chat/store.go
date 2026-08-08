@@ -345,13 +345,13 @@ type Store interface {
 }
 
 // WorkspaceOwnerSummary is the minimum durable chat state needed to decide
-// whether a workspace has an active owner. ActiveMessageStatus is empty when
-// no persisted message is in a known active or unknown non-terminal state.
+// whether a workspace has an active owner. HasPotentialActiveMessage remains
+// true for known active and unknown non-terminal persisted message statuses.
 type WorkspaceOwnerSummary struct {
-	ID                  string
-	Workspace           string
-	Status              string
-	ActiveMessageStatus string
+	ID                        string
+	Workspace                 string
+	Status                    string
+	HasPotentialActiveMessage bool
 }
 
 func IsActiveWorkStatus(status string) bool {
@@ -446,17 +446,27 @@ func activityTypeExists(items []Activity, typ string) bool {
 }
 
 type MemoryStore struct {
-	mu                sync.Mutex
-	sessions          map[string]Session
-	messageRequests   map[messageRequestKey]*memoryMessageRequest
-	messageRequestNow func() time.Time
+	mu       sync.Mutex
+	sessions map[string]Session
+	// workspaceOwners is the active/potential-owner projection used by
+	// destructive workspace admission. workspaceOwnerIDs keeps it ordered so
+	// cursor reads never rescan full sessions or message histories.
+	workspaceOwners   map[string]WorkspaceOwnerSummary
+	workspaceOwnerIDs []string
+	// workspaceOwnerMessageIndex caches the latest potentially-active message
+	// position for incremental append/update projection maintenance.
+	workspaceOwnerMessageIndex map[string]int
+	messageRequests            map[messageRequestKey]*memoryMessageRequest
+	messageRequestNow          func() time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:          make(map[string]Session),
-		messageRequests:   make(map[messageRequestKey]*memoryMessageRequest),
-		messageRequestNow: time.Now,
+		sessions:                   make(map[string]Session),
+		workspaceOwners:            make(map[string]WorkspaceOwnerSummary),
+		workspaceOwnerMessageIndex: make(map[string]int),
+		messageRequests:            make(map[messageRequestKey]*memoryMessageRequest),
+		messageRequestNow:          time.Now,
 	}
 }
 
@@ -503,7 +513,7 @@ func (s *MemoryStore) Create(_ context.Context, session Session) (Session, error
 	// backends. In particular, the frozen preset snapshot must not remain
 	// reachable through the caller's input after Create returns.
 	session = cloneSession(session)
-	s.sessions[session.ID] = session
+	s.storeSessionLocked(session.ID, session)
 	return cloneSession(session), nil
 }
 
@@ -530,32 +540,28 @@ func (s *MemoryStore) List(_ context.Context) ([]Session, error) {
 	return items, nil
 }
 
-func (s *MemoryStore) ListWorkspaceOwnerSummaries(_ context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+func (s *MemoryStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("workspace owner summary limit must be positive")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := make([]WorkspaceOwnerSummary, 0, min(limit, len(s.sessions)))
-	for id, session := range s.sessions {
-		if id <= afterID {
-			continue
-		}
-		summary := WorkspaceOwnerSummary{ID: session.ID, Workspace: session.Workspace, Status: session.Status}
-		for index := len(session.Messages) - 1; index >= 0; index-- {
-			if IsPotentialWorkspaceOwnerStatus(session.Messages[index].Status) {
-				summary.ActiveMessageStatus = session.Messages[index].Status
-				break
-			}
-		}
-		if !IsPotentialWorkspaceOwnerStatus(summary.Status) && !IsPotentialWorkspaceOwnerStatus(summary.ActiveMessageStatus) {
-			continue
-		}
-		items = append(items, summary)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	if len(items) > limit {
-		items = items[:limit]
+	first := sort.Search(len(s.workspaceOwnerIDs), func(index int) bool {
+		return s.workspaceOwnerIDs[index] > afterID
+	})
+	last := min(first+limit, len(s.workspaceOwnerIDs))
+	items := make([]WorkspaceOwnerSummary, 0, last-first)
+	for _, id := range s.workspaceOwnerIDs[first:last] {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		items = append(items, s.workspaceOwners[id])
 	}
 	return items, nil
 }
@@ -563,7 +569,7 @@ func (s *MemoryStore) ListWorkspaceOwnerSummaries(_ context.Context, afterID str
 func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.sessions, id)
+	s.deleteSessionLocked(id)
 	for key, record := range s.messageRequests {
 		if key.SessionID != id {
 			continue
@@ -581,7 +587,7 @@ func (s *MemoryStore) DeleteByProjectID(_ context.Context, projectID string) err
 	defer s.mu.Unlock()
 	for id, session := range s.sessions {
 		if session.ProjectID == projectID {
-			delete(s.sessions, id)
+			s.deleteSessionLocked(id)
 			for key, record := range s.messageRequests {
 				if key.SessionID != id {
 					continue
@@ -605,7 +611,7 @@ func (s *MemoryStore) UpdateSession(_ context.Context, id string, update func(*S
 	}
 	update(&session)
 	session.UpdatedAt = time.Now().UTC()
-	s.sessions[id] = session
+	s.storeSessionLocked(id, session)
 	return cloneSession(session), nil
 }
 
@@ -619,7 +625,7 @@ func (s *MemoryStore) AppendMessage(_ context.Context, sessionID string, message
 	if err := appendMemoryMessage(&session, message); err != nil {
 		return Session{}, err
 	}
-	s.sessions[sessionID] = session
+	s.storeAppendedSessionLocked(sessionID, session)
 	return cloneSession(session), nil
 }
 
@@ -656,7 +662,7 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 		if session.Messages[i].Status != "" && session.Messages[i].Role == "assistant" && session.Messages[i].Status != previousStatus {
 			session.Status = session.Messages[i].Status
 		}
-		s.sessions[sessionID] = session
+		s.storeUpdatedMessageSessionLocked(sessionID, session, i)
 		return cloneSession(session), nil
 	}
 	return Session{}, fmt.Errorf("agent chat message %q not found", messageID)
@@ -689,8 +695,99 @@ func (s *MemoryStore) LinkTaskRun(_ context.Context, sessionID, userMessageID, a
 	}
 	update(&session, &session.Messages[userIndex], &session.Messages[assistantIndex])
 	session.UpdatedAt = time.Now().UTC()
-	s.sessions[sessionID] = session
+	s.storeSessionLocked(sessionID, session)
 	return cloneSession(session), nil
+}
+
+func (s *MemoryStore) storeSessionLocked(id string, session Session) {
+	s.sessions[id] = session
+	activeMessageIndex := -1
+	for index := len(session.Messages) - 1; index >= 0; index-- {
+		if IsPotentialWorkspaceOwnerStatus(session.Messages[index].Status) {
+			activeMessageIndex = index
+			break
+		}
+	}
+	s.syncWorkspaceOwnerSummaryLocked(id, session, activeMessageIndex)
+}
+
+func (s *MemoryStore) storeAppendedSessionLocked(id string, session Session) {
+	s.sessions[id] = session
+	activeMessageIndex, ok := s.workspaceOwnerMessageIndex[id]
+	if !ok {
+		activeMessageIndex = -1
+	}
+	if index := len(session.Messages) - 1; index >= 0 && IsPotentialWorkspaceOwnerStatus(session.Messages[index].Status) {
+		activeMessageIndex = index
+	}
+	s.syncWorkspaceOwnerSummaryLocked(id, session, activeMessageIndex)
+}
+
+func (s *MemoryStore) storeUpdatedMessageSessionLocked(id string, session Session, updatedIndex int) {
+	s.sessions[id] = session
+	activeMessageIndex, ok := s.workspaceOwnerMessageIndex[id]
+	if !ok {
+		activeMessageIndex = -1
+	}
+	if IsPotentialWorkspaceOwnerStatus(session.Messages[updatedIndex].Status) {
+		if updatedIndex >= activeMessageIndex {
+			activeMessageIndex = updatedIndex
+		}
+	} else if updatedIndex == activeMessageIndex {
+		activeMessageIndex = -1
+		for index := updatedIndex - 1; index >= 0; index-- {
+			if IsPotentialWorkspaceOwnerStatus(session.Messages[index].Status) {
+				activeMessageIndex = index
+				break
+			}
+		}
+	}
+	s.syncWorkspaceOwnerSummaryLocked(id, session, activeMessageIndex)
+}
+
+func (s *MemoryStore) syncWorkspaceOwnerSummaryLocked(id string, session Session, activeMessageIndex int) {
+	summary := WorkspaceOwnerSummary{ID: id, Workspace: session.Workspace, Status: session.Status}
+	if activeMessageIndex >= 0 && activeMessageIndex < len(session.Messages) {
+		summary.HasPotentialActiveMessage = true
+		s.workspaceOwnerMessageIndex[id] = activeMessageIndex
+	} else {
+		delete(s.workspaceOwnerMessageIndex, id)
+	}
+	_, indexed := s.workspaceOwners[id]
+	if !IsPotentialWorkspaceOwnerStatus(summary.Status) && !summary.HasPotentialActiveMessage {
+		if indexed {
+			delete(s.workspaceOwners, id)
+			s.removeWorkspaceOwnerIDLocked(id)
+		}
+		return
+	}
+	s.workspaceOwners[id] = summary
+	if indexed {
+		return
+	}
+	index := sort.SearchStrings(s.workspaceOwnerIDs, id)
+	s.workspaceOwnerIDs = append(s.workspaceOwnerIDs, "")
+	copy(s.workspaceOwnerIDs[index+1:], s.workspaceOwnerIDs[index:])
+	s.workspaceOwnerIDs[index] = id
+}
+
+func (s *MemoryStore) deleteSessionLocked(id string) {
+	delete(s.sessions, id)
+	delete(s.workspaceOwnerMessageIndex, id)
+	if _, indexed := s.workspaceOwners[id]; !indexed {
+		return
+	}
+	delete(s.workspaceOwners, id)
+	s.removeWorkspaceOwnerIDLocked(id)
+}
+
+func (s *MemoryStore) removeWorkspaceOwnerIDLocked(id string) {
+	index := sort.SearchStrings(s.workspaceOwnerIDs, id)
+	if index >= len(s.workspaceOwnerIDs) || s.workspaceOwnerIDs[index] != id {
+		return
+	}
+	copy(s.workspaceOwnerIDs[index:], s.workspaceOwnerIDs[index+1:])
+	s.workspaceOwnerIDs = s.workspaceOwnerIDs[:len(s.workspaceOwnerIDs)-1]
 }
 
 func cloneSession(session Session) Session {

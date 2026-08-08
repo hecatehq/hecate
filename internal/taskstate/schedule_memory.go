@@ -438,7 +438,7 @@ func (s *MemoryStore) ApplyTaskScheduleRunAdmission(_ context.Context, admission
 	}
 	occurrence = startTaskScheduleOccurrence(occurrence, run.ID, admission.CompletedAt)
 	s.tasks[task.ID] = cloneTask(task)
-	s.runs[run.ID] = run
+	s.storeRunLocked(run)
 	if admission.Approval != nil {
 		s.approvals[admission.Approval.ID] = cloneApproval(*admission.Approval)
 	}

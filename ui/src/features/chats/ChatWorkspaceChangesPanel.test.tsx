@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -1015,6 +1015,52 @@ describe("ChatWorkspaceChangesPanel", () => {
     expect(screen.getByText(escapedFilename)).toBeTruthy();
     expect(screen.queryByText(unsafeFilename)).toBeNull();
     expect(screen.getByTitle(`${escapedDirectory}/${escapedFilename}`)).toBeTruthy();
+  });
+
+  it("bounds the maximum Files inventory during broad search and progressively reveals rows", async () => {
+    const workspaceFiles = Array.from({ length: 5_000 }, (_, index) => {
+      const filename = `file-${String(index).padStart(4, "0")}.txt`;
+      return {
+        path: `src/group-${String(Math.floor(index / 50)).padStart(3, "0")}/${filename}`,
+        name: filename,
+        kind: "file" as const,
+      };
+    });
+    const user = userEvent.setup();
+
+    render(
+      <ChatWorkspaceChangesPanel
+        sessionID="chat_a"
+        workspace="/workspace/a"
+        onGetWorkspaceDiff={vi.fn(async () => layeredWorkspace("/workspace/a"))}
+        onGetWorkspaceFiles={vi.fn(async () => ({
+          workspace: "/workspace/a",
+          files: workspaceFiles,
+          truncated: true,
+        }))}
+        onGetWorkspaceFileDiff={vi.fn(async () => null)}
+        onRevertWorkspaceFiles={vi.fn(async () => null)}
+      />,
+    );
+
+    await user.click(await screen.findByRole("tab", { name: "Files" }));
+    expect(await screen.findByText("5000 visible entries · truncated")).toBeTruthy();
+    const search = screen.getByLabelText("Search workspace files");
+    fireEvent.change(search, { target: { value: "file-" } });
+
+    await waitFor(() => expect(screen.getAllByTestId("workspace-file-tree-row")).toHaveLength(150));
+    const showMore = screen.getByRole("button", {
+      name: /Show more tree entries · \d+ remaining/,
+    });
+    await user.click(showMore);
+    expect(screen.getAllByTestId("workspace-file-tree-row")).toHaveLength(300);
+
+    fireEvent.change(search, { target: { value: "file-4999" } });
+    await waitFor(() => expect(screen.getAllByTestId("workspace-file-tree-row")).toHaveLength(2));
+    expect(screen.getByTitle("src/group-099/file-4999.txt")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Show more tree entries/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("supports arrow-key tab navigation with linked tab panels", async () => {

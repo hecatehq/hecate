@@ -33,6 +33,9 @@ func runStoreWorkspaceOwnerSummaries(t *testing.T, store Store) {
 	if _, err := store.AppendMessage(ctx, "chat_unknown_message", Message{ID: "msg_future", Role: "assistant", Status: "future_message_active"}); err != nil {
 		t.Fatalf("AppendMessage(future): %v", err)
 	}
+	if _, err := store.AppendMessage(ctx, "chat_unknown_message", Message{ID: "msg_future_second", Role: "assistant", Status: "running"}); err != nil {
+		t.Fatalf("AppendMessage(second active): %v", err)
+	}
 	if _, err := store.UpdateSession(ctx, "chat_unknown_message", func(session *Session) { session.Status = "completed" }); err != nil {
 		t.Fatalf("UpdateSession(terminal projection): %v", err)
 	}
@@ -48,8 +51,37 @@ func runStoreWorkspaceOwnerSummaries(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatalf("ListWorkspaceOwnerSummaries(second): %v", err)
 	}
-	if len(second) != 1 || second[0].ID != "chat_unknown_message" || second[0].ActiveMessageStatus != "future_message_active" {
+	if len(second) != 1 || second[0].ID != "chat_unknown_message" || !second[0].HasPotentialActiveMessage {
 		t.Fatalf("second owner page = %+v, want future message", second)
+	}
+	if _, err := store.UpdateMessage(ctx, "chat_unknown_message", "msg_future", func(message *Message) {
+		message.Status = "completed"
+	}); err != nil {
+		t.Fatalf("UpdateMessage(terminal): %v", err)
+	}
+	afterTerminal, err := store.ListWorkspaceOwnerSummaries(ctx, "chat_running", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after terminal): %v", err)
+	}
+	if len(afterTerminal) != 1 || !afterTerminal[0].HasPotentialActiveMessage {
+		t.Fatalf("owner page after one terminal message = %+v, want remaining active message", afterTerminal)
+	}
+	if _, err := store.UpdateMessage(ctx, "chat_unknown_message", "msg_future_second", func(message *Message) {
+		message.Status = "completed"
+	}); err != nil {
+		t.Fatalf("UpdateMessage(second terminal): %v", err)
+	}
+	afterTerminal, err = store.ListWorkspaceOwnerSummaries(ctx, "chat_running", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after all terminal): %v", err)
+	}
+	if len(afterTerminal) != 0 {
+		t.Fatalf("owner page after all terminal messages = %+v, want no later owners", afterTerminal)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := store.ListWorkspaceOwnerSummaries(cancelled, "", 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListWorkspaceOwnerSummaries(cancelled) error = %v, want context.Canceled", err)
 	}
 }
 

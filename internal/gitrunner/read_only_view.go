@@ -203,6 +203,12 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 	coreConfig["core.ignorestat"] = "false"
 	coreConfig["core.trustctime"] = "true"
 	coreConfig["core.checkstat"] = "default"
+	// safecrlf changes only Git's round-trip warning/refusal policy; it does
+	// not change line-ending conversion. Passive inspection rejects every byte
+	// on stderr, so inheriting "warn" would make ordinary LF worktrees
+	// unreadable on Windows even though the resulting diff is deterministic.
+	// Keep autocrlf/eol intact and disable only this diagnostic policy.
+	coreConfig["core.safecrlf"] = "false"
 	infoAttributes, err := readBoundedOptionalFileContext(ctx, infoAttributesPath, readOnlyViewMetadataLimit)
 	if err != nil {
 		return nil, fmt.Errorf("read Git info attributes: %w", err)
@@ -393,8 +399,7 @@ func validatePassiveGitFilePath(inspector *localfs.Inspector, label, path string
 }
 
 func pathWithinDirectory(root, candidate string) bool {
-	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
+	return localfs.PathWithinDirectory(root, candidate)
 }
 
 func captureWorkspaceRootIdentity(path string) (*workspaceRootIdentity, error) {

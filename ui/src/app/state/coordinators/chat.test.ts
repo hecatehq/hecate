@@ -270,8 +270,21 @@ describe("workspace discard result classification", () => {
     },
   );
 
-  it.each([null, undefined, 42])("fails closed for malformed present outcome %s", (outcome) => {
-    const decision = classifyChatWorkspaceDiscardResult({ outcome } as any, 1);
+  it.each([null, {}, 42, "applied", [], { outcome: undefined }, { cleanup_failed: true }])(
+    "fails closed for malformed present discard container %#",
+    (result) => {
+      const decision = classifyChatWorkspaceDiscardResult(result, 1);
+      expect(decision.authoritative).toBe(false);
+      expect(decision.message).toMatch(/may have been applied/i);
+    },
+  );
+
+  it.each([
+    { outcome: "applied", cleanup_failed: "true" },
+    { outcome: "applied", refresh_required: null },
+    { outcome: "applied", refresh_required: undefined },
+  ])("fails closed for malformed optional discard fields %#", (result) => {
+    const decision = classifyChatWorkspaceDiscardResult(result, 1);
     expect(decision.authoritative).toBe(false);
     expect(decision.message).toMatch(/may have been applied/i);
   });

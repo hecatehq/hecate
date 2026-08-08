@@ -162,7 +162,10 @@ staged (HEAD → index), working tree (index → worktree), and untracked. GitRu
 captures the tracked layers and status inventory through its hardened passive
 view, scopes a nested workspace to that workspace rather than the surrounding
 checkout, and snapshots effective external Git excludes before
-inventory. Ignored paths are not returned. Paths with intent-to-add,
+inventory. Its private temporary Git metadata directory must remain outside the
+inspected worktree; Darwin containment uses Unicode NFD normalization and case
+folding so case or NFC/NFD aliases cannot bypass that check. Ignored paths are
+not returned. Paths with intent-to-add,
 assume-unchanged, skip-worktree, or unmerged state are reported as bounded
 review issues instead of being silently treated as clean.
 
@@ -226,9 +229,11 @@ staged changes or untracked-file deletion.
 Before the final snapshot, Hecate closes and drains the owning chat lifecycle,
 then acquires an exclusive closure from one shared process-local workspace
 registry. Canonical equal, parent, and child roots conflict; ordinary siblings
-remain independent. Darwin and Windows comparisons conservatively case-fold
-path components so case aliases, including future paths, share one coordination
-domain; this may serialize case-only siblings on a case-sensitive Darwin volume.
+remain independent. Darwin comparisons conservatively normalize every path
+component to Unicode NFD and apply Unicode case folding, so case aliases and
+NFC/NFD-equivalent spellings, including future paths, share one coordination
+domain. Windows comparisons retain case folding. This may serialize case-only
+or canonically equivalent siblings on a stricter Darwin volume.
 Task provisioning/start admission and execution, External Agent
 turns, task-patch apply/revert, opt-in operator terminals, each live opt-in ACP
 terminal, and each native agent-loop terminal hold writer admission for the
@@ -241,7 +246,9 @@ and scans bounded, paginated projections of durable non-terminal task runs and
 active chats for overlapping workspaces, covering queued or recovered work that
 has no currently executing writer lease. Historical terminal runs and inactive
 transcripts are excluded before the safety cap is applied; an oversized
-active-owner inventory fails closed.
+active-owner inventory fails closed. SQL backends maintain those projections in
+database triggers, so writes from an older gateway during a rolling deployment
+cannot disappear from the destructive-admission scan.
 
 With those checks held, Hecate verifies the scoped index flags and staged state,
 captures the exact scoped index-to-worktree patch, and compares its root-bound

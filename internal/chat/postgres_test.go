@@ -35,9 +35,7 @@ func TestPostgresStoreConformance(t *testing.T) {
 			t.Fatalf("NewPostgresStore: %v", err)
 		}
 		t.Cleanup(func() {
-			for _, table := range []string{"chat_message_requests", "chat_messages", "chat_sessions"} {
-				_, _ = client.DB().ExecContext(context.Background(), "DROP TABLE IF EXISTS "+client.QualifiedTable(table))
-			}
+			dropPostgresChatStore(client)
 			_ = client.Close()
 		})
 		return store
@@ -58,9 +56,7 @@ func TestPostgresStoreMessageRequestForeignOwnerLease(t *testing.T) {
 		t.Fatalf("NewPostgresClient: %v", err)
 	}
 	t.Cleanup(func() {
-		for _, table := range []string{"chat_message_requests", "chat_messages", "chat_sessions"} {
-			_, _ = client.DB().ExecContext(context.Background(), "DROP TABLE IF EXISTS "+client.QualifiedTable(table))
-		}
+		dropPostgresChatStore(client)
 		_ = client.Close()
 	})
 	first, err := NewPostgresStore(context.Background(), client)
@@ -133,9 +129,7 @@ func TestPostgresStoreMessageUpdateAndTaskLinkUseOneLockOrder(t *testing.T) {
 		t.Fatalf("NewPostgresClient: %v", err)
 	}
 	t.Cleanup(func() {
-		for _, table := range []string{"chat_message_requests", "chat_messages", "chat_sessions"} {
-			_, _ = client.DB().ExecContext(context.Background(), "DROP TABLE IF EXISTS "+client.QualifiedTable(table))
-		}
+		dropPostgresChatStore(client)
 		_ = client.Close()
 	})
 	first, err := NewPostgresStore(context.Background(), client)
@@ -209,5 +203,115 @@ func TestPostgresStoreMessageUpdateAndTaskLinkUseOneLockOrder(t *testing.T) {
 	}
 	if len(got.Messages) != 2 || got.Messages[0].TurnID != "turn_lock_order" || got.Messages[1].TurnID != "turn_lock_order" || got.Messages[1].Content != "settled" || got.Messages[1].TaskID != "task_lock_order" || got.Messages[1].RunID != "run_lock_order" {
 		t.Fatalf("assistant projection = %+v", got.Messages)
+	}
+}
+
+func TestPostgresStoreMessageAppendAndUpdateUseOneLockOrder(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("HECATE_POSTGRES_TEST_URL"))
+	if databaseURL == "" {
+		t.Skip("set HECATE_POSTGRES_TEST_URL to run Postgres chat-store append lock-order regression")
+	}
+	prefix := fmt.Sprintf("chat_append_lock_test_%d", time.Now().UnixNano())
+	client, err := storage.NewPostgresClient(context.Background(), storage.PostgresConfig{
+		DatabaseURL: databaseURL,
+		TablePrefix: prefix,
+	})
+	if err != nil {
+		t.Fatalf("NewPostgresClient: %v", err)
+	}
+	t.Cleanup(func() {
+		dropPostgresChatStore(client)
+		_ = client.Close()
+	})
+	first, err := NewPostgresStore(context.Background(), client)
+	if err != nil {
+		t.Fatalf("NewPostgresStore first: %v", err)
+	}
+	second, err := NewPostgresStore(context.Background(), client)
+	if err != nil {
+		t.Fatalf("NewPostgresStore second: %v", err)
+	}
+	const sessionID = "chat_append_lock_order"
+	if _, err := first.Create(context.Background(), Session{ID: sessionID, AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := first.AppendMessage(context.Background(), sessionID, Message{ID: "msg_existing", Role: "assistant", Status: "running"}); err != nil {
+		t.Fatalf("AppendMessage existing: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	updateStarted := make(chan struct{})
+	releaseUpdate := make(chan struct{})
+	updateDone := make(chan error, 1)
+	go func() {
+		_, updateErr := first.UpdateMessage(ctx, sessionID, "msg_existing", func(message *Message) {
+			close(updateStarted)
+			<-releaseUpdate
+			message.Content = "updated"
+		})
+		updateDone <- updateErr
+	}()
+	select {
+	case <-updateStarted:
+	case <-ctx.Done():
+		t.Fatalf("UpdateMessage did not acquire its row locks: %v", ctx.Err())
+	}
+
+	legacyAppendDone := make(chan error, 1)
+	go func() {
+		// Emulate the previous gateway writer, which inserted the message before
+		// updating its session. The projection trigger must acquire the session
+		// lock before its owner row so rolling deployments retain one lock order.
+		tx, appendErr := client.DB().BeginTx(ctx, nil)
+		if appendErr != nil {
+			legacyAppendDone <- fmt.Errorf("begin legacy append: %w", appendErr)
+			return
+		}
+		defer func() { _ = tx.Rollback() }()
+		createdAt := time.Now().UTC()
+		if _, appendErr = tx.ExecContext(ctx, fmt.Sprintf(`
+			INSERT INTO %s (
+				id, session_id, sequence, role, content, agent_id, agent_name,
+				status, exit_code, cost_mode, workspace, diff_stat, diff, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, second.messagesTable),
+			"msg_appended", sessionID, 1, "assistant", "", "", "",
+			"running", 0, "", "", "", "", createdAt,
+		); appendErr == nil {
+			_, appendErr = tx.ExecContext(ctx,
+				fmt.Sprintf(`UPDATE %s SET updated_at = ? WHERE id = ?`, second.sessionsTable),
+				createdAt, sessionID,
+			)
+		}
+		if appendErr == nil {
+			appendErr = tx.Commit()
+		}
+		legacyAppendDone <- appendErr
+	}()
+	time.Sleep(150 * time.Millisecond)
+	close(releaseUpdate)
+	for name, result := range map[string]<-chan error{"update": updateDone, "legacy append": legacyAppendDone} {
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Fatalf("%s operation: %v", name, err)
+			}
+		case <-ctx.Done():
+			t.Fatalf("%s operation did not settle: %v", name, ctx.Err())
+		}
+	}
+}
+
+func dropPostgresChatStore(client *storage.PostgresClient) {
+	for _, table := range []string{"chat_message_requests", "chat_messages", "chat_workspace_owners", "chat_sessions"} {
+		_, _ = client.DB().ExecContext(context.Background(), "DROP TABLE IF EXISTS "+client.QualifiedTable(table))
+	}
+	ownersTable := client.TableName("chat_workspace_owners")
+	for _, function := range []string{
+		storage.BoundedIdentifier(ownersTable + "_v1_sync_session_fn"),
+		storage.BoundedIdentifier(ownersTable + "_v1_sync_message_fn"),
+	} {
+		_, _ = client.DB().ExecContext(context.Background(), `DROP FUNCTION IF EXISTS "`+function+`"()`)
 	}
 }

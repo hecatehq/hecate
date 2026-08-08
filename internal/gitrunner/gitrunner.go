@@ -315,6 +315,9 @@ func (r *LocalRunner) SnapshotDiff(ctx context.Context, workspace string, maxByt
 		if errors.Is(err, errInspectionMetadataTooLarge) {
 			return DiffSnapshot{}, ErrDiffSnapshotTooLarge
 		}
+		if errors.Is(err, ErrReviewSnapshotInvalid) {
+			return DiffSnapshot{}, fmt.Errorf("%w: %v", ErrDiffSnapshotInvalid, err)
+		}
 		return DiffSnapshot{}, err
 	} else if len(hidden) > 0 {
 		return DiffSnapshot{}, ErrIndexVisibilityUnsupported

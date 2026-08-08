@@ -37,6 +37,8 @@ const WORKSPACE_REVIEW_LAYER_ORDER: ChatWorkspaceReviewLayerKind[] = [
 const DISCARD_ALL_WORKING_TREE_KEY = "workspace-review:discard-all-working-tree";
 const WORKSPACE_REVIEW_INITIAL_RENDER_LIMIT = 150;
 const WORKSPACE_REVIEW_RENDER_INCREMENT = 150;
+const WORKSPACE_FILE_TREE_INITIAL_RENDER_LIMIT = 150;
+const WORKSPACE_FILE_TREE_RENDER_INCREMENT = 150;
 const TEXT_DIFF_EXTENSIONS = new Set([
   "c",
   "cc",
@@ -2811,31 +2813,114 @@ function WorkspaceFilesView({
           {query ? "No workspace files match that search." : "No workspace files loaded."}
         </div>
       ) : (
-        <div
-          aria-label="Workspace file tree"
-          style={{
-            boxSizing: "border-box",
-            display: "block",
-            height: "100%",
-            maxHeight: "100%",
-            minHeight: 0,
-            minWidth: 0,
-            overflowX: "hidden",
-            overflowY: "auto",
-            overscrollBehavior: "contain",
-          }}
-        >
-          {tree.map((node) => (
-            <WorkspaceFileTreeRow
-              key={node.key}
-              expandedDirPaths={expandedDirPaths}
-              node={node}
-              onToggleFolder={onToggleFolder}
-            />
-          ))}
-        </div>
+        <BoundedWorkspaceFileTree
+          expandedDirPaths={expandedDirPaths}
+          query={query}
+          tree={tree}
+          onToggleFolder={onToggleFolder}
+        />
       )}
     </section>
+  );
+}
+
+function BoundedWorkspaceFileTree({
+  expandedDirPaths,
+  query,
+  tree,
+  onToggleFolder,
+}: {
+  expandedDirPaths: string[];
+  query: string;
+  tree: WorkspaceFileTreeNode[];
+  onToggleFolder: (path: string) => void;
+}) {
+  const visibleNodes = useMemo(
+    () => flattenVisibleWorkspaceFileTree(tree, new Set(expandedDirPaths)),
+    [expandedDirPaths, tree],
+  );
+  const [renderWindow, setRenderWindow] = useState({
+    tree,
+    query,
+    expandedDirPaths,
+    limit: WORKSPACE_FILE_TREE_INITIAL_RENDER_LIMIT,
+  });
+  const renderLimit =
+    renderWindow.tree === tree &&
+    renderWindow.query === query &&
+    renderWindow.expandedDirPaths === expandedDirPaths
+      ? renderWindow.limit
+      : WORKSPACE_FILE_TREE_INITIAL_RENDER_LIMIT;
+
+  useEffect(() => {
+    setRenderWindow((current) =>
+      current.tree === tree &&
+      current.query === query &&
+      current.expandedDirPaths === expandedDirPaths
+        ? current
+        : {
+            tree,
+            query,
+            expandedDirPaths,
+            limit: WORKSPACE_FILE_TREE_INITIAL_RENDER_LIMIT,
+          },
+    );
+  }, [expandedDirPaths, query, tree]);
+
+  const boundedNodes = visibleNodes.slice(0, renderLimit);
+  const remainingNodeCount = Math.max(0, visibleNodes.length - boundedNodes.length);
+
+  return (
+    <div
+      aria-label="Workspace file tree"
+      style={{
+        boxSizing: "border-box",
+        display: "block",
+        height: "100%",
+        maxHeight: "100%",
+        minHeight: 0,
+        minWidth: 0,
+        overflowX: "hidden",
+        overflowY: "auto",
+        overscrollBehavior: "contain",
+      }}
+    >
+      {boundedNodes.map((node) => (
+        <WorkspaceFileTreeRow
+          key={node.key}
+          expandedDirPaths={expandedDirPaths}
+          node={node}
+          onToggleFolder={onToggleFolder}
+        />
+      ))}
+      {remainingNodeCount > 0 && (
+        <div
+          style={{
+            alignItems: "center",
+            background: "var(--bg0)",
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            justifyContent: "center",
+            padding: 10,
+          }}
+        >
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() =>
+              setRenderWindow({
+                tree,
+                query,
+                expandedDirPaths,
+                limit: renderLimit + WORKSPACE_FILE_TREE_RENDER_INCREMENT,
+              })
+            }
+            type="button"
+          >
+            Show more tree entries · {remainingNodeCount} remaining
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2872,54 +2957,46 @@ function WorkspaceFileTreeRow({
     const displayName = escapeWorkspacePathForDisplay(node.name);
     const displayPath = escapeWorkspacePathForDisplay(node.path);
     return (
-      <div style={{ display: "grid", minWidth: 0 }}>
-        <button
-          aria-label={`${expanded ? "Collapse" : "Expand"} folder ${displayPath}`}
-          onClick={() => onToggleFolder(node.path)}
+      <button
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} folder ${displayPath}`}
+        data-testid="workspace-file-tree-row"
+        onClick={() => onToggleFolder(node.path)}
+        style={{
+          alignItems: "center",
+          backgroundColor: "transparent",
+          border: 0,
+          borderTop: "1px solid var(--border)",
+          color: "var(--t2)",
+          cursor: "pointer",
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "auto auto minmax(0, 1fr) auto",
+          minWidth: 0,
+          padding: "7px 12px",
+          paddingLeft: 12 + node.depth * 12,
+          textAlign: "left",
+          width: "100%",
+        }}
+        type="button"
+      >
+        <Icon d={expanded ? Icons.chevD : Icons.chevR} size={10} />
+        <Icon d={Icons.folder} size={13} />
+        <span
           style={{
-            alignItems: "center",
-            backgroundColor: "transparent",
-            border: 0,
-            borderTop: "1px solid var(--border)",
-            color: "var(--t2)",
-            cursor: "pointer",
-            display: "grid",
-            gap: 8,
-            gridTemplateColumns: "auto auto minmax(0, 1fr) auto",
-            minWidth: 0,
-            padding: "7px 12px",
-            paddingLeft: 12 + node.depth * 12,
-            textAlign: "left",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10.5,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
-          type="button"
         >
-          <Icon d={expanded ? Icons.chevD : Icons.chevR} size={10} />
-          <Icon d={Icons.folder} size={13} />
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {displayName}
-          </span>
-          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9.5 }}>
-            {node.fileCount}
-          </span>
-        </button>
-        {expanded &&
-          node.children.map((child) => (
-            <WorkspaceFileTreeRow
-              key={child.key}
-              expandedDirPaths={expandedDirPaths}
-              node={child}
-              onToggleFolder={onToggleFolder}
-            />
-          ))}
-      </div>
+          {displayName}
+        </span>
+        <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9.5 }}>
+          {node.fileCount}
+        </span>
+      </button>
     );
   }
 
@@ -2928,6 +3005,7 @@ function WorkspaceFileTreeRow({
 
   return (
     <div
+      data-testid="workspace-file-tree-row"
       title={displayPath}
       style={{
         alignItems: "center",
@@ -3340,6 +3418,16 @@ function collectFileTreeFolderPaths(nodes: WorkspaceFileTreeNode[]): string[] {
   return nodes.flatMap((node) =>
     node.kind === "folder" ? [node.path, ...collectFileTreeFolderPaths(node.children)] : [],
   );
+}
+
+function flattenVisibleWorkspaceFileTree(
+  nodes: WorkspaceFileTreeNode[],
+  expandedDirPaths: Set<string>,
+): WorkspaceFileTreeNode[] {
+  return nodes.flatMap((node) => {
+    if (node.kind !== "folder" || !expandedDirPaths.has(node.path)) return [node];
+    return [node, ...flattenVisibleWorkspaceFileTree(node.children, expandedDirPaths)];
+  });
 }
 
 function countFileTreeFiles(nodes: WorkspaceFileTreeNode[]): number {

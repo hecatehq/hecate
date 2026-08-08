@@ -212,4 +212,9 @@ func dropPostgresTaskStateTables(client *storage.PostgresClient) {
 			"DROP TABLE IF EXISTS "+client.QualifiedTable(table),
 		)
 	}
+	functionName := storage.BoundedIdentifier(client.TableName("task_state_runs") + "_workspace_path_v1_sync_fn")
+	_, _ = client.DB().ExecContext(
+		context.Background(),
+		`DROP FUNCTION IF EXISTS "`+functionName+`"()`,
+	)
 }

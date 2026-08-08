@@ -3120,6 +3120,22 @@ func runStoreListWorkspaceOwnerSummaries(t *testing.T, store Store) {
 	if len(second) != 2 || second[0] != (WorkspaceOwnerSummary{ID: "run_queued", Status: "queued", WorkspacePath: "/workspace/queued"}) || second[1] != (WorkspaceOwnerSummary{ID: "run_running", Status: "running", WorkspacePath: "/workspace/running"}) {
 		t.Fatalf("second owner page = %+v, want queued and updated running projection", second)
 	}
+	running.Status = "completed"
+	if _, err := store.UpdateRun(ctx, running); err != nil {
+		t.Fatalf("UpdateRun(terminal): %v", err)
+	}
+	afterTerminal, err := store.ListWorkspaceOwnerSummaries(ctx, "run_future", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after terminal): %v", err)
+	}
+	if len(afterTerminal) != 1 || afterTerminal[0].ID != "run_queued" {
+		t.Fatalf("owner page after terminal update = %+v, want queued only", afterTerminal)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := store.ListWorkspaceOwnerSummaries(cancelled, "", 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListWorkspaceOwnerSummaries(cancelled) error = %v, want context.Canceled", err)
+	}
 	if _, err := store.ListWorkspaceOwnerSummaries(ctx, "", 0); err == nil {
 		t.Fatal("ListWorkspaceOwnerSummaries(limit=0) succeeded")
 	}
