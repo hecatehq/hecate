@@ -358,15 +358,20 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   operator searches or opens them. Use each opaque `file.id`—not `path`—for
   expansion, copy, busy, and confirmation state because one path may appear in
   multiple layers. Preserve the server's group order and render missing or
-  unknown layer data defensively without merging identities.
+  unknown layer data defensively without merging identities. Bound the total
+  number of mounted review rows across all three layers and progressively reveal
+  more on request; the server's per-layer response limits are not a safe DOM
+  rendering budget.
 - Render `text_diff` through the shared diff viewer and `text` as escaped
   preformatted content. Give `binary`, `too_large`, `symlink`, `special`,
   `nested_repository`, `conflict`, and `unavailable` explicit human-readable
   notices, including bounded `reason` detail where useful. Never infer safety
   from file extensions, fetch an inline preview through a raw path URL, render
   untrusted content as HTML, or make a metadata-only row look empty. Escape
-  control and bidi characters in paths and plain-text previews, and expose copy
-  only when the server returned text. A tracked Gitlink is a read-only
+  control and bidi characters in paths and plain-text previews, including every
+  visible, title, and accessible-name string in the Files tree, and expose copy
+  only when the server returned text. Keep raw paths only for opaque identity and
+  callbacks. A tracked Gitlink is a read-only
   `nested_repository` preview and must not expose discard.
 - `review_complete` and discard availability are different states. Keep all
   available staged, working-tree, and untracked evidence visible when a layer
@@ -385,12 +390,19 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   successful read-only review with discard closed, not an error or a clean
   workspace. If discard later returns `422`, retain no stale token, keep the
   visible review evidence, and tell the operator to resolve the reported Git
-  state and refresh. A `discard_result.outcome=outcome_unknown`,
-  `cleanup_failed`, or `refresh_required` response is not an ordinary failed
-  request and must not be collapsed to a false no-op error. Commit the returned
-  non-authoritative review, show the fixed operator warning, and require refresh
-  plus Git/file inspection before another discard. Treat revisions as sensitive
-  operational metadata: never persist or log them.
+  state and refresh. Treat only an absent legacy outcome or the exact
+  `discard_result.outcome=applied` value as authoritative. Every other present
+  value, including empty, malformed, `outcome_unknown`, and future values,
+  invalidates UI mutation authority: do not commit its returned review as
+  proof, show a fixed warning that changes may have applied, and require refresh
+  plus Git/file inspection.
+  `cleanup_failed` and `refresh_required` on an applied outcome retain their
+  distinct warnings. A transport error or disconnect after submit is likewise
+  ambiguous because the server owns an authorized discard through completion;
+  never report it as a proven no-op. Keep the pending confirmation/status visible
+  and block panel dismissal, chat/workspace navigation, composer submission, and
+  other workspace mutations until the request settles. Treat revisions as
+  sensitive operational metadata: never persist or log them.
 - When the workspace panel is visible, refresh it after an active chat/agent
   turn settles so the operator sees live changes without pressing Refresh; keep
   the explicit Refresh action for manual rechecks and recovery. Treat live

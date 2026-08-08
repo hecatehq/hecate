@@ -159,13 +159,13 @@ func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTr
 	if err != nil {
 		return RunStateTransitionResult{}, err
 	}
-	args := []any{run.Status, run.StartedAt, string(payload), run.ID, tr.Task.ID}
+	args := []any{run.Status, run.StartedAt, run.WorkspacePath, string(payload), run.ID, tr.Task.ID}
 	for _, status := range tr.ExpectedRunStatuses {
 		args = append(args, status)
 	}
 	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
-		SET status = ?, started_at = ?, payload = ?
+		SET status = ?, started_at = ?, workspace_path = ?, payload = ?
 		WHERE id = ? AND task_id = ? AND status IN (%s)
 	`, s.runsTable, sqlitePlaceholders(len(tr.ExpectedRunStatuses))), args...)
 	if err != nil {

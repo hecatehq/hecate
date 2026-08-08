@@ -81,7 +81,26 @@ func NewPinned(root string) (*FS, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("workspace root is not a directory")
 	}
-	fSys.stableRootInfo = info
+	// On Windows, pathname-derived FileInfo resolves its file ID lazily when
+	// os.SameFile first runs. If the root is replaced before that comparison,
+	// the old FileInfo can resolve against the replacement pathname. Capture the
+	// identity from an open root handle while the path is still known-stable.
+	rootHandle, err := os.OpenRoot(fSys.stableRoot)
+	if err != nil {
+		return nil, err
+	}
+	pinnedInfo, statErr := rootHandle.Stat(".")
+	closeErr := rootHandle.Close()
+	if statErr != nil {
+		return nil, statErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if !pinnedInfo.IsDir() || !os.SameFile(info, pinnedInfo) {
+		return nil, ErrNotStableRegularFile
+	}
+	fSys.stableRootInfo = pinnedInfo
 	fSys.inspector = inspector
 	return fSys, nil
 }

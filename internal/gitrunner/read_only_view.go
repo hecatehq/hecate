@@ -231,7 +231,7 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 		return nil, fmt.Errorf("combined Git excludes exceed %d bytes", readOnlyViewMetadataLimit)
 	}
 
-	tempBase, err := filepath.Abs(os.TempDir())
+	tempBase, err := filepath.Abs(r.passiveTempDir())
 	if err != nil {
 		return nil, fmt.Errorf("resolve passive Git temporary directory: %w", err)
 	}
@@ -272,14 +272,22 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 			return cleanup(fmt.Errorf("create passive Git metadata view: %w", err))
 		}
 	}
-	// Git otherwise consults its live XDG default ignore file even when global
-	// config loading is disabled. The effective file was snapshotted into
-	// info/exclude above; point core.excludesFile at a private empty file so the
-	// passive view cannot acquire a second, changing ignore source.
+	// Use ordinary private empty files instead of platform null devices. Git for
+	// Windows can diagnose device-style config and attribute paths on stderr,
+	// while these files have identical semantics and remain inside the bounded
+	// passive metadata view.
+	neutralConfigPath := filepath.Join(tempDir, "global-config")
+	neutralAttributesPath := filepath.Join(tempDir, "global-attributes")
 	neutralExcludesPath := filepath.Join(tempDir, "global-exclude")
-	if err := os.WriteFile(neutralExcludesPath, nil, 0o600); err != nil {
-		return cleanup(fmt.Errorf("create passive Git global excludes file: %w", err))
+	for _, neutralPath := range []string{neutralConfigPath, neutralAttributesPath, neutralExcludesPath} {
+		if err := os.WriteFile(neutralPath, nil, 0o600); err != nil {
+			return cleanup(fmt.Errorf("create passive Git neutral metadata file: %w", err))
+		}
 	}
+	// Git otherwise consults its live XDG default ignore and attribute files.
+	// Their effective repository-owned sources are inspected separately; keep
+	// ambient user files out of the immutable view.
+	coreConfig["core.attributesfile"] = neutralAttributesPath
 	coreConfig["core.excludesfile"] = neutralExcludesPath
 	if err := writeReadOnlyViewConfig(filepath.Join(tempDir, "config"), objectFormat, coreConfig); err != nil {
 		return cleanup(err)
@@ -307,8 +315,8 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 		"GIT_OBJECT_DIRECTORY":             objectDir,
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES": "",
 		"GIT_CONFIG_NOSYSTEM":              "1",
-		"GIT_CONFIG_GLOBAL":                os.DevNull,
-		"GIT_CONFIG_SYSTEM":                os.DevNull,
+		"GIT_CONFIG_GLOBAL":                neutralConfigPath,
+		"GIT_CONFIG_SYSTEM":                neutralConfigPath,
 		"GIT_ATTR_NOSYSTEM":                "1",
 	})
 	viewRunner.ReadOnlyPaths = appendUniquePaths(viewRunner.ReadOnlyPaths,
@@ -522,7 +530,7 @@ func (v *ReadOnlyView) RejectContentConversionAttributes(ctx context.Context) er
 		return nil
 	}
 	attributes, err := v.RunLimitedInput(ctx, attributeMetadataOutputLimit, result.Stdout,
-		"--no-pager", "-c", "core.attributesFile="+os.DevNull,
+		"--no-pager",
 		"check-attr", "-z", "--stdin", "--all",
 	)
 	if err != nil {
@@ -541,7 +549,7 @@ func (v *ReadOnlyView) RejectContentConversionAttributesForPath(ctx context.Cont
 		return errors.New("passive Git metadata view is not configured")
 	}
 	attributes, err := v.RunLimitedInput(ctx, singlePathAttributeLimit, path+"\x00",
-		"--no-pager", "-c", "core.attributesFile="+os.DevNull,
+		"--no-pager",
 		"check-attr", "-z", "--stdin", "--all",
 	)
 	if err != nil {
@@ -630,6 +638,51 @@ func (v *ReadOnlyView) IndexVisibilityEntries(ctx context.Context) ([]IndexVisib
 		return entries[i].Path < entries[j].Path
 	})
 	return entries, nil
+}
+
+// UnmergedPaths reads conflict stages directly from the index. Git porcelain
+// status can depend on repository-state files outside the index; the passive
+// view intentionally snapshots only the minimum immutable metadata, so
+// destructive review must independently fail closed on any unmerged entry.
+func (v *ReadOnlyView) UnmergedPaths(ctx context.Context) ([]string, error) {
+	if v == nil || v.runner == nil {
+		return nil, errors.New("passive Git metadata view is not configured")
+	}
+	result, err := v.RunLimited(ctx, trackedPathOutputLimit, passiveInspectionArgs(
+		"ls-files", "--unmerged", "--stage", "--full-name", "-z", "--", ".",
+	)...)
+	if err != nil {
+		return nil, fmt.Errorf("inspect unmerged Git index entries: %w", err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return nil, fmt.Errorf("%w: unmerged index metadata exceeded %d bytes", errInspectionMetadataTooLarge, trackedPathOutputLimit)
+	}
+	if result.Stderr != "" {
+		return nil, errors.New("inspect unmerged Git index entries: unexpected diagnostics")
+	}
+	if result.Stdout == "" {
+		return []string{}, nil
+	}
+	if !strings.HasSuffix(result.Stdout, "\x00") {
+		return nil, errors.New("inspect unmerged Git index entries: malformed ls-files output")
+	}
+	paths := make(map[string]struct{})
+	for _, record := range strings.Split(strings.TrimSuffix(result.Stdout, "\x00"), "\x00") {
+		metadata, path, ok := strings.Cut(record, "\t")
+		fields := strings.Fields(metadata)
+		if !ok || len(fields) != 3 || (fields[2] != "1" && fields[2] != "2" && fields[2] != "3") {
+			return nil, errors.New("inspect unmerged Git index entries: malformed stage record")
+		}
+		path, err = statusPathRelativeToWorkspace(path, v.WorkspacePrefix())
+		if err != nil {
+			return nil, err
+		}
+		if err := validateReviewPath(path); err != nil {
+			return nil, err
+		}
+		paths[path] = struct{}{}
+	}
+	return sortedReviewPaths(paths), nil
 }
 
 // RejectStagedChanges ensures a successful SnapshotDiff covers every tracked

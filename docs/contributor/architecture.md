@@ -349,9 +349,11 @@ after the tracked patches. A staged-only or mixed workspace therefore remains
 reviewable instead of returning `422`. Opaque entry ids distinguish one path in
 multiple layers but never authorize a write.
 
-Tracked patches and untracked regular text are projected inline under a shared
-4 MiB response-content budget; an untracked body is capped at 256 KiB. Binary,
-oversized, symlink, special-file, nested-repository, conflict, and unavailable
+Tracked inline patches and the source bytes inspected for untracked previews
+share a 4 MiB preview budget; an untracked source is capped at 256 KiB. Binary
+source bytes consume that budget even though their bodies are not returned, so
+classification work stays bounded. Binary, oversized, symlink, special-file,
+nested-repository, conflict, and unavailable
 states stay explicit. Tracked Gitlinks use `nested_repository` with
 `reason=gitlink` and cannot authorize discard. WorkspaceFS reads untracked
 content from a pinned root without following path components. Both Unix and

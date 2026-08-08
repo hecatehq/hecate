@@ -255,6 +255,8 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
 const MOBILE_PRIMARY_WORKSPACES = [WS.chats, WS.projects, WS.tasks];
 const MOBILE_MORE_WORKSPACES = [WS.connections, WS.overview, WS.usage, WS.settings];
 const BARE_WORKSPACES: WorkspaceID[] = ["chats", "projects", "tasks"];
+const WORKSPACE_DISCARD_NAVIGATION_MESSAGE =
+  "Wait for the workspace discard to finish before leaving Chats or selecting another chat.";
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
   return [WS.chats, WS.projects, WS.tasks, WS.connections, WS.overview, WS.usage, WS.settings];
@@ -360,6 +362,8 @@ function AuthenticatedShell({
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
+  const setNoticeMessageRef = useRef(settingsActions.setNoticeMessage);
+  setNoticeMessageRef.current = settingsActions.setNoticeMessage;
   const selectChatSessionRef = useRef(chatActions.selectChatSession);
   selectChatSessionRef.current = chatActions.selectChatSession;
   const session = deriveSessionState(runtime.state.sessionInfo);
@@ -368,6 +372,8 @@ function AuthenticatedShell({
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [chatFocusRequest, setChatFocusRequest] = useState<ChatFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
+  const [chatWorkspaceDiscardPending, setChatWorkspaceDiscardPending] = useState(false);
+  const displayedWorkspace = chatWorkspaceDiscardPending ? "chats" : activeWorkspace;
   const routedChatSelectionRef = useRef<string | null>(null);
   const taskChatNavigationGenerationRef = useRef(0);
   const taskChatSelectionAbortRef = useRef<AbortController | null>(null);
@@ -405,6 +411,22 @@ function AuthenticatedShell({
     taskChatSelectionAbortRef.current?.abort();
     taskChatSelectionAbortRef.current = null;
   }, []);
+
+  useEffect(() => {
+    if (!chatWorkspaceDiscardPending) return;
+    const preventUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventUnload);
+    return () => window.removeEventListener("beforeunload", preventUnload);
+  }, [chatWorkspaceDiscardPending]);
+
+  useEffect(() => {
+    if (!chatWorkspaceDiscardPending || activeWorkspace === "chats") return;
+    setNoticeMessageRef.current("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
+    onSelectWorkspace("chats");
+  }, [activeWorkspace, chatWorkspaceDiscardPending, onSelectWorkspace]);
 
   useEffect(() => {
     const nextIdentity = {
@@ -483,17 +505,27 @@ function AuthenticatedShell({
 
   const handleWorkspaceSelection = useCallback(
     (workspace: WorkspaceID) => {
+      if (chatWorkspaceDiscardPending && workspace !== "chats") {
+        settingsActions.setNoticeMessage("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
+        return;
+      }
       setMobileMoreOpen(false);
       routedChatSelectionRef.current = null;
       invalidateTaskChatNavigation();
       onSelectWorkspace(workspace);
     },
-    [invalidateTaskChatNavigation, onSelectWorkspace],
+    [chatWorkspaceDiscardPending, invalidateTaskChatNavigation, onSelectWorkspace, settingsActions],
   );
 
   useEffect(() => {
     const chatID = chatNavigation?.chatID;
     const currentSessionID = chat.actions.currentActiveChatSessionID();
+    if (chatWorkspaceDiscardPending && chatID && currentSessionID && chatID !== currentSessionID) {
+      routedChatSelectionRef.current = null;
+      setNoticeMessageRef.current("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
+      onChatNavigate?.({ chatID: currentSessionID, messageID: null }, "replace");
+      return;
+    }
     if (
       activeWorkspace !== "chats" ||
       !chatID ||
@@ -519,7 +551,7 @@ function AuthenticatedShell({
       cancelled = true;
       controller.abort();
     };
-  }, [activeWorkspace, chatNavigation?.chatID, onChatNavigate]);
+  }, [activeWorkspace, chatNavigation?.chatID, chatWorkspaceDiscardPending, onChatNavigate]);
 
   function openTaskFromChat(taskID: string, runID?: string) {
     invalidateTaskChatNavigation();
@@ -676,7 +708,7 @@ function AuthenticatedShell({
     [invalidateTaskChatNavigation, onTaskNavigate],
   );
 
-  const isBare = BARE_WORKSPACES.includes(activeWorkspace);
+  const isBare = BARE_WORKSPACES.includes(displayedWorkspace);
   const agentWorkspace = chat.state.activeChatSession?.workspace || chat.state.agentWorkspace;
   const agentWorkspaceBranch =
     chat.state.activeChatSession?.workspace_branch || chat.state.agentWorkspaceBranch;
@@ -704,24 +736,36 @@ function AuthenticatedShell({
           aria-label="Workspace navigation"
           data-mobile-runtime={isMobileRuntime ? "true" : undefined}
         >
-          {navigationWorkspaces.map((ws) => (
-            <a
-              key={ws.id}
-              aria-label={ws.label}
-              aria-current={activeWorkspace === ws.id ? "page" : undefined}
-              className={`hecate-activitybtn${activeWorkspace === ws.id ? " hecate-activitybtn--active" : ""}`}
-              href={workspaceNavigationURL(window.location, ws.id)}
-              onClick={(event) => {
-                if (!isPlainNavigationClick(event)) return;
-                event.preventDefault();
-                handleWorkspaceSelection(ws.id);
-              }}
-              title={ws.label}
-            >
-              {ws.icon}
-              <span className="hecate-activitybtn__label">{ws.label}</span>
-            </a>
-          ))}
+          {navigationWorkspaces.map((ws) => {
+            const navigationBlocked = chatWorkspaceDiscardPending && ws.id !== "chats";
+            return (
+              <a
+                key={ws.id}
+                aria-label={ws.label}
+                aria-current={displayedWorkspace === ws.id ? "page" : undefined}
+                aria-disabled={navigationBlocked || undefined}
+                className={`hecate-activitybtn${displayedWorkspace === ws.id ? " hecate-activitybtn--active" : ""}`}
+                href={
+                  navigationBlocked ? undefined : workspaceNavigationURL(window.location, ws.id)
+                }
+                role={navigationBlocked ? "link" : undefined}
+                onClick={(event) => {
+                  if (navigationBlocked) {
+                    event.preventDefault();
+                    settingsActions.setNoticeMessage("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
+                    return;
+                  }
+                  if (!isPlainNavigationClick(event)) return;
+                  event.preventDefault();
+                  handleWorkspaceSelection(ws.id);
+                }}
+                title={navigationBlocked ? "Wait for workspace discard to finish" : ws.label}
+              >
+                {ws.icon}
+                <span className="hecate-activitybtn__label">{ws.label}</span>
+              </a>
+            );
+          })}
           {isMobileRuntime ? (
             <button
               ref={mobileMoreTriggerRef}
@@ -733,7 +777,9 @@ function AuthenticatedShell({
               className={`hecate-activitybtn${
                 mobileMoreIsActive ? " hecate-activitybtn--active" : ""
               }`}
+              disabled={chatWorkspaceDiscardPending}
               onClick={() => setMobileMoreOpen(true)}
+              title={chatWorkspaceDiscardPending ? "Wait for workspace discard to finish" : "More"}
               type="button"
             >
               <SvgIcon d={IC.more} />
@@ -763,15 +809,21 @@ function AuthenticatedShell({
           {runtime.state.error && (
             <div className="page-banner page-banner--error">{runtime.state.error}</div>
           )}
+          {chatWorkspaceDiscardPending && (
+            <div aria-live="polite" className="page-banner page-banner--pending" role="status">
+              Discarding workspace changes… Navigation and new workspace work are paused until
+              Hecate confirms the result.
+            </div>
+          )}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>
-              {activeWorkspace === "overview" && (
+              {displayedWorkspace === "overview" && (
                 <ObservabilityView
                   onNavigate={handleWorkspaceSelection}
                   focusRequest={traceFocusRequest}
                 />
               )}
-              {activeWorkspace === "chats" && (
+              {displayedWorkspace === "chats" && (
                 <ChatView
                   focusMessageID={chatNavigation?.messageID}
                   focusRequest={chatFocusRequest}
@@ -782,9 +834,11 @@ function AuthenticatedShell({
                   onOpenTrace={openTraceFromChat}
                   onSelectChat={handleChatSelection}
                   onSelectChatIntent={handleChatSelectionIntent}
+                  workspaceDiscardPending={chatWorkspaceDiscardPending}
+                  onWorkspaceDiscardPendingChange={setChatWorkspaceDiscardPending}
                 />
               )}
-              {activeWorkspace === "tasks" && (
+              {displayedWorkspace === "tasks" && (
                 <TasksView
                   focusRequest={routedTaskFocusRequest}
                   focusIntent={taskFocusRequest}
@@ -794,7 +848,7 @@ function AuthenticatedShell({
                   onSelectionChange={handleTaskSelection}
                 />
               )}
-              {activeWorkspace === "projects" && (
+              {displayedWorkspace === "projects" && (
                 <ProjectsView
                   navigation={projectNavigation}
                   onOpenChat={openChatFromProject}
@@ -803,9 +857,9 @@ function AuthenticatedShell({
                   onNavigate={onProjectNavigate}
                 />
               )}
-              {activeWorkspace === "connections" && <ProvidersView />}
-              {activeWorkspace === "usage" && <UsageView />}
-              {activeWorkspace === "settings" && <SettingsView />}
+              {displayedWorkspace === "connections" && <ProvidersView />}
+              {displayedWorkspace === "usage" && <UsageView />}
+              {displayedWorkspace === "settings" && <SettingsView />}
             </Suspense>
           </div>
         </main>
@@ -827,22 +881,39 @@ function AuthenticatedShell({
           width={420}
         >
           <nav className="mobile-more-navigation" aria-label="More workspaces">
-            {MOBILE_MORE_WORKSPACES.map((workspace) => (
-              <a
-                key={workspace.id}
-                aria-current={activeWorkspace === workspace.id ? "page" : undefined}
-                className="mobile-more-navigation__link"
-                href={workspaceNavigationURL(window.location, workspace.id)}
-                onClick={(event) => {
-                  if (!isPlainNavigationClick(event)) return;
-                  event.preventDefault();
-                  handleWorkspaceSelection(workspace.id);
-                }}
-              >
-                {workspace.icon}
-                <span>{workspace.label}</span>
-              </a>
-            ))}
+            {MOBILE_MORE_WORKSPACES.map((workspace) => {
+              const navigationBlocked = chatWorkspaceDiscardPending;
+              return (
+                <a
+                  key={workspace.id}
+                  aria-current={activeWorkspace === workspace.id ? "page" : undefined}
+                  aria-disabled={navigationBlocked || undefined}
+                  className="mobile-more-navigation__link"
+                  href={
+                    navigationBlocked
+                      ? undefined
+                      : workspaceNavigationURL(window.location, workspace.id)
+                  }
+                  role={navigationBlocked ? "link" : undefined}
+                  onClick={(event) => {
+                    if (navigationBlocked) {
+                      event.preventDefault();
+                      settingsActions.setNoticeMessage(
+                        "error",
+                        WORKSPACE_DISCARD_NAVIGATION_MESSAGE,
+                      );
+                      return;
+                    }
+                    if (!isPlainNavigationClick(event)) return;
+                    event.preventDefault();
+                    handleWorkspaceSelection(workspace.id);
+                  }}
+                >
+                  {workspace.icon}
+                  <span>{workspace.label}</span>
+                </a>
+              );
+            })}
           </nav>
         </Modal>
       )}
@@ -852,8 +923,15 @@ function AuthenticatedShell({
         {isMobileRuntime && (
           <a
             aria-label="Switch Hecate instance"
+            aria-disabled={chatWorkspaceDiscardPending || undefined}
             className="hecate-statusbar__instances"
-            href={MOBILE_INSTANCES_URL}
+            href={chatWorkspaceDiscardPending ? undefined : MOBILE_INSTANCES_URL}
+            role={chatWorkspaceDiscardPending ? "link" : undefined}
+            onClick={(event) => {
+              if (!chatWorkspaceDiscardPending) return;
+              event.preventDefault();
+              settingsActions.setNoticeMessage("error", WORKSPACE_DISCARD_NAVIGATION_MESSAGE);
+            }}
           >
             <span aria-hidden="true">‹</span>
             Instances
@@ -901,7 +979,7 @@ function AuthenticatedShell({
             </>
           );
         })()}
-        {activeWorkspace === "chats" && agentWorkspace && (
+        {displayedWorkspace === "chats" && agentWorkspace && (
           <>
             <span className="hecate-statusbar__sep hecate-statusbar__sep--workspace">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>

@@ -52,6 +52,29 @@ func TestDarwinInspectorMatchesNestedMountCaseInsensitively(t *testing.T) {
 	}
 }
 
+func TestDarwinInspectorMatchesNestedMountCanonicalUnicode(t *testing.T) {
+	local := darwinMount("/", "apfs", unix.MNT_LOCAL)
+	for _, test := range []struct {
+		name      string
+		mountPath string
+		queryPath string
+	}{
+		{name: "NFC mount and NFD query", mountPath: "/Volumes/Caf\u00e9", queryPath: "/Volumes/Cafe\u0301/workspace"},
+		{name: "NFD mount and NFC query", mountPath: "/Volumes/Cafe\u0301", queryPath: "/Volumes/Caf\u00e9/workspace"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fuse := darwinMount(test.mountPath, "macfuse", unix.MNT_LOCAL)
+			inspector := &Inspector{mounts: []unix.Statfs_t{local, fuse}}
+			if err := inspector.EnsurePath(test.queryPath); !errors.Is(err, ErrUnboundedFilesystem) {
+				t.Fatalf("canonically equivalent nested FUSE path error = %v", err)
+			}
+			if err := inspector.EnsureTree("/Volumes"); !errors.Is(err, ErrUnboundedFilesystem) {
+				t.Fatalf("canonically equivalent descendant FUSE tree error = %v", err)
+			}
+		})
+	}
+}
+
 func darwinMount(point, filesystem string, flags uint32) unix.Statfs_t {
 	var stat unix.Statfs_t
 	stat.Flags = flags

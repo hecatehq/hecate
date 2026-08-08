@@ -240,11 +240,12 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run types.TaskRun) (types.T
 		return types.TaskRun{}, err
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (id, task_id, number, status, started_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO %s (id, task_id, number, status, started_at, workspace_path, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id)
-		DO UPDATE SET status = excluded.status, started_at = excluded.started_at, payload = excluded.payload
-	`, s.runsTable), run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, string(payload))
+		DO UPDATE SET status = excluded.status, started_at = excluded.started_at,
+		              workspace_path = excluded.workspace_path, payload = excluded.payload
+	`, s.runsTable), run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, run.WorkspacePath, string(payload))
 	if err != nil {
 		return types.TaskRun{}, err
 	}
@@ -295,14 +296,6 @@ func (s *SQLiteStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		}
 		where = append(where, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
 	}
-	if len(filter.ExcludeStatuses) > 0 {
-		placeholders := make([]string, 0, len(filter.ExcludeStatuses))
-		for _, status := range filter.ExcludeStatuses {
-			args = append(args, status)
-			placeholders = append(placeholders, "?")
-		}
-		where = append(where, fmt.Sprintf("status NOT IN (%s)", strings.Join(placeholders, ", ")))
-	}
 	if filter.OrderByID && filter.AfterID != "" {
 		args = append(args, filter.AfterID)
 		where = append(where, "id > ?")
@@ -340,6 +333,36 @@ func (s *SQLiteStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		items = append(items, run)
 	}
 	return items, rows.Err()
+}
+
+func (s *SQLiteStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("workspace owner summary limit must be positive")
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT id, status, workspace_path
+		FROM %s
+		WHERE id > ?
+		  AND status NOT IN ('completed', 'failed', 'cancelled')
+		ORDER BY id ASC
+		LIMIT ?
+	`, s.runsTable), afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list %s task workspace owner summaries: %w", s.backend, err)
+	}
+	defer rows.Close()
+	items := make([]WorkspaceOwnerSummary, 0, min(limit, 64))
+	for rows.Next() {
+		var item WorkspaceOwnerSummary
+		if err := rows.Scan(&item.ID, &item.Status, &item.WorkspacePath); err != nil {
+			return nil, fmt.Errorf("scan %s task workspace owner summary: %w", s.backend, err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate %s task workspace owner summaries: %w", s.backend, err)
+	}
+	return items, nil
 }
 
 func (s *SQLiteStore) UpdateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error) {
@@ -1141,9 +1164,9 @@ func (s *SQLiteStore) sqliteUpdateRunTx(ctx context.Context, tx storage.Tx, run 
 	}
 	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
-		SET status = ?, started_at = ?, payload = ?
+		SET status = ?, started_at = ?, workspace_path = ?, payload = ?
 		WHERE id = ? AND task_id = ?
-	`, s.runsTable), run.Status, run.StartedAt, string(payload), run.ID, run.TaskID)
+	`, s.runsTable), run.Status, run.StartedAt, run.WorkspacePath, string(payload), run.ID, run.TaskID)
 	if err != nil {
 		return err
 	}
@@ -1157,10 +1180,10 @@ func (s *SQLiteStore) sqliteUpdateRunIfNonTerminalTx(ctx context.Context, tx sto
 	}
 	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
-		SET status = ?, started_at = ?, payload = ?
+		SET status = ?, started_at = ?, workspace_path = ?, payload = ?
 		WHERE id = ? AND task_id = ?
 		  AND status NOT IN ('completed', 'failed', 'cancelled')
-	`, s.runsTable), run.Status, run.StartedAt, string(payload), run.ID, run.TaskID)
+	`, s.runsTable), run.Status, run.StartedAt, run.WorkspacePath, string(payload), run.ID, run.TaskID)
 	if err != nil {
 		return false, err
 	}
@@ -1178,9 +1201,9 @@ func (s *SQLiteStore) sqliteUpdateSameTerminalRunTx(ctx context.Context, tx stor
 	}
 	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
-		SET started_at = ?, payload = ?
+		SET started_at = ?, workspace_path = ?, payload = ?
 		WHERE id = ? AND task_id = ? AND status = ?
-	`, s.runsTable), run.StartedAt, string(payload), run.ID, run.TaskID, run.Status)
+	`, s.runsTable), run.StartedAt, run.WorkspacePath, string(payload), run.ID, run.TaskID, run.Status)
 	if err != nil {
 		return err
 	}
@@ -1444,7 +1467,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	statements := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at %s, payload TEXT NOT NULL)`, s.tasksTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_updated_idx" ON %s (status, updated_at DESC)`, tasksUnquoted, s.tasksTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, payload TEXT NOT NULL)`, s.runsTable, timestampColumn),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, workspace_path TEXT NOT NULL, payload TEXT NOT NULL)`, s.runsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_number_started_idx" ON %s (task_id, number DESC, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_started_idx" ON %s (status, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, payload TEXT NOT NULL)`, s.stepsTable, timestampColumn),
@@ -1465,6 +1488,48 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("migrate %s task store: %w", s.backend, err)
 		}
+	}
+	if err := s.ensureRunWorkspacePathProjection(ctx); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		CREATE INDEX IF NOT EXISTS "%s_workspace_owner_idx"
+		ON %s (id ASC, status, workspace_path)
+		WHERE status NOT IN ('completed', 'failed', 'cancelled')
+	`, runsUnquoted, s.runsTable)); err != nil {
+		return fmt.Errorf("migrate %s task workspace owner index: %w", s.backend, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureRunWorkspacePathProjection(ctx context.Context) error {
+	exists, err := storage.ColumnExists(ctx, s.client, strings.Trim(s.runsTable, `"`), "workspace_path")
+	if err != nil {
+		return fmt.Errorf("inspect %s task run workspace projection: %w", s.backend, err)
+	}
+	if exists {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin %s task run workspace projection migration: %w", s.backend, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN workspace_path TEXT`, s.runsTable)); err != nil {
+		return fmt.Errorf("add %s task run workspace projection: %w", s.backend, err)
+	}
+	workspaceExpression := `COALESCE(json_extract(payload, '$.WorkspacePath'), '')`
+	if s.client.Dialect() == storage.DialectPostgres {
+		workspaceExpression = `COALESCE(payload::jsonb ->> 'WorkspacePath', '')`
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET workspace_path = %s
+	`, s.runsTable, workspaceExpression)); err != nil {
+		return fmt.Errorf("backfill %s task run workspace projection: %w", s.backend, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s task run workspace projection migration: %w", s.backend, err)
 	}
 	return nil
 }

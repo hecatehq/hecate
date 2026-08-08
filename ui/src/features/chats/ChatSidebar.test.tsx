@@ -255,6 +255,46 @@ describe("ChatSidebar new-chat creation", () => {
     expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeDisabled();
   });
 
+  it("blocks chat selection and creation while a workspace discard owns the chat surface", () => {
+    const onSelectSession = vi.fn(async () => true);
+    const onCreateChat = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat_current",
+      chatSessions: [
+        {
+          id: "chat_other",
+          title: "Other work",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "/workspace",
+          message_count: 0,
+        },
+      ],
+    });
+
+    render(
+      withRuntimeConsole(
+        <ChatSidebar
+          isAgentChat
+          workspaceMutationPending
+          onSelectSession={onSelectSession}
+          onCreateChat={onCreateChat}
+          onChooseWorkspace={() => undefined}
+          onOpenAgentSetup={() => undefined}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeDisabled();
+    const chatRow = screen.getByRole("button", { name: /^Chat Other work/ });
+    expect(chatRow).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(chatRow);
+    expect(onSelectSession).not.toHaveBeenCalled();
+    expect(onCreateChat).not.toHaveBeenCalled();
+  });
+
   it("reconstructs an already-deleted chat cleanup surface after remount", () => {
     const queued = {
       id: "queued-cleanup",

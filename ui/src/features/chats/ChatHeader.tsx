@@ -31,6 +31,7 @@ type Props = {
   workspaceChangesOpen: boolean;
   chatSettingsOpen: boolean;
   rightPanelID?: string;
+  navigationDisabled?: boolean;
   onChooseWorkspace: () => void;
   onToggleWorkspaceChanges: () => void;
   onToggleChatSettings: () => void;
@@ -61,6 +62,7 @@ export function ChatHeader(props: Props) {
     workspaceChangesOpen,
     chatSettingsOpen,
     rightPanelID,
+    navigationDisabled = false,
     onChooseWorkspace,
     onToggleWorkspaceChanges,
     onToggleChatSettings,
@@ -73,8 +75,9 @@ export function ChatHeader(props: Props) {
         <button
           className="btn btn-ghost btn-sm chat-header-action"
           onClick={onOpenSidebar}
+          disabled={navigationDisabled}
           ref={openSidebarButtonRef}
-          title="Open chats"
+          title={navigationDisabled ? "Wait for workspace discard to finish" : "Open chats"}
           aria-label="Open chats sidebar"
           type="button"
         >
@@ -160,8 +163,13 @@ export function ChatHeader(props: Props) {
             <button
               className="btn btn-ghost btn-sm chat-header-action"
               onClick={onOpenProject}
+              disabled={navigationDisabled}
               title={
-                linkedProjectName ? `Open project: ${linkedProjectName}` : "Open linked project"
+                navigationDisabled
+                  ? "Wait for workspace discard to finish"
+                  : linkedProjectName
+                    ? `Open project: ${linkedProjectName}`
+                    : "Open linked project"
               }
               aria-label={
                 linkedProjectName ? `Open project: ${linkedProjectName}` : "Open linked project"
@@ -183,15 +191,17 @@ export function ChatHeader(props: Props) {
             <button
               className="btn btn-ghost btn-sm chat-header-action"
               onClick={onChooseWorkspace}
-              disabled={workspaceDialogOpen}
+              disabled={workspaceDialogOpen || navigationDisabled}
               title={
-                workspaceDialogOpen
-                  ? "Workspace folder dialog is already open"
-                  : workspacePath
-                    ? `Workspace: ${workspacePath}`
-                    : isRemoteRuntime
-                      ? "Set workspace path"
-                      : "Choose workspace folder"
+                navigationDisabled
+                  ? "Wait for workspace discard to finish"
+                  : workspaceDialogOpen
+                    ? "Workspace folder dialog is already open"
+                    : workspacePath
+                      ? `Workspace: ${workspacePath}`
+                      : isRemoteRuntime
+                        ? "Set workspace path"
+                        : "Choose workspace folder"
               }
               aria-label={
                 workspacePath
@@ -213,7 +223,9 @@ export function ChatHeader(props: Props) {
               <Icon d={Icons.folder} size={13} />
             </button>
           )}
-          {!isRemoteRuntime && <WorkspaceOpenMenu workspacePath={workspacePath} />}
+          {!isRemoteRuntime && (
+            <WorkspaceOpenMenu disabled={navigationDisabled} workspacePath={workspacePath} />
+          )}
           {workspacePath.trim() && (
             <button
               className="btn btn-ghost btn-sm chat-header-action"
@@ -221,8 +233,15 @@ export function ChatHeader(props: Props) {
               aria-controls={rightPanelID}
               aria-expanded={workspaceChangesOpen}
               aria-label="Workspace changes"
+              disabled={workspaceDialogOpen || navigationDisabled}
               onClick={onToggleWorkspaceChanges}
-              title="Show current workspace diff"
+              title={
+                navigationDisabled
+                  ? "Wait for workspace discard to finish"
+                  : workspaceDialogOpen
+                    ? "Wait for the workspace folder dialog to finish"
+                    : "Show current workspace diff"
+              }
               style={{
                 width: 30,
                 height: 30,
@@ -242,8 +261,9 @@ export function ChatHeader(props: Props) {
             aria-controls={rightPanelID}
             aria-expanded={chatSettingsOpen}
             aria-label="Chat settings"
+            disabled={navigationDisabled}
             onClick={onToggleChatSettings}
-            title="Chat settings"
+            title={navigationDisabled ? "Wait for workspace discard to finish" : "Chat settings"}
             style={{
               minWidth: 30,
               height: 30,

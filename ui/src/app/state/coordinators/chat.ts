@@ -112,6 +112,7 @@ import type {
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
   ChatWorkspaceDiffRecord,
+  ChatWorkspaceDiffResponse,
   ChatWorkspaceFilesRecord,
   ChatResponse,
   ChatSessionSummaryRecord,
@@ -119,6 +120,62 @@ import type {
   ChatStreamEvent,
   ChatWorkspaceMode,
 } from "../../../types/chat";
+
+type ChatWorkspaceDiscardDecision = {
+  authoritative: boolean;
+  noticeType: "success" | "error";
+  message: string;
+};
+
+export function classifyChatWorkspaceDiscardResult(
+  result: ChatWorkspaceDiffResponse["discard_result"],
+  selectedPathCount: number,
+): ChatWorkspaceDiscardDecision {
+  const hasOutcome =
+    result !== undefined &&
+    result !== null &&
+    Object.prototype.hasOwnProperty.call(result, "outcome");
+  const outcome: unknown = result?.outcome;
+  if (hasOutcome && outcome !== "applied") {
+    return {
+      authoritative: false,
+      noticeType: "error",
+      message:
+        outcome === "outcome_unknown"
+          ? "The discard command did not return a known outcome. Changes may have been applied. Refresh Workspace changes and inspect Git before continuing."
+          : "Hecate received an unrecognized discard outcome. Changes may have been applied. Refresh Workspace changes and inspect Git before continuing.",
+    };
+  }
+  if (result?.cleanup_failed) {
+    return {
+      authoritative: true,
+      noticeType: "error",
+      message:
+        "Workspace changes were discarded, but Git cleanup did not finish. Refresh the review and check Git before continuing.",
+    };
+  }
+  if (result?.refresh_required) {
+    return {
+      authoritative: true,
+      noticeType: "success",
+      message: "Workspace changes were discarded. Refresh the review before another discard.",
+    };
+  }
+  return {
+    authoritative: true,
+    noticeType: "success",
+    message:
+      selectedPathCount > 0
+        ? "Selected workspace files discarded."
+        : "Workspace changes discarded.",
+  };
+}
+
+export function chatWorkspaceDiscardTransportFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : "";
+  const prefix = detail ? `${detail} ` : "";
+  return `${prefix}The discard request did not return an authoritative result. Changes may have been applied. Refresh Workspace changes and inspect Git before continuing.`;
+}
 
 const definiteHecateServerRejectionCodes = new Set([
   "gateway_error",
@@ -3954,33 +4011,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         if (!latest) return null;
         snapshot = latest;
       }
-      if (payload.discard_result?.outcome === "outcome_unknown") {
-        params.setNoticeMessage(
-          "error",
-          "The discard command did not finish cleanly. Refresh Workspace changes and verify every selected file before continuing.",
-        );
-      } else if (payload.discard_result?.cleanup_failed) {
-        params.setNoticeMessage(
-          "error",
-          "Workspace changes were discarded, but Git cleanup did not finish. Refresh the review and check Git before continuing.",
-        );
-      } else if (payload.discard_result?.refresh_required) {
-        params.setNoticeMessage(
-          "success",
-          "Workspace changes were discarded. Refresh the review before another discard.",
-        );
-      } else {
-        params.setNoticeMessage(
-          "success",
-          paths.length > 0 ? "Selected workspace files discarded." : "Workspace changes discarded.",
-        );
-      }
+      const decision = classifyChatWorkspaceDiscardResult(payload.discard_result, paths.length);
+      params.setNoticeMessage(decision.noticeType, decision.message);
+      if (!decision.authoritative) return null;
       return snapshot;
     } catch (error) {
-      params.setNoticeMessage(
-        "error",
-        error instanceof Error ? error.message : "Failed to discard workspace changes.",
-      );
+      params.setNoticeMessage("error", chatWorkspaceDiscardTransportFailureMessage(error));
       return null;
     }
   }

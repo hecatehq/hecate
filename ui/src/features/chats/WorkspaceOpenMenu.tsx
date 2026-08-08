@@ -17,7 +17,13 @@ import { useFloatingMenu } from "../shared/useFloatingMenu";
 const WORKSPACE_OPEN_DEFAULT_KEY = "hecate.workspaceOpen.defaultTarget";
 const WORKSPACE_OPEN_DEFAULT_VERSION = 1;
 
-export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) {
+export function WorkspaceOpenMenu({
+  disabled = false,
+  workspacePath,
+}: {
+  disabled?: boolean;
+  workspacePath: string;
+}) {
   const [error, setError] = useState("");
   const [defaultTargetID, setDefaultTargetID] = useState(() => readDefaultWorkspaceOpenTarget());
   const {
@@ -46,6 +52,10 @@ export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) 
     });
     return () => cancelAnimationFrame(frame);
   }, [open, menuRef]);
+
+  useEffect(() => {
+    if (disabled && open) close();
+  }, [close, disabled, open]);
 
   if (!workspace || !canOpenWorkspaceFromUI()) return null;
 
@@ -102,11 +112,14 @@ export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) 
           className="btn btn-ghost btn-sm chat-header-action workspace-open-trigger-main"
           type="button"
           aria-label={`Open workspace in ${defaultTarget?.label ?? "default app"}`}
+          disabled={disabled}
           onClick={() => void openDefaultTarget()}
           title={
-            defaultTarget
-              ? `Open workspace in ${defaultTarget.label}: ${workspace}`
-              : `Open workspace: ${workspace}`
+            disabled
+              ? "Wait for workspace discard to finish"
+              : defaultTarget
+                ? `Open workspace in ${defaultTarget.label}: ${workspace}`
+                : `Open workspace: ${workspace}`
           }
           style={{
             borderBottomRightRadius: 0,
@@ -126,8 +139,9 @@ export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) 
           aria-label="Choose workspace opener"
           aria-expanded={open}
           aria-haspopup="menu"
+          disabled={disabled}
           onClick={toggle}
-          title="Choose workspace opener"
+          title={disabled ? "Wait for workspace discard to finish" : "Choose workspace opener"}
           style={{
             color: open ? "var(--teal)" : "var(--t2)",
             borderBottomLeftRadius: 0,

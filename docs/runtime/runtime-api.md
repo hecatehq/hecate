@@ -6269,10 +6269,13 @@ For a tracked Gitlink, `nested_repository` carries `reason=gitlink`; that
 working-tree entry is read-only because a root patch cannot safely restore the
 nested repository state.
 
-Untracked text is capped at 256 KiB per file. Inline bodies share one 4 MiB
-response-content budget with tracked previews and the duplicated legacy
-projection. Reaching a limit leaves the entry visible with a typed preview
-state. A truncated tracked layer, omitted entry list, or omitted tracked text
+Untracked preview sources are capped at 256 KiB per file. Tracked inline bodies
+and the source bytes inspected for untracked previews share one 4 MiB preview
+budget with the duplicated legacy projection. Binary source bytes consume the
+budget even though their bodies are not returned, bounding classification
+work. Reaching the shared budget leaves later entries visible with
+`preview.kind=too_large` and `reason=total_limit`. A truncated tracked layer,
+omitted entry list, or omitted tracked text
 preview marks that layer incomplete; an intentionally metadata-only untracked
 entry can remain inventory-complete. Hecate snapshots effective external Git
 excludes before inventory and omits paths ignored by those rules. It opens

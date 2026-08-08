@@ -2,7 +2,9 @@ package taskstate
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +55,106 @@ func TestSQLiteStore_BackendName(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	if got := store.Backend(); got != "sqlite" {
 		t.Fatalf("Backend() = %q, want %q", got, "sqlite")
+	}
+}
+
+func TestSQLiteStore_BackfillsLegacyRunWorkspaceProjection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "legacy-taskstate.db"),
+		TablePrefix: "legacy_owner",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	runsTable := client.QualifiedTable("task_state_runs")
+	if _, err := client.DB().ExecContext(ctx, `
+		CREATE TABLE `+runsTable+` (
+			id TEXT PRIMARY KEY,
+			task_id TEXT NOT NULL,
+			number INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			started_at TIMESTAMP NOT NULL DEFAULT '',
+			payload TEXT NOT NULL
+		)
+	`); err != nil {
+		t.Fatalf("create legacy runs table: %v", err)
+	}
+	run := types.TaskRun{
+		ID:            "run-legacy-owner",
+		TaskID:        "task-legacy-owner",
+		Status:        "running",
+		WorkspacePath: "/workspace/legacy-owner",
+	}
+	payload, err := json.Marshal(run)
+	if err != nil {
+		t.Fatalf("marshal legacy run: %v", err)
+	}
+	if _, err := client.DB().ExecContext(ctx, `
+		INSERT INTO `+runsTable+` (id, task_id, number, status, started_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, string(payload)); err != nil {
+		t.Fatalf("insert legacy run: %v", err)
+	}
+
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE `+store.runsTable+` SET payload = '{' WHERE id = ?`, run.ID); err != nil {
+		t.Fatalf("corrupt hydrated payload fixture: %v", err)
+	}
+	got, err := store.ListWorkspaceOwnerSummaries(ctx, "", 1)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries: %v", err)
+	}
+	if len(got) != 1 || got[0] != (WorkspaceOwnerSummary{ID: run.ID, Status: run.Status, WorkspacePath: run.WorkspacePath}) {
+		t.Fatalf("legacy workspace owner summary = %+v", got)
+	}
+}
+
+func TestSQLiteStore_LegacyRunWorkspaceProjectionMigrationIsAtomic(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "invalid-legacy-taskstate.db"),
+		TablePrefix: "invalid_legacy_owner",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	runsTable := client.QualifiedTable("task_state_runs")
+	if _, err := client.DB().ExecContext(ctx, `
+		CREATE TABLE `+runsTable+` (
+			id TEXT PRIMARY KEY,
+			task_id TEXT NOT NULL,
+			number INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			started_at TIMESTAMP NOT NULL DEFAULT '',
+			payload TEXT NOT NULL
+		)
+	`); err != nil {
+		t.Fatalf("create legacy runs table: %v", err)
+	}
+	if _, err := client.DB().ExecContext(ctx, `
+		INSERT INTO `+runsTable+` (id, task_id, status, payload)
+		VALUES (?, ?, ?, ?)
+	`, "run-invalid-payload", "task-invalid-payload", "running", "{"); err != nil {
+		t.Fatalf("insert invalid legacy run: %v", err)
+	}
+
+	if _, err := NewSQLiteStore(ctx, client); err == nil || !strings.Contains(err.Error(), "backfill sqlite task run workspace projection") {
+		t.Fatalf("NewSQLiteStore error = %v, want backfill failure", err)
+	}
+	exists, err := storage.ColumnExists(ctx, client, client.TableName("task_state_runs"), "workspace_path")
+	if err != nil {
+		t.Fatalf("ColumnExists: %v", err)
+	}
+	if exists {
+		t.Fatal("workspace_path column survived failed transactional backfill")
 	}
 }
 

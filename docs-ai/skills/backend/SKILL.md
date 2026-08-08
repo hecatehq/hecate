@@ -521,12 +521,14 @@ state. Supported preview kinds are `text_diff`, `text`, `binary`, `too_large`,
 `symlink`, `special`, `nested_repository`, `conflict`, and `unavailable`.
 Tracked Gitlinks use `nested_repository` with `reason=gitlink` and make discard
 unavailable. Do not add a generic raw-path preview route. Untracked text is
-limited to 256 KiB per file and shares one 4 MiB response-content budget with
-tracked previews and duplicated legacy content. Open it only through a pinned
-WorkspaceFS stable regular-file handle: no-follow every path component, refuse
-special files, identity drift, and hardlinks, refuse Unix cross-device entries,
-use Windows `os.Root` confinement, and recheck the opened identity after the
-bounded read. Binary or unsafe content gets metadata only.
+limited to 256 KiB per source. Tracked inline bodies and untracked source bytes
+inspected for classification share one 4 MiB preview budget with duplicated
+legacy content. Binary source bytes consume the budget even though their bodies
+are not returned, keeping classification work bounded. Open content only
+through a pinned WorkspaceFS stable regular-file handle: no-follow every path
+component, refuse special files, identity drift, and hardlinks, refuse Unix
+cross-device entries, use Windows `os.Root` confinement, and recheck the opened
+identity after the bounded read. Binary or unsafe content gets metadata only.
 
 Only a separately captured exact complete unstaged tracked `DiffSnapshot` may
 populate `data.discard.available/revision`. Keep top-level

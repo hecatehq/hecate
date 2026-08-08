@@ -417,12 +417,12 @@ type endlessWorkspaceOwnerTaskStore struct {
 	calls int
 }
 
-func (store *endlessWorkspaceOwnerTaskStore) ListRunsByFilter(_ context.Context, filter taskstate.RunFilter) ([]types.TaskRun, error) {
+func (store *endlessWorkspaceOwnerTaskStore) ListWorkspaceOwnerSummaries(_ context.Context, _ string, limit int) ([]taskstate.WorkspaceOwnerSummary, error) {
 	start := store.calls * workspaceOwnerScanPageSize
 	store.calls++
-	runs := make([]types.TaskRun, filter.Limit)
+	runs := make([]taskstate.WorkspaceOwnerSummary, limit)
 	for index := range runs {
-		runs[index] = types.TaskRun{ID: fmt.Sprintf("run-%08d", start+index), Status: "future_active"}
+		runs[index] = taskstate.WorkspaceOwnerSummary{ID: fmt.Sprintf("run-%08d", start+index), Status: "future_active"}
 	}
 	return runs, nil
 }

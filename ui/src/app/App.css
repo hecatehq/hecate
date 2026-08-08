@@ -676,6 +676,12 @@ html[data-tauri-os="macos"] .hecate-shell {
   color: var(--red);
 }
 
+.page-banner--pending {
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
+  background: color-mix(in srgb, var(--amber) 10%, var(--bg1));
+  color: var(--amber);
+}
+
 /* Toast notifications */
 .toast {
   position: fixed;

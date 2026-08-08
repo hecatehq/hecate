@@ -265,6 +265,9 @@ jobs:
       - name: Test native ACP prompt staging
         run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable)'
 
+      - name: Test native workspace and Git confinement
+        run: go test ./internal/localfs ./internal/gitrunner ./internal/workspacefs
+
   build-hecate:
     name: Build hecate
     needs: changes
