@@ -1648,9 +1648,11 @@ External Agent chats: it reports the agent runtimes Hecate knows how to
 supervise and whether their command can be found. This endpoint is deliberately
 cheap so the app can render startup state without spawning coding-agent CLIs.
 An eligible discovered command is available for an explicit chat launch; this
-does not claim that auth or ACP initialization will succeed. Use the optional
-`POST /hecate/v1/agent-adapters/{id}/probe` diagnostic for live version, auth,
-capability, and launch-control troubleshooting without creating a durable chat.
+does not claim that auth or ACP initialization will succeed. Connections then
+runs one bounded `POST /hecate/v1/agent-adapters/{id}/probe` check for each
+available adapter; **Check again** repeats it. That check may execute the
+selected app to refresh live version, auth, capability, and launch-control
+details, but it does not create a durable chat or authorize a later launch.
 
 Discovery checks the Hecate process's `PATH` followed by allowlisted standard
 vendor, Homebrew, Volta, npm, pnpm, and WinGet locations for the selected
@@ -1986,8 +1988,8 @@ Compatibility read for one adapter's passive discovery state. It performs the
 same non-executing path inspection as the catalog and never starts the selected
 app. **New chat** re-resolves it and prepares the real ACP session; the first
 message checks any deferred prompt-serving vendor invocation and auth. Use the
-explicit POST probe only for optional live version, auth classification, and
-ACP-capability diagnostics.
+Connections check or **Check again** for live version, auth classification, and
+ACP capabilities. It may execute the selected app, while this read never does.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
