@@ -229,14 +229,21 @@ type ScheduledRunStore interface {
 }
 
 type RunFilter struct {
-	TaskID          string
-	Statuses        []string
-	ExcludeStatuses []string
-	Limit           int
+	TaskID   string
+	Statuses []string
+	Limit    int
 	// OrderByID switches to stable id-ascending order for cursor scans.
 	// AfterID is exclusive and is only applied with OrderByID.
 	OrderByID bool
 	AfterID   string
+}
+
+// WorkspaceOwnerSummary is the minimum durable task-run state needed to
+// decide whether a workspace may still have active work.
+type WorkspaceOwnerSummary struct {
+	ID            string
+	Status        string
+	WorkspacePath string
 }
 
 // EventFilter scopes a cross-run event query for the public events
@@ -427,6 +434,11 @@ type Store interface {
 	GetRun(ctx context.Context, taskID, runID string) (types.TaskRun, bool, error)
 	ListRuns(ctx context.Context, taskID string) ([]types.TaskRun, error)
 	ListRunsByFilter(ctx context.Context, filter RunFilter) ([]types.TaskRun, error)
+	// ListWorkspaceOwnerSummaries returns a bounded, ID-ordered page without
+	// hydrating TaskRun payloads. Only exact known terminal statuses are
+	// excluded; empty or future statuses remain candidates so coordination
+	// fails closed across rolling-version changes. afterID is exclusive.
+	ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error)
 	UpdateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error)
 	ApplyRunStartTransition(ctx context.Context, transition RunStartTransition) (RunStartTransitionResult, error)
 	ApplyRunStateTransition(ctx context.Context, transition RunStateTransition) (RunStateTransitionResult, error)

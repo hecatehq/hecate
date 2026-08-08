@@ -142,6 +142,10 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreListRunsByFilterStatusSet(t, factory(t))
 	})
+	t.Run(name+"/ListWorkspaceOwnerSummaries", func(t *testing.T) {
+		t.Parallel()
+		runStoreListWorkspaceOwnerSummaries(t, factory(t))
+	})
 	t.Run(name+"/DeleteTaskCascades", func(t *testing.T) {
 		t.Parallel()
 		runStoreDeleteTaskCascades(t, factory(t))
@@ -3077,19 +3081,47 @@ func runStoreListRunsByFilterStatusSet(t *testing.T, store Store) {
 	if len(secondPage) != 2 || secondPage[0].ID != "run-queued" || secondPage[1].ID != "run-running" {
 		t.Fatalf("cursor second page = %+v", secondPage)
 	}
-	if _, err := store.CreateRun(ctx, types.TaskRun{ID: "run-unknown", TaskID: "task-rfilter", Number: 5, Status: "future_nonterminal", StartedAt: now.Add(5 * time.Second)}); err != nil {
-		t.Fatalf("CreateRun(unknown): %v", err)
+}
+
+func runStoreListWorkspaceOwnerSummaries(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	runs := []types.TaskRun{
+		{ID: "run_cancelled", TaskID: "task-owner", Status: "cancelled", WorkspacePath: "/workspace/cancelled"},
+		{ID: "run_completed", TaskID: "task-owner", Status: "completed", WorkspacePath: "/workspace/completed"},
+		{ID: "run_empty", TaskID: "task-owner", Status: "", WorkspacePath: "/workspace/empty"},
+		{ID: "run_failed", TaskID: "task-owner", Status: "failed", WorkspacePath: "/workspace/failed"},
+		{ID: "run_future", TaskID: "task-owner", Status: "future_nonterminal", WorkspacePath: "/workspace/future"},
+		{ID: "run_queued", TaskID: "task-owner", Status: "queued", WorkspacePath: "/workspace/queued"},
+		{ID: "run_running", TaskID: "task-owner", Status: "running", WorkspacePath: "/workspace/running-before-update"},
 	}
-	nonterminal, err := store.ListRunsByFilter(ctx, RunFilter{
-		TaskID:          "task-rfilter",
-		ExcludeStatuses: []string{"completed", "failed", "cancelled"},
-		OrderByID:       true,
-	})
+	for _, run := range runs {
+		if _, err := store.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(%s): %v", run.ID, err)
+		}
+	}
+	running := runs[len(runs)-1]
+	running.WorkspacePath = "/workspace/running"
+	if _, err := store.UpdateRun(ctx, running); err != nil {
+		t.Fatalf("UpdateRun(running workspace): %v", err)
+	}
+
+	first, err := store.ListWorkspaceOwnerSummaries(ctx, "", 2)
 	if err != nil {
-		t.Fatalf("ListRunsByFilter(exclude terminal): %v", err)
+		t.Fatalf("ListWorkspaceOwnerSummaries(first): %v", err)
 	}
-	if len(nonterminal) != 3 || nonterminal[0].ID != "run-queued" || nonterminal[1].ID != "run-running" || nonterminal[2].ID != "run-unknown" {
-		t.Fatalf("nonterminal runs = %+v, want queued/running/unknown", nonterminal)
+	if len(first) != 2 || first[0] != (WorkspaceOwnerSummary{ID: "run_empty", Status: "", WorkspacePath: "/workspace/empty"}) || first[1] != (WorkspaceOwnerSummary{ID: "run_future", Status: "future_nonterminal", WorkspacePath: "/workspace/future"}) {
+		t.Fatalf("first owner page = %+v, want empty and future statuses", first)
+	}
+	second, err := store.ListWorkspaceOwnerSummaries(ctx, first[len(first)-1].ID, 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(second): %v", err)
+	}
+	if len(second) != 2 || second[0] != (WorkspaceOwnerSummary{ID: "run_queued", Status: "queued", WorkspacePath: "/workspace/queued"}) || second[1] != (WorkspaceOwnerSummary{ID: "run_running", Status: "running", WorkspacePath: "/workspace/running"}) {
+		t.Fatalf("second owner page = %+v, want queued and updated running projection", second)
+	}
+	if _, err := store.ListWorkspaceOwnerSummaries(ctx, "", 0); err == nil {
+		t.Fatal("ListWorkspaceOwnerSummaries(limit=0) succeeded")
 	}
 }
 

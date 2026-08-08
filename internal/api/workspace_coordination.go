@@ -10,9 +10,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/localfs"
-	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
-	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const (
@@ -85,23 +83,15 @@ func (h *Handler) chatWorkspaceDurableOwner(ctx context.Context, workspaceKey, c
 	taskScanned := 0
 	for {
 		pageLimit := min(workspaceOwnerScanPageSize, workspaceOwnerScanMaxEntries-taskScanned+1)
-		runs, err := h.taskStore.ListRunsByFilter(ctx, taskstate.RunFilter{
-			ExcludeStatuses: []string{"completed", "failed", "cancelled"},
-			Limit:           pageLimit,
-			OrderByID:       true,
-			AfterID:         afterID,
-		})
+		runs, err := h.taskStore.ListWorkspaceOwnerSummaries(ctx, afterID, pageLimit)
 		if err != nil {
-			return "", false, fmt.Errorf("list task runs: %w", err)
+			return "", false, fmt.Errorf("list task workspace owners: %w", err)
 		}
 		taskScanned += len(runs)
 		if taskScanned > workspaceOwnerScanMaxEntries {
 			return "", false, errors.New("task workspace owner inventory exceeds the safe scan limit")
 		}
 		for _, run := range runs {
-			if types.IsTerminalTaskRunStatus(strings.TrimSpace(run.Status)) {
-				continue
-			}
 			matches, err := workspacePathOverlapsCanonical(inspector, run.WorkspacePath, workspaceKey)
 			if err != nil {
 				return "", false, fmt.Errorf("verify task workspace: %w", err)

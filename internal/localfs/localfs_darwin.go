@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 )
 
 type Inspector struct {
@@ -62,16 +64,17 @@ func (inspector *Inspector) EnsurePath(path string) error {
 	ambiguous := false
 	for _, mount := range inspector.mounts {
 		mountPoint := cString(mount.Mntonname[:])
-		if !containsPath(mountPoint, absolute) || len(mountPoint) < bestLength {
+		mountKey := darwinComparablePath(mountPoint)
+		if !containsPath(mountPoint, absolute) || len(mountKey) < bestLength {
 			continue
 		}
-		if len(mountPoint) == bestLength {
+		if len(mountKey) == bestLength {
 			// Stacked mounts share a mount point. Fail closed instead of trusting
 			// a possibly hidden local entry from this point-in-time inventory.
 			ambiguous = true
 			continue
 		}
-		bestLength = len(mountPoint)
+		bestLength = len(mountKey)
 		bounded = boundedDarwinFilesystem(mount)
 		ambiguous = false
 	}
@@ -95,7 +98,7 @@ func (inspector *Inspector) EnsureTree(path string) error {
 		if !containsPath(absolute, point) {
 			continue
 		}
-		key := strings.ToLower(point)
+		key := darwinComparablePath(point)
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("%w: stacked mount beneath inspected tree", ErrUnboundedFilesystem)
 		}
@@ -141,9 +144,16 @@ func cString(value []byte) string {
 }
 
 func containsPath(root, path string) bool {
-	// Most Darwin installations use case-insensitive APFS. Conservatively fold
-	// case so an alternate-case spelling cannot hide a nested remote/FUSE mount;
-	// a false rejection on a case-sensitive volume is safer than pre-opening it.
-	relative, err := filepath.Rel(strings.ToLower(root), strings.ToLower(path))
+	// Most Darwin installations use case-insensitive APFS or HFS paths whose
+	// lookups also treat canonically equivalent Unicode spellings as identical.
+	// Conservatively normalize and fold both sides so alternate case or NFC/NFD
+	// spelling cannot hide a nested remote/FUSE mount. False rejection on a
+	// stricter volume is safer than pre-opening an unclassified target.
+	relative, err := filepath.Rel(darwinComparablePath(root), darwinComparablePath(path))
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func darwinComparablePath(path string) string {
+	decomposed := norm.NFD.String(filepath.Clean(path))
+	return norm.NFD.String(cases.Fold().String(decomposed))
 }

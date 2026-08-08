@@ -206,7 +206,7 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 	if err != nil {
 		return nil, err
 	}
-	if len(filter.Statuses) == 0 && len(filter.ExcludeStatuses) == 0 {
+	if len(filter.Statuses) == 0 {
 		if filter.OrderByID {
 			runs = filterRunsByIDCursor(runs, filter.AfterID)
 		}
@@ -219,18 +219,9 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 	for _, status := range filter.Statuses {
 		allowed[status] = struct{}{}
 	}
-	excluded := make(map[string]struct{}, len(filter.ExcludeStatuses))
-	for _, status := range filter.ExcludeStatuses {
-		excluded[status] = struct{}{}
-	}
 	filtered := make([]types.TaskRun, 0, len(runs))
 	for _, run := range runs {
-		if len(allowed) > 0 {
-			if _, ok := allowed[run.Status]; !ok {
-				continue
-			}
-		}
-		if _, ok := excluded[run.Status]; ok {
+		if _, ok := allowed[run.Status]; !ok {
 			continue
 		}
 		filtered = append(filtered, run)
@@ -251,6 +242,30 @@ func filterRunsByIDCursor(runs []types.TaskRun, afterID string) []types.TaskRun 
 	}
 	first := sort.Search(len(runs), func(i int) bool { return runs[i].ID > afterID })
 	return runs[first:]
+}
+
+func (s *MemoryStore) ListWorkspaceOwnerSummaries(_ context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("workspace owner summary limit must be positive")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]WorkspaceOwnerSummary, 0, min(limit, len(s.runs)))
+	for id, run := range s.runs {
+		if id <= afterID || types.IsTerminalTaskRunStatus(run.Status) {
+			continue
+		}
+		items = append(items, WorkspaceOwnerSummary{
+			ID:            run.ID,
+			Status:        run.Status,
+			WorkspacePath: run.WorkspacePath,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func (s *MemoryStore) UpdateRun(_ context.Context, run types.TaskRun) (types.TaskRun, error) {

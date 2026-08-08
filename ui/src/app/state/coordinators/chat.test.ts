@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { findReusableEmptyDraftSession, queuedCommittedTurnIsTerminal } from "./chat";
+import {
+  chatWorkspaceDiscardTransportFailureMessage,
+  classifyChatWorkspaceDiscardResult,
+  findReusableEmptyDraftSession,
+  queuedCommittedTurnIsTerminal,
+} from "./chat";
 
 import type { ChatSessionSummaryRecord } from "../../../types/chat";
 
@@ -236,5 +241,59 @@ describe("queuedCommittedTurnIsTerminal", () => {
         "u1",
       ),
     ).toBe(false);
+  });
+});
+
+describe("workspace discard result classification", () => {
+  it("accepts only legacy absence or the exact applied outcome", () => {
+    expect(classifyChatWorkspaceDiscardResult(undefined, 1)).toMatchObject({
+      authoritative: true,
+      noticeType: "success",
+    });
+    expect(
+      classifyChatWorkspaceDiscardResult({ outcome: "applied", refresh_required: true }, 0),
+    ).toMatchObject({
+      authoritative: true,
+      noticeType: "success",
+      message: "Workspace changes were discarded. Refresh the review before another discard.",
+    });
+  });
+
+  it.each(["outcome_unknown", "future_server_outcome", " applied ", "", " "])(
+    "fails closed for non-authoritative outcome %s",
+    (outcome) => {
+      const decision = classifyChatWorkspaceDiscardResult({ outcome }, 1);
+      expect(decision.authoritative).toBe(false);
+      expect(decision.noticeType).toBe("error");
+      expect(decision.message).toMatch(/may have been applied/i);
+      expect(decision.message).toMatch(/inspect Git/i);
+    },
+  );
+
+  it.each([null, undefined, 42])("fails closed for malformed present outcome %s", (outcome) => {
+    const decision = classifyChatWorkspaceDiscardResult({ outcome } as any, 1);
+    expect(decision.authoritative).toBe(false);
+    expect(decision.message).toMatch(/may have been applied/i);
+  });
+
+  it("preserves the applied cleanup warning without invalidating the refreshed snapshot", () => {
+    expect(
+      classifyChatWorkspaceDiscardResult(
+        { outcome: "applied", cleanup_failed: true, refresh_required: true },
+        1,
+      ),
+    ).toEqual({
+      authoritative: true,
+      noticeType: "error",
+      message:
+        "Workspace changes were discarded, but Git cleanup did not finish. Refresh the review and check Git before continuing.",
+    });
+  });
+
+  it("describes transport failures as ambiguous after submit", () => {
+    const message = chatWorkspaceDiscardTransportFailureMessage(new Error("connection closed"));
+    expect(message).toContain("connection closed");
+    expect(message).toMatch(/may have been applied/i);
+    expect(message).toMatch(/inspect Git/i);
   });
 });

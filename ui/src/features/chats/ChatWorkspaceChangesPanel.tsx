@@ -35,6 +35,8 @@ const WORKSPACE_REVIEW_LAYER_ORDER: ChatWorkspaceReviewLayerKind[] = [
   "untracked",
 ];
 const DISCARD_ALL_WORKING_TREE_KEY = "workspace-review:discard-all-working-tree";
+const WORKSPACE_REVIEW_INITIAL_RENDER_LIMIT = 150;
+const WORKSPACE_REVIEW_RENDER_INCREMENT = 150;
 const TEXT_DIFF_EXTENSIONS = new Set([
   "c",
   "cc",
@@ -175,6 +177,7 @@ export function ChatWorkspaceChangesPanel({
   onGetWorkspaceFiles,
   onGetWorkspaceFileDiff,
   onRevertWorkspaceFiles,
+  onDiscardPendingChange,
 }: {
   sessionID: string;
   workspace: string;
@@ -191,6 +194,7 @@ export function ChatWorkspaceChangesPanel({
     paths: string[],
     expectedRevision: string,
   ) => Promise<ChatWorkspaceDiffRecord | null>;
+  onDiscardPendingChange?: (pending: boolean) => void;
 }) {
   const [activeView, setActiveView] = useState<"review" | "files">("review");
   const [snapshot, setSnapshot] = useState<ChatWorkspaceDiffRecord | null>(null);
@@ -754,6 +758,7 @@ export function ChatWorkspaceChangesPanel({
     setLoadingPath("");
     setRevertingPath(intent.key);
     setLocalError("");
+    onDiscardPendingChange?.(true);
     try {
       const next = await onRevertWorkspaceFiles(
         intent.owner.sessionID,
@@ -796,7 +801,9 @@ export function ChatWorkspaceChangesPanel({
         replaceFileDiffs(intent.owner, {});
         setExpandedDiffPaths([]);
         setReviewFailed(true);
-        setLocalError("Could not discard those workspace changes.");
+        setLocalError(
+          "Hecate could not confirm the discard result. Changes may have been applied. Refresh and inspect Git before continuing.",
+        );
       }
     } catch {
       if (isCurrentOperation(revertOperationRef, operation)) {
@@ -805,9 +812,12 @@ export function ChatWorkspaceChangesPanel({
         replaceFileDiffs(intent.owner, {});
         setExpandedDiffPaths([]);
         setReviewFailed(true);
-        setLocalError("Could not discard those workspace changes.");
+        setLocalError(
+          "Hecate could not confirm the discard result. Changes may have been applied. Refresh and inspect Git before continuing.",
+        );
       }
     } finally {
+      onDiscardPendingChange?.(false);
       const canWrite = isCurrentOperation(revertOperationRef, operation);
       finishOperation(revertOperationRef, operation);
       if (canWrite) {
@@ -1039,6 +1049,7 @@ export function ChatWorkspaceChangesPanel({
               active={activeView === "review"}
               buttonRef={reviewTabRef}
               controlsID={reviewPanelID}
+              disabled={Boolean(revertingPath)}
               icon={Icons.tasks}
               id={reviewTabID}
               label="Review"
@@ -1050,6 +1061,7 @@ export function ChatWorkspaceChangesPanel({
               active={activeView === "files"}
               buttonRef={filesTabRef}
               controlsID={filesPanelID}
+              disabled={Boolean(revertingPath)}
               icon={Icons.folder}
               id={filesTabID}
               label="Files"
@@ -1089,6 +1101,11 @@ export function ChatWorkspaceChangesPanel({
           </div>
         </div>
         <WorkspacePathLabel workspace={workspace} />
+        {renderedOwner && revertingPath && (
+          <div style={{ color: "var(--amber)", fontSize: 10.5 }}>
+            Discarding workspace changes… Keep this review open until Hecate confirms the result.
+          </div>
+        )}
       </div>
 
       <div
@@ -1194,6 +1211,7 @@ function WorkspacePanelTab({
   active,
   buttonRef,
   controlsID,
+  disabled,
   icon,
   id,
   label,
@@ -1204,6 +1222,7 @@ function WorkspacePanelTab({
   active: boolean;
   buttonRef: RefObject<HTMLButtonElement | null>;
   controlsID: string;
+  disabled: boolean;
   icon: string | string[];
   id: string;
   label: string;
@@ -1216,6 +1235,7 @@ function WorkspacePanelTab({
       aria-controls={active ? controlsID : undefined}
       aria-selected={active}
       className="workspace-panel-tab"
+      disabled={disabled}
       id={id}
       onClick={onClick}
       onKeyDown={(event) => {
@@ -1235,7 +1255,7 @@ function WorkspacePanelTab({
         border: "1px solid transparent",
         borderRadius: 8,
         color: active ? "var(--t0)" : "var(--t2)",
-        cursor: "pointer",
+        cursor: disabled ? "wait" : "pointer",
         display: "flex",
         gap: 6,
         justifyContent: "center",
@@ -1248,6 +1268,7 @@ function WorkspacePanelTab({
         width: "100%",
       }}
       tabIndex={active ? 0 : -1}
+      title={disabled ? "Wait for workspace discard to finish" : undefined}
       type="button"
     >
       <Icon d={icon} size={12} strokeWidth={1.7} />
@@ -1302,6 +1323,29 @@ function LayeredWorkspaceReviewView({
   const discardAllButtonRef = useRef<HTMLButtonElement | null>(null);
   const layers = orderedWorkspaceReviewLayers(snapshot);
   const filteredLayers = filterWorkspaceReviewLayers(layers, query);
+  const [renderWindow, setRenderWindow] = useState({
+    snapshot,
+    query,
+    limit: WORKSPACE_REVIEW_INITIAL_RENDER_LIMIT,
+  });
+  const renderLimit =
+    renderWindow.snapshot === snapshot && renderWindow.query === query
+      ? renderWindow.limit
+      : WORKSPACE_REVIEW_INITIAL_RENDER_LIMIT;
+  useEffect(() => {
+    setRenderWindow((current) =>
+      current.snapshot === snapshot && current.query === query
+        ? current
+        : { snapshot, query, limit: WORKSPACE_REVIEW_INITIAL_RENDER_LIMIT },
+    );
+  }, [query, snapshot]);
+  const boundedLayers = boundWorkspaceReviewLayers(filteredLayers, renderLimit);
+  const filteredEntryCount = filteredLayers.reduce((count, layer) => count + layer.files.length, 0);
+  const renderedEntryCount = boundedLayers.reduce(
+    (count, layer) => count + layer.visibleFiles.length,
+    0,
+  );
+  const remainingEntryCount = Math.max(0, filteredEntryCount - renderedEntryCount);
   const workingTree = layers.find((layer) => layer.kind === "working_tree");
   const totalEntries = layers.reduce(
     (count, layer) => count + layer.files.length + (layer.omitted_count ?? 0),
@@ -1310,7 +1354,7 @@ function LayeredWorkspaceReviewView({
   const hasChanges =
     snapshot.has_changes || totalEntries > 0 || Boolean(snapshot.review_issues?.length);
   const discardAvailable = Boolean(workspaceDiscardRevision(snapshot));
-  const discardReason = workspaceDiscardReason(snapshot, revertDisabled);
+  const discardReason = workspaceDiscardReason(snapshot, revertDisabled && !revertingKey);
   const showDiscardReason =
     Boolean(discardReason) &&
     (Boolean(workingTree?.files.length) ||
@@ -1436,6 +1480,7 @@ function LayeredWorkspaceReviewView({
           />
         )}
         <SearchBox
+          disabled={Boolean(revertingKey)}
           label="Search workspace changes"
           placeholder="Search workspace changes"
           value={query}
@@ -1451,7 +1496,7 @@ function LayeredWorkspaceReviewView({
             overscrollBehavior: "contain",
           }}
         >
-          {filteredLayers.map((layer) => (
+          {boundedLayers.map(({ layer, visibleFiles }) => (
             <WorkspaceReviewLayer
               key={layer.kind}
               confirmRevertKey={confirmRevertKey}
@@ -1460,6 +1505,7 @@ function LayeredWorkspaceReviewView({
               discardAvailable={discardAvailable}
               expandedEntryIDs={expandedEntryIDs}
               layer={layer}
+              visibleFiles={visibleFiles}
               query={query}
               revertingKey={revertingKey}
               revertDisabled={revertDisabled}
@@ -1471,6 +1517,31 @@ function LayeredWorkspaceReviewView({
               onToggleEntry={onToggleEntry}
             />
           ))}
+          {remainingEntryCount > 0 && (
+            <div
+              style={{
+                alignItems: "center",
+                background: "var(--bg0)",
+                display: "flex",
+                justifyContent: "center",
+                padding: 10,
+              }}
+            >
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  setRenderWindow({
+                    snapshot,
+                    query,
+                    limit: renderLimit + WORKSPACE_REVIEW_RENDER_INCREMENT,
+                  })
+                }
+                type="button"
+              >
+                Show more changes · {remainingEntryCount} remaining
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -1485,6 +1556,7 @@ function WorkspaceReviewLayer({
   discardReason,
   expandedEntryIDs,
   layer,
+  visibleFiles,
   query,
   revertingKey,
   revertDisabled,
@@ -1501,6 +1573,7 @@ function WorkspaceReviewLayer({
   discardReason: string;
   expandedEntryIDs: string[];
   layer: CanonicalWorkspaceReviewLayer;
+  visibleFiles: ChatWorkspaceReviewFileRecord[];
   query: string;
   revertingKey: string;
   revertDisabled: boolean;
@@ -1573,8 +1646,8 @@ function WorkspaceReviewLayer({
           aria-label={`${layerLabel} change entries`}
           style={{ listStyle: "none", margin: 0, padding: 0 }}
         >
-          {layer.files.map((file) => (
-            <li key={file.id}>
+          {visibleFiles.map((file) => (
+            <li data-testid="workspace-review-entry" key={file.id}>
               <WorkspaceReviewEntry
                 confirmRevertKey={confirmRevertKey}
                 copied={copiedKey === `review-entry:${file.id}`}
@@ -1913,6 +1986,25 @@ function filterWorkspaceReviewLayers(
     ...layer,
     files: layer.files.filter((file) => file.path.toLowerCase().includes(query)),
   }));
+}
+
+function boundWorkspaceReviewLayers(
+  layers: CanonicalWorkspaceReviewLayer[],
+  rawLimit: number,
+): { layer: CanonicalWorkspaceReviewLayer; visibleFiles: ChatWorkspaceReviewFileRecord[] }[] {
+  let remaining = Math.max(0, Math.floor(rawLimit));
+  let nonemptyLayers = layers.filter((layer) => layer.files.length > 0).length;
+  return layers.map((layer) => {
+    if (layer.files.length === 0 || remaining === 0) {
+      if (layer.files.length > 0) nonemptyLayers -= 1;
+      return { layer, visibleFiles: [] };
+    }
+    const fairShare = Math.ceil(remaining / Math.max(1, nonemptyLayers));
+    const visibleFiles = layer.files.slice(0, fairShare);
+    remaining -= visibleFiles.length;
+    nonemptyLayers -= 1;
+    return { layer, visibleFiles };
+  });
 }
 
 function workspaceDiscardRevision(snapshot: ChatWorkspaceDiffRecord | null): string {
@@ -2309,6 +2401,7 @@ function WorkspaceReviewView({
           )}
         </div>
         <SearchBox
+          disabled={Boolean(revertingPath)}
           label="Search changed files"
           placeholder="Search changed files"
           value={query}
@@ -2776,10 +2869,12 @@ function WorkspaceFileTreeRow({
 }) {
   if (node.kind === "folder") {
     const expanded = expandedDirPaths.includes(node.path);
+    const displayName = escapeWorkspacePathForDisplay(node.name);
+    const displayPath = escapeWorkspacePathForDisplay(node.path);
     return (
       <div style={{ display: "grid", minWidth: 0 }}>
         <button
-          aria-label={`${expanded ? "Collapse" : "Expand"} folder ${node.path}`}
+          aria-label={`${expanded ? "Collapse" : "Expand"} folder ${displayPath}`}
           onClick={() => onToggleFolder(node.path)}
           style={{
             alignItems: "center",
@@ -2809,7 +2904,7 @@ function WorkspaceFileTreeRow({
               whiteSpace: "nowrap",
             }}
           >
-            {node.name}
+            {displayName}
           </span>
           <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9.5 }}>
             {node.fileCount}
@@ -2828,9 +2923,12 @@ function WorkspaceFileTreeRow({
     );
   }
 
+  const displayName = escapeWorkspacePathForDisplay(node.name);
+  const displayPath = escapeWorkspacePathForDisplay(node.file.path);
+
   return (
     <div
-      title={node.file.path}
+      title={displayPath}
       style={{
         alignItems: "center",
         borderTop: "1px solid var(--border)",
@@ -2879,7 +2977,7 @@ function WorkspaceFileTreeRow({
           whiteSpace: "nowrap",
         }}
       >
-        {node.name}
+        {displayName}
       </span>
       {node.file.status && (
         <span style={{ color: fileStatusColor(node.file.status), fontSize: 9.5 }}>
@@ -2891,11 +2989,13 @@ function WorkspaceFileTreeRow({
 }
 
 function SearchBox({
+  disabled = false,
   label,
   placeholder,
   value,
   onChange,
 }: {
+  disabled?: boolean;
   label: string;
   placeholder: string;
   value: string;
@@ -2918,6 +3018,7 @@ function SearchBox({
       <input
         aria-label={label}
         className="workspace-panel-search-input"
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         style={{

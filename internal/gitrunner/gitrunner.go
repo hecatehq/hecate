@@ -140,6 +140,10 @@ type LocalRunner struct {
 	Env           []string
 	ReadOnlyPaths []string
 
+	// tempDir is a package-test seam for passive Git metadata placement.
+	// Production constructors leave it nil and use os.TempDir.
+	tempDir func() string
+
 	// beforeReverseApply is a package-test seam invoked after the real Git
 	// index is reserved and rechecked but before worktree mutation. Production
 	// constructors leave it nil.
@@ -157,6 +161,13 @@ type LocalRunner struct {
 
 func NewLocalRunner() *LocalRunner {
 	return &LocalRunner{Process: processrunner.NewLocalRunner()}
+}
+
+func (r *LocalRunner) passiveTempDir() string {
+	if r != nil && r.tempDir != nil {
+		return r.tempDir()
+	}
+	return os.TempDir()
 }
 
 func (r *LocalRunner) Run(ctx context.Context, workspace string, args ...string) (Result, error) {
@@ -312,6 +323,9 @@ func (r *LocalRunner) SnapshotDiff(ctx context.Context, workspace string, maxByt
 		return DiffSnapshot{}, err
 	}
 	if err := view.RejectSubmoduleChanges(diffCtx); err != nil {
+		if errors.Is(err, ErrReviewSnapshotInvalid) {
+			return DiffSnapshot{}, fmt.Errorf("%w: %v", ErrDiffSnapshotInvalid, err)
+		}
 		return DiffSnapshot{}, err
 	}
 	stat, _ := view.RunLimited(diffCtx, maxBytes, passiveInspectionArgs(
@@ -391,6 +405,13 @@ func (r *LocalRunner) SnapshotReview(ctx context.Context, workspace string, maxB
 		}
 		return ReviewSnapshot{}, err
 	}
+	unmergedBefore, err := view.UnmergedPaths(reviewCtx)
+	if err != nil {
+		if errors.Is(err, errInspectionMetadataTooLarge) {
+			return ReviewSnapshot{}, ErrReviewSnapshotTooLarge
+		}
+		return ReviewSnapshot{}, err
+	}
 	statusBefore, err := view.captureReviewStatus(reviewCtx, maxBytes)
 	if err != nil {
 		return ReviewSnapshot{}, err
@@ -399,6 +420,9 @@ func (r *LocalRunner) SnapshotReview(ctx context.Context, workspace string, maxB
 	if err != nil {
 		return ReviewSnapshot{}, err
 	}
+	parsedBefore.conflicts = mergeReviewPaths(parsedBefore.conflicts, unmergedBefore)
+	parsedBefore.staged = mergeReviewPaths(parsedBefore.staged, unmergedBefore)
+	parsedBefore.unstaged = mergeReviewPaths(parsedBefore.unstaged, unmergedBefore)
 	staged := ReviewLayerSnapshot{Paths: append([]string(nil), parsedBefore.staged...), IncompleteReason: "unmerged_state"}
 	unstaged := ReviewLayerSnapshot{Paths: append([]string(nil), parsedBefore.unstaged...), IncompleteReason: "unmerged_state"}
 	if len(parsedBefore.conflicts) == 0 {
@@ -420,6 +444,16 @@ func (r *LocalRunner) SnapshotReview(ctx context.Context, workspace string, maxB
 		return ReviewSnapshot{}, err
 	}
 	if statusBefore != statusAfter {
+		return ReviewSnapshot{}, ErrReviewSnapshotChanged
+	}
+	unmergedAfter, err := view.UnmergedPaths(reviewCtx)
+	if err != nil {
+		if errors.Is(err, errInspectionMetadataTooLarge) {
+			return ReviewSnapshot{}, ErrReviewSnapshotTooLarge
+		}
+		return ReviewSnapshot{}, err
+	}
+	if !slices.Equal(unmergedBefore, unmergedAfter) {
 		return ReviewSnapshot{}, ErrReviewSnapshotChanged
 	}
 	// Porcelain status records carry path and state bytes, not content. Verify
@@ -457,6 +491,9 @@ func (r *LocalRunner) SnapshotReview(ctx context.Context, workspace string, maxB
 	if err != nil {
 		return ReviewSnapshot{}, err
 	}
+	statusPaths.conflicts = mergeReviewPaths(statusPaths.conflicts, unmergedAfter)
+	statusPaths.staged = mergeReviewPaths(statusPaths.staged, unmergedAfter)
+	statusPaths.unstaged = mergeReviewPaths(statusPaths.unstaged, unmergedAfter)
 	if staged.Complete && !equalExactPaths(staged.Paths, statusPaths.staged) {
 		return ReviewSnapshot{}, ErrReviewSnapshotChanged
 	}
@@ -842,6 +879,16 @@ func sortedReviewPaths(paths map[string]struct{}) []string {
 	return result
 }
 
+func mergeReviewPaths(groups ...[]string) []string {
+	paths := make(map[string]struct{})
+	for _, group := range groups {
+		for _, path := range group {
+			paths[path] = struct{}{}
+		}
+	}
+	return sortedReviewPaths(paths)
+}
+
 // StatusPorcelain captures a passive, NUL-delimited porcelain-v1 status for
 // exactly Workspace. Returned paths are normalized relative to Workspace even
 // when it is nested inside a larger Git worktree.
@@ -1166,7 +1213,6 @@ func passiveInspectionArgs(args ...string) []string {
 		"--no-pager",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.untrackedCache=false",
-		"-c", "core.attributesFile=" + os.DevNull,
 		"-c", "submodule.recurse=false",
 		"-c", "fetch.recurseSubmodules=false",
 	}

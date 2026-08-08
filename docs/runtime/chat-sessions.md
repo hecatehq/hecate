@@ -978,8 +978,10 @@ Tracked entries carry bounded inline unified diffs. Untracked regular UTF-8
 files carry bounded inline text; binary, oversized, symlink, special-file,
 nested-repository, conflict, and unavailable previews remain visible as typed
 metadata instead of being opened through a generic path endpoint. An untracked
-preview is capped at 256 KiB, and all inline bodies share one 4 MiB
-response-content budget with tracked display and legacy compatibility content.
+preview source is capped at 256 KiB. Tracked inline bodies and the source bytes
+inspected for untracked previews share one 4 MiB preview budget with duplicated
+legacy compatibility content. Binary source bytes consume the budget even
+though their bodies are not returned, bounding classification work.
 Hecate snapshots effective external Git excludes before inventory, does not
 list paths ignored by those rules, and serves every live review with the
 private, no-store `Cache-Control` policy.

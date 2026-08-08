@@ -1005,9 +1005,10 @@ func TestLocalRunner_SnapshotDiffFailsClosedWhenPatchIsTruncated(t *testing.T) {
 
 func TestLocalRunner_SnapshotReviewRejectsTemporaryDirectoryInsideWorktree(t *testing.T) {
 	dir := initRepo(t)
-	t.Setenv("TMPDIR", dir)
+	runner := NewLocalRunner()
+	runner.tempDir = func() string { return dir }
 
-	_, err := NewLocalRunner().SnapshotReview(t.Context(), dir, 64*1024)
+	_, err := runner.SnapshotReview(t.Context(), dir, 64*1024)
 	if err == nil || !strings.Contains(err.Error(), "overlaps the inspected worktree") {
 		t.Fatalf("SnapshotReview error = %v, want overlapping temporary-directory refusal", err)
 	}
@@ -1025,9 +1026,10 @@ func TestLocalRunner_SnapshotReviewRejectsTemporaryDirectoryInsideWorktree(t *te
 func TestLocalRunner_SnapshotReviewRejectsRelativeTemporaryDirectoryInsideWorktree(t *testing.T) {
 	dir := initRepo(t)
 	t.Chdir(dir)
-	t.Setenv("TMPDIR", ".")
+	runner := NewLocalRunner()
+	runner.tempDir = func() string { return "." }
 
-	_, err := NewLocalRunner().SnapshotReview(t.Context(), dir, 64*1024)
+	_, err := runner.SnapshotReview(t.Context(), dir, 64*1024)
 	if err == nil || !strings.Contains(err.Error(), "overlaps the inspected worktree") {
 		t.Fatalf("SnapshotReview error = %v, want relative overlapping temporary-directory refusal", err)
 	}
@@ -1764,6 +1766,16 @@ func TestSanitizedEnvForWindowsPreservesNativeHomeCaseInsensitively(t *testing.T
 
 func TestDefaultGitExcludesPathForWindowsHomeFallbacks(t *testing.T) {
 	workspace := t.TempDir()
+	xdgHome := filepath.Join(workspace, "xdg")
+	home := filepath.Join(workspace, "home")
+	profile := filepath.Join(workspace, "profile")
+	driveHome := filepath.Join(workspace, "volume", "users", "agent")
+	drive := filepath.VolumeName(driveHome)
+	homePath := strings.TrimPrefix(driveHome, drive)
+	if drive == "" {
+		drive = string(filepath.Separator)
+		homePath = strings.TrimPrefix(homePath, drive)
+	}
 	cases := []struct {
 		name string
 		env  []string
@@ -1771,23 +1783,23 @@ func TestDefaultGitExcludesPathForWindowsHomeFallbacks(t *testing.T) {
 	}{
 		{
 			name: "XDG takes precedence",
-			env:  []string{"XDG_CONFIG_HOME=/xdg", "HOME=/home", "USERPROFILE=/profile"},
-			want: filepath.Join("/xdg", "git", "ignore"),
+			env:  []string{"XDG_CONFIG_HOME=" + xdgHome, "HOME=" + home, "USERPROFILE=" + profile},
+			want: filepath.Join(xdgHome, "git", "ignore"),
 		},
 		{
 			name: "HOME takes precedence over USERPROFILE",
-			env:  []string{"HOME=/home", "USERPROFILE=/profile"},
-			want: filepath.Join("/home", ".config", "git", "ignore"),
+			env:  []string{"HOME=" + home, "USERPROFILE=" + profile},
+			want: filepath.Join(home, ".config", "git", "ignore"),
 		},
 		{
 			name: "USERPROFILE fallback is case insensitive",
-			env:  []string{"userprofile=/profile"},
-			want: filepath.Join("/profile", ".config", "git", "ignore"),
+			env:  []string{"userprofile=" + profile},
+			want: filepath.Join(profile, ".config", "git", "ignore"),
 		},
 		{
 			name: "drive and path fallback",
-			env:  []string{"HOMEDRIVE=/volume", "HOMEPATH=/users/agent"},
-			want: filepath.Join("/volume", "users", "agent", ".config", "git", "ignore"),
+			env:  []string{"HOMEDRIVE=" + drive, "HOMEPATH=" + homePath},
+			want: filepath.Join(driveHome, ".config", "git", "ignore"),
 		},
 	}
 	for _, test := range cases {
@@ -1909,8 +1921,8 @@ func TestReadOnlyViewDoesNotReloadRepositoryConfig(t *testing.T) {
 		"GIT_DIR=" + view.tempDir,
 		"GIT_COMMON_DIR=" + view.tempDir,
 		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=" + os.DevNull,
-		"GIT_CONFIG_SYSTEM=" + os.DevNull,
+		"GIT_CONFIG_GLOBAL=" + filepath.Join(view.tempDir, "global-config"),
+		"GIT_CONFIG_SYSTEM=" + filepath.Join(view.tempDir, "global-config"),
 		"GIT_ATTR_NOSYSTEM=1",
 	} {
 		if !strings.Contains(env, want) {

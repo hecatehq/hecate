@@ -93,11 +93,15 @@ type Props = {
   onFocusRequestHandled?: (nonce: number) => void;
   onSelectChat?: (sessionID: string, mode?: "push" | "replace") => void;
   onSelectChatIntent?: (sessionID: string) => void;
+  workspaceDiscardPending?: boolean;
+  onWorkspaceDiscardPendingChange?: (pending: boolean) => void;
 };
 
 const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
 const DEFAULT_RIGHT_PANEL_WIDTH = 380;
 const CHAT_RIGHT_PANEL_ID = "chat-right-panel";
+const WORKSPACE_DISCARD_PENDING_MESSAGE =
+  "Wait for the workspace discard to finish before leaving this review or starting other workspace work.";
 const PHONE_MASTER_DETAIL_QUERY =
   "(max-width: 720px), (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse)";
 
@@ -163,6 +167,8 @@ export function ChatView({
   onFocusRequestHandled,
   onSelectChat,
   onSelectChatIntent,
+  workspaceDiscardPending: controlledWorkspaceDiscardPending,
+  onWorkspaceDiscardPendingChange,
 }: Props) {
   const runtime = useRuntime();
   const chat = useChat();
@@ -309,6 +315,8 @@ export function ChatView({
   const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
+  const [localWorkspaceDiscardPending, setLocalWorkspaceDiscardPending] = useState(false);
+  const workspaceDiscardPending = controlledWorkspaceDiscardPending ?? localWorkspaceDiscardPending;
   const rightPanelRef = useRef<HTMLElement>(null);
   const rightPanelReturnFocusRef = useRef<HTMLElement | null>(null);
   const rightPanelFocusedAsReplacementRef = useRef(false);
@@ -820,22 +828,26 @@ export function ChatView({
     !anotherChatTurnActive &&
     !chatCreationPending &&
     !workspaceModePending &&
+    !workspaceDiscardPending &&
     !chat.state.chatOwnershipMutationInFlight;
-  const attachmentsDisabledReason = chatAttachmentsDisabledReason({
-    ownershipMutationInFlight: chat.state.chatOwnershipMutationInFlight,
-    workspaceModePending,
-    isExternalAgentChat,
-    externalAgentReady: externalAgentAttachmentsReady,
-    agentBusy: agentBusy || anotherChatTurnActive || chatCreationPending,
-    capability: selectedImageInputCapability,
-    model: hecateChatModelValue,
-  });
+  const attachmentsDisabledReason = workspaceDiscardPending
+    ? "Wait for the workspace discard to finish before attaching files."
+    : chatAttachmentsDisabledReason({
+        ownershipMutationInFlight: chat.state.chatOwnershipMutationInFlight,
+        workspaceModePending,
+        isExternalAgentChat,
+        externalAgentReady: externalAgentAttachmentsReady,
+        agentBusy: agentBusy || anotherChatTurnActive || chatCreationPending,
+        capability: selectedImageInputCapability,
+        model: hecateChatModelValue,
+      });
   const messageSendBlocked =
     !agentBusy &&
     ((isHecateChat && !hecateChatModelReady) ||
       (isExternalAgentChat && externalAgentModelRequired));
 
   function handleHecateModelChange(model: string) {
+    if (blockForWorkspaceDiscard()) return;
     actions.setModel(model);
   }
 
@@ -843,6 +855,7 @@ export function ChatView({
     (!state.message.trim() && pendingAttachments.length === 0) ||
     state.chatCancelling ||
     workspaceModePending ||
+    workspaceDiscardPending ||
     attachmentTurnInFlight ||
     (pendingAttachments.length > 0 && !attachmentsEnabled) ||
     (chatCreationPending && !queueingMessage) ||
@@ -862,6 +875,7 @@ export function ChatView({
     selectedChatReady &&
     isHecateChat &&
     !agentBusy &&
+    !workspaceDiscardPending &&
     !projectNavigationBlockReason() &&
     Boolean(activeSessionProjectID) &&
     Boolean(onNavigate) &&
@@ -870,6 +884,7 @@ export function ChatView({
     selectedChatReady && isAgentChat && Boolean(activeWorkspacePath.trim());
 
   function openAgentSetup(adapterID = activeAgentAdapterID) {
+    if (blockForWorkspaceDiscard()) return;
     try {
       if (adapterID) {
         sessionStorage.setItem("hecate.connectionsFocus", `external-agent-auth-setup-${adapterID}`);
@@ -882,6 +897,7 @@ export function ChatView({
   }
 
   function projectNavigationBlockReason(): string {
+    if (workspaceDiscardPending) return WORKSPACE_DISCARD_PENDING_MESSAGE;
     if (
       chat.actions.hasPendingChatAttachments() ||
       chat.actions.hasChatAttachmentTurn() ||
@@ -1124,6 +1140,7 @@ export function ChatView({
   }, [isRemoteRuntime, isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   async function chooseWorkspace() {
+    if (blockForWorkspaceDiscard()) return;
     if (workspaceDialogOpenRef.current) return;
     if (requiresTypedWorkspacePath) {
       setWorkspacePathValue(state.agentWorkspace);
@@ -1145,6 +1162,7 @@ export function ChatView({
   }
 
   function useTypedWorkspace(path = workspacePathValue) {
+    if (blockForWorkspaceDiscard()) return;
     const next = path.trim();
     if (!next) return;
     actions.setAgentWorkspace(next);
@@ -1265,6 +1283,7 @@ export function ChatView({
   }
 
   function handleRTKChange(enabled: boolean) {
+    if (blockForWorkspaceDiscard()) return;
     if (!enabled) {
       setRTKOnboardingDismissed(true);
     }
@@ -1272,7 +1291,38 @@ export function ChatView({
   }
 
   function handleWorkspaceModeChange(mode: ChatWorkspaceMode) {
+    if (blockForWorkspaceDiscard()) return;
     void actions.setHecateWorkspaceMode(mode);
+  }
+
+  function setWorkspaceDiscardPending(pending: boolean) {
+    if (controlledWorkspaceDiscardPending === undefined) {
+      setLocalWorkspaceDiscardPending(pending);
+    }
+    onWorkspaceDiscardPendingChange?.(pending);
+  }
+
+  function blockForWorkspaceDiscard(): boolean {
+    if (!workspaceDiscardPending) return false;
+    settingsActions.setNoticeMessage("error", WORKSPACE_DISCARD_PENDING_MESSAGE);
+    return true;
+  }
+
+  function navigateFromChat(
+    workspace: "connections" | "tasks" | "overview" | "settings" | "projects",
+  ) {
+    if (blockForWorkspaceDiscard()) return;
+    onNavigate?.(workspace);
+  }
+
+  function openTaskFromChat(taskID: string, runID?: string) {
+    if (blockForWorkspaceDiscard()) return;
+    onOpenTask?.(taskID, runID);
+  }
+
+  function openTraceFromChat(requestID: string) {
+    if (blockForWorkspaceDiscard()) return;
+    onOpenTrace?.(requestID);
   }
 
   function rememberRightPanelFocusOrigin() {
@@ -1285,6 +1335,7 @@ export function ChatView({
 
   function toggleWorkspaceChangesPanel() {
     const opening = !workspaceChangesPanelOpen;
+    if (!opening && blockForWorkspaceDiscard()) return;
     if (opening) rememberRightPanelFocusOrigin();
     setChatSettingsOpen(false);
     setWorkspaceChangesOpen(opening);
@@ -1297,6 +1348,7 @@ export function ChatView({
   }
 
   function toggleChatSettingsPanel() {
+    if (blockForWorkspaceDiscard()) return;
     const opening = !chatSettingsPanelOpen;
     if (opening) rememberRightPanelFocusOrigin();
     setWorkspaceChangesOpen(false);
@@ -1304,6 +1356,7 @@ export function ChatView({
   }
 
   function openChatSettingsPanel() {
+    if (blockForWorkspaceDiscard()) return;
     if (phoneMasterDetailLayout) {
       rightPanelReturnFocusRef.current = textareaRef.current;
     } else {
@@ -1314,6 +1367,7 @@ export function ChatView({
   }
 
   function openChatSidebar() {
+    if (blockForWorkspaceDiscard()) return;
     if (document.activeElement === draftNavigationButtonRef.current) {
       draftNavigationFocusTransferRef.current = false;
     }
@@ -1344,7 +1398,9 @@ export function ChatView({
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
+          workspaceMutationPending={workspaceDiscardPending}
           onSelectSession={async (sessionID, mode) => {
+            if (blockForWorkspaceDiscard()) return false;
             createdChatNavigationPendingRef.current = false;
             onSelectChatIntent?.(sessionID);
             const selected = await actions.selectChatSession(sessionID);
@@ -1359,6 +1415,7 @@ export function ChatView({
             return true;
           }}
           onCreateChat={(agentID, projectID, agentPresetID) => {
+            if (blockForWorkspaceDiscard()) return;
             createdChatNavigationPendingRef.current = true;
             setApprovalModal(null);
             setChatSettingsOpen(false);
@@ -1403,6 +1460,7 @@ export function ChatView({
             showWorkspaceButton={showHeaderWorkspaceButton}
             workspacePath={activeWorkspacePath}
             workspaceDialogOpen={workspaceDialogOpen}
+            navigationDisabled={workspaceDiscardPending}
             workspaceChangesOpen={workspaceChangesOpen}
             chatSettingsOpen={chatSettingsOpen}
             rightPanelID={CHAT_RIGHT_PANEL_ID}
@@ -1484,8 +1542,8 @@ export function ChatView({
                   taskID={state.activeChatSession.task_id}
                   runID={state.activeChatSession.latest_run_id}
                   busyID={taskApprovalBusyID}
-                  disabled={selectedChatCancelling}
-                  onOpenTask={onOpenTask}
+                  disabled={selectedChatCancelling || workspaceDiscardPending}
+                  onOpenTask={onOpenTask ? openTaskFromChat : undefined}
                   onResolve={handleResolveTaskApproval}
                 />
               )}
@@ -1526,10 +1584,10 @@ export function ChatView({
                 transcriptItems={transcriptItems}
                 visibleMessageCount={visibleMessages.length}
                 streaming={streaming}
-                onNavigate={onNavigate}
+                onNavigate={onNavigate ? navigateFromChat : undefined}
                 onFocusRequestHandled={onFocusRequestHandled}
-                onOpenTask={onOpenTask}
-                onOpenTrace={onOpenTrace}
+                onOpenTask={onOpenTask ? openTaskFromChat : undefined}
+                onOpenTrace={onOpenTrace ? openTraceFromChat : undefined}
                 onOpenWorkspaceChanges={openWorkspaceChangesPanel}
                 canOpenProject={canOpenProject}
                 onOpenProject={openProject}
@@ -1544,7 +1602,7 @@ export function ChatView({
                     setupRepair={chatSetupRepair}
                     modelRouteUnavailable={modelRouteUnavailable}
                     selectedModelIssue={selectedModelIssue}
-                    modelMutationDisabled={selectedChatCancelling}
+                    modelMutationDisabled={selectedChatCancelling || workspaceDiscardPending}
                     agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
                     nothingRunnable={nothingRunnable}
                     agentAdapters={state.agentAdapters}
@@ -1557,26 +1615,37 @@ export function ChatView({
                     quickLocalError={quickLocalError}
                     quickAddingProviders={quickAddingProviders}
                     onOpenProviders={() => {
+                      if (blockForWorkspaceDiscard()) return;
                       if (onNavigate) {
-                        onNavigate("connections");
+                        navigateFromChat("connections");
                       } else {
                         setAddProviderOpen(true);
                       }
                     }}
                     onUseSuggestedModel={(model) => {
+                      if (blockForWorkspaceDiscard()) return;
                       actions.setProviderFilter("auto");
                       actions.setModel(model);
                     }}
                     onChooseWorkspace={() => void chooseWorkspace()}
                     onOpenAgentSetup={() => openAgentSetup()}
-                    onQuickAddLocalProviders={quickAddLocalProviders}
+                    onQuickAddLocalProviders={(discoveries) => {
+                      if (blockForWorkspaceDiscard()) return;
+                      void quickAddLocalProviders(discoveries);
+                    }}
                     onRefreshQuickLocalProviders={refreshQuickLocalProviders}
-                    onSwitchTarget={actions.setChatTarget}
+                    onSwitchTarget={(target) => {
+                      if (blockForWorkspaceDiscard()) return;
+                      actions.setChatTarget(target);
+                    }}
                     rtkAvailable={state.hecateRTKAvailable}
                     rtkPath={state.hecateRTKPath}
                     rtkEnabled={state.hecateRTKEnabled}
                     showRTKOnboardingHint={showRTKOnboardingHint}
-                    onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
+                    onEnableRTK={() => {
+                      if (blockForWorkspaceDiscard()) return;
+                      void actions.setHecateRTKEnabled(true);
+                    }}
                   />
                 }
               />
@@ -1711,7 +1780,10 @@ export function ChatView({
                 composerInputDisabled={implicitSessionAllocation}
                 workspaceModePending={workspaceModePending}
                 composerRouteControlsDisabled={
-                  detachedCreationPending || selectedChatCancelling || workspaceModePending
+                  detachedCreationPending ||
+                  selectedChatCancelling ||
+                  workspaceModePending ||
+                  workspaceDiscardPending
                 }
                 composerRepair={composerRepair}
                 suppressChatError={suppressComposerChatError}
@@ -1744,9 +1816,9 @@ export function ChatView({
                 workspaceChangesAvailable={composerWorkspaceChangesAvailable}
                 messageHistory={messageHistory}
                 onDraftProjectProposal={(request) => void draftProjectProposalFromChat(request)}
-                onNavigate={onNavigate}
-                onOpenTask={onOpenTask}
-                onOpenTrace={onOpenTrace}
+                onNavigate={onNavigate ? navigateFromChat : undefined}
+                onOpenTask={onOpenTask ? openTaskFromChat : undefined}
+                onOpenTrace={onOpenTrace ? openTraceFromChat : undefined}
                 onOpenWorkspaceChanges={openWorkspaceChangesPanel}
                 onOpenChatSettings={openChatSettingsPanel}
                 onOpenLinkedProject={
@@ -1791,7 +1863,12 @@ export function ChatView({
                   instructionsAvailable={instructionsAvailable}
                   isHecateAgentChat={isHecateAgentChat}
                   instructionsLocked={messages.length > 0}
-                  mutationsDisabled={selectedChatCancelling || agentBusy || workspaceModePending}
+                  mutationsDisabled={
+                    selectedChatCancelling ||
+                    agentBusy ||
+                    workspaceModePending ||
+                    workspaceDiscardPending
+                  }
                   systemPrompt={state.systemPrompt}
                   onToolsChange={actions.setChatToolsEnabled}
                   onRTKChange={handleRTKChange}
@@ -1805,11 +1882,14 @@ export function ChatView({
                   sessionID={activeSessionID}
                   workspace={activeWorkspacePath}
                   refreshSignal={workspaceRefreshSignal}
-                  revertDisabled={selectedChatCancelling || workspaceRevertBusy}
+                  revertDisabled={
+                    selectedChatCancelling || workspaceRevertBusy || workspaceDiscardPending
+                  }
                   onGetWorkspaceDiff={chatActions.getChatWorkspaceDiff}
                   onGetWorkspaceFiles={chatActions.getChatWorkspaceFiles}
                   onGetWorkspaceFileDiff={chatActions.getChatWorkspaceFileDiff}
                   onRevertWorkspaceFiles={chatActions.revertChatWorkspaceFiles}
+                  onDiscardPendingChange={setWorkspaceDiscardPending}
                 />
               )}
             </ChatRightPanel>

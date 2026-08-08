@@ -6140,6 +6140,124 @@ describe("ChatView external-agent target", () => {
     expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
   });
 
+  it("keeps destructive workspace review visible and blocks conflicting chat work until discard settles", async () => {
+    const patch = [
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1 @@",
+      "-old readme",
+      "+current workspace line",
+    ].join("\n");
+    const changedWorkspace = {
+      workspace: "/tmp/hecate",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: patch,
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        {
+          kind: "working_tree",
+          complete: true,
+          files: [
+            {
+              id: "entry-readme-working",
+              layer: "working_tree",
+              path: "README.md",
+              additions: 1,
+              deletions: 0,
+              status: "modified",
+              preview: { kind: "text_diff", content: patch },
+            },
+          ],
+        },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: true, revision: "revision:pending-discard" },
+    };
+    const cleanWorkspace = {
+      workspace: "/tmp/hecate",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        { kind: "working_tree", complete: true, files: [] },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: false, reason: "no_working_tree_changes" },
+    };
+    let resolveRevert!: (value: typeof cleanWorkspace) => void;
+    const getChatWorkspaceDiff = vi.fn(async () => changedWorkspace);
+    const revertChatWorkspaceFiles = vi.fn(
+      () =>
+        new Promise<typeof cleanWorkspace>((resolve) => {
+          resolveRevert = resolve;
+        }),
+    );
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        message: "Start another task",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            supports_authenticate: false,
+            supports_logout: false,
+          },
+        ],
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, revertChatWorkspaceFiles },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: "Chat settings" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+    await user.click(await screen.findByRole("button", { name: "Discard README.md" }));
+    await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
+
+    await waitFor(() => expect(revertChatWorkspaceFiles).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Workspace changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Chat settings" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.getByRole("region", { name: "Workspace review" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm discard README.md" })).toHaveTextContent(
+      "Working...",
+    );
+
+    await act(async () => resolveRevert(cleanWorkspace));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Workspace changes" })).toBeEnabled(),
+    );
+    expect(screen.getByRole("button", { name: "Chat settings" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    expect(await screen.findByText("The current workspace is clean.")).toBeVisible();
+  });
+
   it("disables workspace discard while the selected external agent is active", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
@@ -6997,7 +7115,11 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Discard README.md" }));
     await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
 
-    expect(await screen.findByText("Could not discard those workspace changes.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Hecate could not confirm the discard result. Changes may have been applied. Refresh and inspect Git before continuing.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Could not load the current workspace diff.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Discard README.md" })).toBeNull();
     expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled();

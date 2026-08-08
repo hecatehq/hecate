@@ -644,6 +644,146 @@ describe("ConsoleShell navigation", () => {
     expect(onSelectWorkspace).not.toHaveBeenCalled();
   });
 
+  it("keeps Chats mounted and disables global navigation while workspace discard is pending", async () => {
+    const patch = [
+      "diff --git a/README.md b/README.md",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n");
+    const changedWorkspace = {
+      workspace: "/tmp/hecate",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: patch,
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        {
+          kind: "working_tree",
+          complete: true,
+          files: [
+            {
+              id: "entry-readme-working",
+              layer: "working_tree",
+              path: "README.md",
+              additions: 1,
+              deletions: 0,
+              status: "modified",
+              preview: { kind: "text_diff", content: patch },
+            },
+          ],
+        },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: true, revision: "revision:global-pending" },
+    };
+    const cleanWorkspace = {
+      workspace: "/tmp/hecate",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+      review_complete: true,
+      layers: [
+        { kind: "staged", complete: true, files: [] },
+        { kind: "working_tree", complete: true, files: [] },
+        { kind: "untracked", complete: true, files: [] },
+      ],
+      discard: { available: false, reason: "no_working_tree_changes" },
+    };
+    let resolveRevert!: (value: typeof cleanWorkspace) => void;
+    const revertChatWorkspaceFiles = vi.fn(
+      () =>
+        new Promise<typeof cleanWorkspace>((resolve) => {
+          resolveRevert = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "external_agent",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
+        title: "Review files",
+        agent_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+      chatSessions: [
+        {
+          id: "chat_1",
+          title: "Review files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          message_count: 0,
+        },
+      ],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+          supports_authenticate: false,
+          supports_logout: false,
+        },
+      ],
+    });
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      getChatWorkspaceDiff: vi.fn(async () => changedWorkspace),
+      revertChatWorkspaceFiles,
+    };
+    const onSelectWorkspace = vi.fn();
+    const view = render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={onSelectWorkspace} />,
+        { state, actions },
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Workspace changes" }, { timeout: 30_000 }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Discard README.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
+
+    await waitFor(() => expect(revertChatWorkspaceFiles).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Navigation and new workspace work are paused/)).toBeVisible();
+    const projectsLink = screen.getByRole("link", { name: "Projects" });
+    expect(projectsLink).toHaveAttribute("aria-disabled", "true");
+    expect(projectsLink).not.toHaveAttribute("href");
+    fireEvent.click(projectsLink, { ctrlKey: true });
+    expect(onSelectWorkspace).not.toHaveBeenCalled();
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        { state, actions },
+      ),
+    );
+    expect(screen.getByRole("region", { name: "Workspace review" })).toBeVisible();
+    await waitFor(() => expect(onSelectWorkspace).toHaveBeenCalledTimes(1));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
+
+    await act(async () => resolveRevert(cleanWorkspace));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Navigation and new workspace work are paused/),
+      ).not.toBeInTheDocument(),
+    );
+  }, 35_000);
+
   it("navigates from a Chat message to its exact Task and Run", async () => {
     const onSelectWorkspace = vi.fn();
     const onTaskNavigate = vi.fn();

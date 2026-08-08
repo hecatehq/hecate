@@ -72,9 +72,9 @@ func (s *SQLiteStore) RecordRichInputProviderAttempt(ctx context.Context, attemp
 	}
 	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
-		SET payload = ?
+		SET workspace_path = ?, payload = ?
 		WHERE id = ? AND task_id = ? AND status = 'running'
-	`, s.runsTable), string(payload), updated.ID, updated.TaskID)
+	`, s.runsTable), updated.WorkspacePath, string(payload), updated.ID, updated.TaskID)
 	if err != nil {
 		return RichInputProviderAttemptResult{}, err
 	}

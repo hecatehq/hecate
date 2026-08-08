@@ -592,6 +592,7 @@ describe("ChatWorkspaceChangesPanel", () => {
       { discard: { available: true, revision: "discard:two-files" } },
     );
     const revertWorkspaceFiles = vi.fn(() => pendingRevert.promise);
+    const onDiscardPendingChange = vi.fn();
     const user = userEvent.setup();
     render(
       <ChatWorkspaceChangesPanel
@@ -601,12 +602,24 @@ describe("ChatWorkspaceChangesPanel", () => {
         onGetWorkspaceFiles={vi.fn(async () => null)}
         onGetWorkspaceFileDiff={vi.fn(async () => null)}
         onRevertWorkspaceFiles={revertWorkspaceFiles}
+        onDiscardPendingChange={onDiscardPendingChange}
       />,
     );
 
     await user.click(await screen.findByRole("button", { name: "Discard a.txt" }));
     await user.click(screen.getByRole("button", { name: "Confirm discard a.txt" }));
     await waitFor(() => expect(revertWorkspaceFiles).toHaveBeenCalledTimes(1));
+    expect(onDiscardPendingChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole("button", { name: "Confirm discard a.txt" })).toHaveTextContent(
+      "Working...",
+    );
+    expect(screen.getByRole("tab", { name: "Files" })).toBeDisabled();
+    expect(screen.getByLabelText("Search workspace changes")).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Discarding workspace changes… Keep this review open until Hecate confirms the result.",
+      ),
+    ).toBeVisible();
 
     const otherDiscard = screen.getByRole("button", { name: "Discard b.txt" });
     const otherCopy = screen.getByRole("button", { name: "Copy diff b.txt" });
@@ -619,6 +632,7 @@ describe("ChatWorkspaceChangesPanel", () => {
       pendingRevert.resolve(cleanWorkspace("/workspace/a"));
       await pendingRevert.promise;
     });
+    expect(onDiscardPendingChange).toHaveBeenLastCalledWith(false);
   });
 
   it("invalidates reviewed mutation authority when discard returns no snapshot", async () => {
@@ -637,10 +651,39 @@ describe("ChatWorkspaceChangesPanel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Discard README.md" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
 
-    expect(await screen.findByText("Could not discard those workspace changes.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Hecate could not confirm the discard result. Changes may have been applied. Refresh and inspect Git before continuing.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Could not load the current workspace diff.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Discard README.md" })).toBeNull();
     expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled();
+  });
+
+  it("treats a rejected discard transport as an ambiguous mutation outcome", async () => {
+    render(
+      <ChatWorkspaceChangesPanel
+        sessionID="chat_a"
+        workspace="/workspace/a"
+        onGetWorkspaceDiff={vi.fn(async () => changedWorkspace("/workspace/a", "README.md"))}
+        onGetWorkspaceFiles={vi.fn(async () => null)}
+        onGetWorkspaceFileDiff={vi.fn(async () => null)}
+        onRevertWorkspaceFiles={vi.fn(async () => {
+          throw new Error("connection closed");
+        })}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Discard README.md" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
+
+    expect(
+      await screen.findByText(
+        "Hecate could not confirm the discard result. Changes may have been applied. Refresh and inspect Git before continuing.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Discard README.md" })).toBeNull();
   });
 
   it("fails closed when the layered discard capability has no revision", async () => {
@@ -894,6 +937,84 @@ describe("ChatWorkspaceChangesPanel", () => {
       expect(screen.getByText(expected)).toBeTruthy();
     }
     expect(document.querySelector("script")).toBeNull();
+  });
+
+  it("bounds mounted layered-review rows and progressively reveals more", async () => {
+    const files = (["staged", "working_tree", "untracked"] as const).flatMap((layer) =>
+      Array.from({ length: 200 }, (_, index) =>
+        reviewFile(`${layer}-${index}`, layer, `${layer}/file-${index}.txt`),
+      ),
+    );
+    const snapshot = layeredWorkspace("/workspace/a", files, {
+      discard: { available: false, reason: "review_incomplete" },
+    });
+
+    render(
+      <ChatWorkspaceChangesPanel
+        sessionID="chat_a"
+        workspace="/workspace/a"
+        onGetWorkspaceDiff={vi.fn(async () => snapshot)}
+        onGetWorkspaceFiles={vi.fn(async () => null)}
+        onGetWorkspaceFileDiff={vi.fn(async () => null)}
+        onRevertWorkspaceFiles={vi.fn(async () => null)}
+      />,
+    );
+
+    const user = userEvent.setup();
+    expect(await screen.findByText("600 review entries")).toBeTruthy();
+    expect(screen.getAllByTestId("workspace-review-entry")).toHaveLength(150);
+    const showMore = screen.getByRole("button", { name: "Show more changes · 450 remaining" });
+    await user.click(showMore);
+    expect(screen.getAllByTestId("workspace-review-entry")).toHaveLength(300);
+    expect(screen.getByRole("button", { name: "Show more changes · 300 remaining" })).toBeTruthy();
+    const search = screen.getByLabelText("Search workspace changes");
+    await user.type(search, "file-199");
+    expect(screen.getAllByTestId("workspace-review-entry")).toHaveLength(3);
+    await user.clear(search);
+    expect(screen.getAllByTestId("workspace-review-entry")).toHaveLength(150);
+  });
+
+  it("escapes unsafe Files-tab names in visible, title, and accessible strings", async () => {
+    const unsafeDirectory = `dir${String.fromCharCode(0x0a)}${String.fromCharCode(0x202e)}exe`;
+    const unsafeFilename = `note${String.fromCharCode(0x01)}${String.fromCharCode(0x2067)}txt`;
+    const escapedDirectory = "dir\\u000A\\u202Eexe";
+    const escapedFilename = "note\\u0001\\u2067txt";
+    const user = userEvent.setup();
+
+    render(
+      <ChatWorkspaceChangesPanel
+        sessionID="chat_a"
+        workspace="/workspace/a"
+        onGetWorkspaceDiff={vi.fn(async () => layeredWorkspace("/workspace/a"))}
+        onGetWorkspaceFiles={vi.fn(async () => ({
+          workspace: "/workspace/a",
+          files: [
+            {
+              path: `${unsafeDirectory}/${unsafeFilename}`,
+              name: unsafeFilename,
+              kind: "file" as const,
+            },
+            {
+              path: `${unsafeDirectory}/safe.txt`,
+              name: "safe.txt",
+              kind: "file" as const,
+            },
+          ],
+        }))}
+        onGetWorkspaceFileDiff={vi.fn(async () => null)}
+        onRevertWorkspaceFiles={vi.fn(async () => null)}
+      />,
+    );
+
+    await user.click(await screen.findByRole("tab", { name: "Files" }));
+    const folder = await screen.findByRole("button", {
+      name: `Expand folder ${escapedDirectory}`,
+    });
+    expect(screen.queryByText(unsafeDirectory)).toBeNull();
+    await user.click(folder);
+    expect(screen.getByText(escapedFilename)).toBeTruthy();
+    expect(screen.queryByText(unsafeFilename)).toBeNull();
+    expect(screen.getByTitle(`${escapedDirectory}/${escapedFilename}`)).toBeTruthy();
   });
 
   it("supports arrow-key tab navigation with linked tab panels", async () => {

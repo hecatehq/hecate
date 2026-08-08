@@ -167,10 +167,12 @@ assume-unchanged, skip-worktree, or unmerged state are reported as bounded
 review issues instead of being silently treated as clean.
 
 Untracked regular text previews are a deliberate content-disclosure surface.
-Each body is limited to 256 KiB and shares a 4 MiB response-content budget with
-tracked display patches and legacy compatibility content. Invalid UTF-8, NUL
-content, binaries, oversized entries, symlinks, special files, and nested
-repositories return only a typed state. On Unix, WorkspaceFS walks from a
+Each source is limited to 256 KiB. Tracked inline bodies and untracked source
+bytes inspected for preview classification share a 4 MiB budget with legacy
+compatibility content. Binary source bytes consume the budget even though their
+bodies are not returned. Invalid UTF-8, NUL content, binaries, oversized
+entries, symlinks, special files, and nested repositories return only a typed
+state. On Unix, WorkspaceFS walks from a
 pinned root with no-follow directory handles, accepts only a single-link
 regular file on the root device, and rewalks the path to prove identity; this
 also refuses hardlinks and files reached across a different device. On Windows

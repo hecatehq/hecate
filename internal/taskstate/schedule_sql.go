@@ -665,9 +665,9 @@ func (s *SQLiteStore) ApplyTaskScheduleRunAdmission(ctx context.Context, admissi
 		return TaskScheduleRunAdmissionResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (id, task_id, number, status, started_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, s.runsTable), run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, string(payload)); err != nil {
+		INSERT INTO %s (id, task_id, number, status, started_at, workspace_path, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, s.runsTable), run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, run.WorkspacePath, string(payload)); err != nil {
 		return TaskScheduleRunAdmissionResult{}, err
 	}
 	if err := s.sqliteUpdateTaskTx(ctx, tx, task); err != nil {

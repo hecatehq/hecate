@@ -48,6 +48,7 @@ export type SidebarSession = {
 
 type Props = {
   isAgentChat: boolean;
+  workspaceMutationPending?: boolean;
   // Session activation: ChatView wires this to focus the composer
   // textarea and dispatch selectChatSession. Keeping the
   // coordination on the parent side avoids the sidebar reaching across
@@ -63,6 +64,7 @@ type Props = {
 
 export function ChatSidebar({
   isAgentChat,
+  workspaceMutationPending = false,
   onSelectSession,
   onCreateChat,
   onChooseWorkspace,
@@ -217,6 +219,19 @@ export function ChatSidebar({
       ? null
       : recoverableDraftForCurrentScope;
 
+  function currentMutationBlockReason(): string {
+    if (workspaceMutationPending) {
+      return "Wait for the workspace discard to finish before changing chats or projects.";
+    }
+    return chat.actions.chatOwnershipMutationBlockReason();
+  }
+
+  function reportWorkspaceMutationBlock(): boolean {
+    if (!workspaceMutationPending) return false;
+    settingsActions.setNoticeMessage("error", currentMutationBlockReason());
+    return true;
+  }
+
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
       agentID === "hecate" ? undefined : agentAdapters.find((item) => item.id === agentID);
@@ -225,6 +240,7 @@ export function ChatSidebar({
   }
 
   async function selectProjectScope(projectID: string): Promise<boolean> {
+    if (reportWorkspaceMutationBlock()) return false;
     const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
     const project =
       projectID === ""
@@ -255,13 +271,14 @@ export function ChatSidebar({
           noProjectDetail="Chats and tasks stay ungrouped."
           emptyHint="Add a folder when you want a project context."
           canChangeProjectScope={() => {
-            const reason = chat.actions.chatOwnershipMutationBlockReason();
+            const reason = currentMutationBlockReason();
             if (!reason) return true;
             settingsActions.setNoticeMessage("error", reason);
             return false;
           }}
-          projectScopeChangeBlockReason={chat.actions.chatOwnershipMutationBlockReason}
+          projectScopeChangeBlockReason={currentMutationBlockReason}
           beginProjectDelete={() => {
+            if (reportWorkspaceMutationBlock()) return null;
             const token = chat.actions.beginChatOwnershipMutation();
             if (token !== null) return token;
             settingsActions.setNoticeMessage(
@@ -316,7 +333,9 @@ export function ChatSidebar({
               adapters={agentAdapters}
               healthByID={agentAdapterHealthByID}
               disableUnavailable
-              selectionDisabled={chatCreating || chatSessionCreateInFlight}
+              selectionDisabled={
+                chatCreating || chatSessionCreateInFlight || workspaceMutationPending
+              }
               createLabel={
                 workspaceRequiredForNewChat
                   ? `Choose folder for ${chatAgentOption(newChatAgentID, agentAdapters).label}`
@@ -326,22 +345,29 @@ export function ChatSidebar({
                 chatCreating ||
                 chatSessionCreateInFlight ||
                 attachmentTurnInFlight ||
-                ownershipMutationInFlight
+                ownershipMutationInFlight ||
+                workspaceMutationPending
               }
               createTitle={
-                workspaceRequiredForNewChat
-                  ? `${chatAgentOption(newChatAgentID, agentAdapters).label} needs a folder on the selected runtime`
-                  : chatCreating || chatSessionCreateInFlight
-                    ? "A new chat is already being created"
-                    : attachmentTurnInFlight
-                      ? "Wait for the attachment response before starting a new chat"
-                      : ownershipMutationInFlight
-                        ? "Wait for the current chat ownership change to finish"
-                        : undefined
+                workspaceMutationPending
+                  ? "Wait for the workspace discard to finish"
+                  : workspaceRequiredForNewChat
+                    ? `${chatAgentOption(newChatAgentID, agentAdapters).label} needs a folder on the selected runtime`
+                    : chatCreating || chatSessionCreateInFlight
+                      ? "A new chat is already being created"
+                      : attachmentTurnInFlight
+                        ? "Wait for the attachment response before starting a new chat"
+                        : ownershipMutationInFlight
+                          ? "Wait for the current chat ownership change to finish"
+                          : undefined
               }
               onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
-              onSetupAgent={onOpenAgentSetup}
+              onSetupAgent={(adapterID) => {
+                if (reportWorkspaceMutationBlock()) return;
+                onOpenAgentSetup(adapterID);
+              }}
               onCreate={(agentID) => {
+                if (reportWorkspaceMutationBlock()) return;
                 if (chatCreating || chat.actions.isChatCreationActive()) return;
                 if (workspaceRequiredForNewChat) {
                   onChooseWorkspace();
@@ -386,7 +412,7 @@ export function ChatSidebar({
                   className="input"
                   aria-label="Work policy for new Hecate chat"
                   value={newHecatePresetID}
-                  disabled={chatCreating || chatSessionCreateInFlight}
+                  disabled={chatCreating || chatSessionCreateInFlight || workspaceMutationPending}
                   onFocus={loadHecatePresets}
                   onPointerDown={loadHecatePresets}
                   onChange={(event) => setNewHecatePresetID(event.target.value)}
@@ -477,6 +503,7 @@ export function ChatSidebar({
                 const renaming = renamingId === s.id;
                 const title = s.title || "Untitled";
                 const activate = () => {
+                  if (reportWorkspaceMutationBlock()) return;
                   if (s.cleanup_required) {
                     setDeleteChatID(s.id);
                     return;
@@ -492,9 +519,9 @@ export function ChatSidebar({
                         ? undefined
                         : `Chat ${title}${s.agent_label ? `, ${s.agent_label}` : ""}`
                     }
-                    disabled={cancellingSessionID === s.id}
+                    disabled={workspaceMutationPending || cancellingSessionID === s.id}
                     href={
-                      renaming || s.cleanup_required
+                      renaming || s.cleanup_required || workspaceMutationPending
                         ? undefined
                         : chatNavigationURL(window.location, { chatID: s.id })
                     }
@@ -507,7 +534,7 @@ export function ChatSidebar({
                             <button
                               className="btn btn-ghost btn-sm"
                               aria-label={`Rename chat ${title}`}
-                              disabled={cancellingSessionID === s.id}
+                              disabled={workspaceMutationPending || cancellingSessionID === s.id}
                               type="button"
                               onClick={() => {
                                 setRenamingId(s.id);
@@ -522,9 +549,10 @@ export function ChatSidebar({
                           <button
                             className="btn btn-ghost btn-sm"
                             aria-label={`Delete chat ${title}`}
-                            disabled={cancellingSessionID === s.id}
+                            disabled={workspaceMutationPending || cancellingSessionID === s.id}
                             type="button"
                             onClick={() => {
+                              if (reportWorkspaceMutationBlock()) return;
                               if (cancellingSessionID === s.id) return;
                               setDeleteChatID(s.id);
                             }}
@@ -541,19 +569,19 @@ export function ChatSidebar({
                       <input
                         aria-label={`Rename chat ${title}`}
                         autoFocus
-                        disabled={cancellingSessionID === s.id}
+                        disabled={workspaceMutationPending || cancellingSessionID === s.id}
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
-                            if (cancellingSessionID === s.id) return;
+                            if (workspaceMutationPending || cancellingSessionID === s.id) return;
                             void chatActions.renameChatSession(s.id, renameValue);
                             setRenamingId(null);
                           }
                           if (e.key === "Escape") setRenamingId(null);
                         }}
                         onBlur={() => {
-                          if (cancellingSessionID !== s.id) {
+                          if (!workspaceMutationPending && cancellingSessionID !== s.id) {
                             void chatActions.renameChatSession(s.id, renameValue);
                           }
                           setRenamingId(null);
@@ -681,12 +709,13 @@ export function ChatSidebar({
             )
           }
           pending={deleteChatPending}
-          confirmDisabled={cancellingSessionID === pendingDeleteChat.id}
+          confirmDisabled={workspaceMutationPending || cancellingSessionID === pendingDeleteChat.id}
           returnFocusRef={chatSearchInputRef}
           onClose={() => {
             if (!deleteChatPendingRef.current) setDeleteChatID(null);
           }}
           onConfirm={async () => {
+            if (reportWorkspaceMutationBlock()) return;
             if (cancellingSessionID === pendingDeleteChat.id) return;
             if (deleteChatPendingRef.current) return;
             deleteChatPendingRef.current = true;
