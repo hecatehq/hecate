@@ -28,3 +28,28 @@ func TestFormatResultEnforcesCompleteUTF8OutputBudget(t *testing.T) {
 		t.Fatalf("formatted result must end with a valid UTF-8 truncation marker")
 	}
 }
+
+func TestFormatCapabilitiesIncludesVersionOperationsAndVerificationStage(t *testing.T) {
+	text := formatResult(Result{
+		Operation: OpCapabilities,
+		Capabilities: []Capability{{
+			Language:   "go",
+			Provider:   "gopls",
+			Version:    "0.20.0",
+			Available:  true,
+			Status:     "installed_unverified",
+			Operations: []Operation{OpDefinition, OpReferences},
+			Detail:     "trusted executable and version probe passed; LSP initialization is verified on query",
+		}},
+	})
+	for _, want := range []string{
+		"go: available via gopls version=0.20.0",
+		"[installed_unverified]",
+		"operations=definition,references",
+		"LSP initialization is verified on query",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("formatted capabilities = %q, want %q", text, want)
+		}
+	}
+}

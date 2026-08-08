@@ -43,9 +43,11 @@ type Result struct {
 }
 
 // Capability reports whether a fixed, allowlisted local provider is present.
+// Version is a bounded normalized token and never contains raw provider output.
 type Capability struct {
 	Language   string
 	Provider   string
+	Version    string
 	Available  bool
 	Status     string
 	Operations []Operation

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -27,6 +28,10 @@ type serverSpec struct {
 	minMajor   int
 	probeArgs  []string
 }
+
+const maxProviderVersionBytes = 64
+
+var providerVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
 func defaultServers() map[string][]serverSpec {
 	return map[string][]serverSpec{
@@ -104,7 +109,7 @@ func (s *Service) selectServer(ctx context.Context, fsys *workspacefs.FS, reques
 		}
 		spec.provider = provider
 		spec.command = path
-		if err := s.checkServerCompatibility(ctx, fsys, spec); err != nil {
+		if _, err := s.checkServerCompatibility(ctx, fsys, spec); err != nil {
 			skipped = append(skipped, err.Error())
 			continue
 		}
@@ -150,13 +155,15 @@ func (s *Service) capabilities(ctx context.Context, fsys *workspacefs.FS, _ Requ
 			}
 			spec.provider = provider
 			spec.command = path
-			if err := s.checkServerCompatibility(ctx, fsys, spec); err != nil {
+			version, err := s.checkServerCompatibility(ctx, fsys, spec)
+			if err != nil {
 				skipped = append(skipped, err.Error())
 				continue
 			}
 			capability.Available = true
 			capability.Status = "installed_unverified"
 			capability.Provider = filepath.Base(path)
+			capability.Version = version
 			capability.Detail = "trusted executable and version probe passed; LSP initialization is verified on query"
 			if len(skipped) > 0 {
 				capability.Detail += "; skipped " + strings.Join(skipped, ", ")
@@ -178,10 +185,22 @@ func (s *Service) capabilities(ctx context.Context, fsys *workspacefs.FS, _ Requ
 		Provider:   "ast-grep",
 		Operations: []Operation{OpStructuralSearch},
 	}
-	if _, err := s.resolveTrustedBinary(fsys, "ast-grep"); err == nil {
-		structural.Available = true
-		structural.Status = "installed_unverified"
-		structural.Detail = "trusted executable found; invocation is verified on query"
+	if path, err := s.resolveTrustedBinary(fsys, "ast-grep"); err == nil {
+		version, probeErr := s.checkServerCompatibility(ctx, fsys, serverSpec{
+			provider:  "ast-grep",
+			command:   path,
+			probeArgs: []string{"--version"},
+		})
+		if probeErr != nil {
+			structural.Available = true
+			structural.Status = "installed_unverified"
+			structural.Detail = "trusted executable found; version probe failed; invocation is verified on query"
+		} else {
+			structural.Available = true
+			structural.Status = "installed_unverified"
+			structural.Version = version
+			structural.Detail = "trusted executable and version probe passed; invocation is verified on query"
+		}
 	} else {
 		structural.Status = "unavailable"
 		structural.Detail = concise(err.Error(), 256)
@@ -190,13 +209,13 @@ func (s *Service) capabilities(ctx context.Context, fsys *workspacefs.FS, _ Requ
 	return result, nil
 }
 
-func (s *Service) checkServerCompatibility(ctx context.Context, fsys *workspacefs.FS, spec serverSpec) error {
+func (s *Service) checkServerCompatibility(ctx context.Context, fsys *workspacefs.FS, spec serverSpec) (string, error) {
 	if len(spec.probeArgs) == 0 {
-		return nil
+		return "", nil
 	}
 	argv := sandbox.WrapReadOnlyArgv(append([]string{spec.command}, spec.probeArgs...), fsys.Root(), false)
 	if len(argv) == 0 {
-		return fmt.Errorf("%s compatibility probe is empty", filepath.Base(spec.command))
+		return "", fmt.Errorf("%s compatibility probe is empty", filepath.Base(spec.command))
 	}
 	result, err := s.runner.Run(ctx, processrunner.Request{
 		Command:        argv[0],
@@ -208,35 +227,50 @@ func (s *Service) checkServerCompatibility(ctx context.Context, fsys *workspacef
 		MaxStderrBytes: 1024,
 	})
 	if err != nil {
-		return fmt.Errorf("%s version probe failed", filepath.Base(spec.command))
+		return "", fmt.Errorf("%s version probe failed", filepath.Base(spec.command))
 	}
 	version := strings.TrimSpace(result.Stdout)
 	if version == "" {
 		version = strings.TrimSpace(result.Stderr)
 	}
 	if version == "" {
-		return fmt.Errorf("%s version probe returned no version", filepath.Base(spec.command))
+		return "", fmt.Errorf("%s version probe returned no version", filepath.Base(spec.command))
 	}
-	if spec.minMajor <= 0 {
-		return nil
+	normalizedVersion, versionOK := normalizedProviderVersion(version)
+	if spec.minMajor > 0 {
+		if !versionOK {
+			return "", fmt.Errorf("%s version probe returned an unrecognized version", filepath.Base(spec.command))
+		}
+		major, ok := versionMajor(normalizedVersion)
+		if !ok || major < spec.minMajor {
+			return "", fmt.Errorf("%s version does not support the required native LSP mode (need major >= %d)", filepath.Base(spec.command), spec.minMajor)
+		}
 	}
-	major, ok := versionMajor(version)
-	if !ok || major < spec.minMajor {
-		return fmt.Errorf("%s version does not support the required native LSP mode (need major >= %d)", filepath.Base(spec.command), spec.minMajor)
-	}
-	return nil
+	return normalizedVersion, nil
 }
 
 func versionMajor(value string) (int, bool) {
+	version, ok := normalizedProviderVersion(value)
+	if !ok {
+		return 0, false
+	}
+	majorText, _, _ := strings.Cut(version, ".")
+	major, err := strconv.Atoi(majorText)
+	return major, err == nil
+}
+
+func normalizedProviderVersion(value string) (string, bool) {
 	for _, field := range strings.Fields(value) {
-		field = strings.TrimPrefix(strings.TrimSpace(field), "v")
-		majorText, _, _ := strings.Cut(field, ".")
-		major, err := strconv.Atoi(majorText)
-		if err == nil {
-			return major, true
+		candidate := strings.Trim(field, " ,;:()[]{}<>")
+		candidate = strings.TrimPrefix(candidate, "v")
+		if candidate == "" || len(candidate) > maxProviderVersionBytes {
+			continue
+		}
+		if providerVersionPattern.MatchString(candidate) {
+			return candidate, true
 		}
 	}
-	return 0, false
+	return "", false
 }
 
 func (s *Service) resolveTrustedBinary(fsys *workspacefs.FS, name string) (string, error) {

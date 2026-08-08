@@ -87,10 +87,15 @@ func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec) 
 	if toolName == AgentToolBrowserInspect {
 		return g.browserInspectionAvailable && browserInspectionCallAllowed(task, call)
 	}
-	if _, ok := g.gatedTools[toolName]; ok {
+	if g.requiresExplicitApproval(toolName) {
 		return true
 	}
 	return mcpServerPolicy(toolName, task) == types.MCPApprovalRequireApproval
+}
+
+func (g agentLoopApprovalGate) requiresExplicitApproval(toolName string) bool {
+	_, ok := g.gatedTools[strings.TrimSpace(toolName)]
+	return ok
 }
 
 func browserInspectionCallAllowed(task types.Task, call types.ToolCall) bool {

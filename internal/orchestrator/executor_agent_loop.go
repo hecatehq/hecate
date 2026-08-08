@@ -264,6 +264,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
 		IncludeBrowserInspection:     e.toolDispatcher != nil && e.toolDispatcher.browserInspector != nil,
 	})
+	codeIntelligenceDocumented := false
 	terminals := e.terminalSessionsForRun(spec.Run.ID)
 	defer func() {
 		if res == nil || res.Status != "awaiting_approval" {
@@ -475,6 +476,15 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			}
 			modelCall = runState.ModelCallCount() + 1
 			modelCallRef = currentAgentLoopModelCallRef(spec, modelCall)
+			if !codeIntelligenceDocumented {
+				applyCodeIntelligenceSelfDocumentation(
+					tools,
+					spec.Task,
+					e.approvalGate,
+					e.toolDispatcher != nil && e.toolDispatcher.codeIntelligence != nil,
+				)
+				codeIntelligenceDocumented = true
+			}
 			modelCallResult, failed, err := e.runModelCall(ctx, spec, &conversation, runState, tools, modelCall, modelCallStartedAt)
 			if failed != nil || err != nil {
 				return failed, err

@@ -417,8 +417,39 @@ func TestService_CapabilitiesDistinguishVerifiedExecutableFromLSPReadiness(t *te
 	if goCapability == nil || !goCapability.Available || goCapability.Status != "installed_unverified" {
 		t.Fatalf("Go capability = %+v, want installed_unverified", goCapability)
 	}
+	if goCapability.Version != "0.20.0" {
+		t.Fatalf("Go capability version = %q, want normalized 0.20.0", goCapability.Version)
+	}
 	if len(runner.requests) != 1 || len(runner.requests[0].Args) != 1 || runner.requests[0].Args[0] != "version" {
 		t.Fatalf("probe requests = %+v, want fixed gopls version probe", runner.requests)
+	}
+}
+
+func TestNormalizedProviderVersionIsBoundedAndModelSafe(t *testing.T) {
+	tests := []struct {
+		name  string
+		raw   string
+		want  string
+		valid bool
+	}{
+		{name: "gopls", raw: "golang.org/x/tools/gopls v0.20.0\n", want: "0.20.0", valid: true},
+		{name: "typescript prerelease", raw: "Version 7.0.0-dev.20260808", want: "7.0.0-dev.20260808", valid: true},
+		{name: "ast grep", raw: "ast-grep 0.40.4", want: "0.40.4", valid: true},
+		{name: "path only", raw: "/private/operator/provider", valid: false},
+		{name: "hostile token", raw: "1.2.3/private", valid: false},
+		{name: "missing minor", raw: "Version 7.", valid: false},
+		{name: "non-numeric minor", raw: "Version 7.not-a-version", valid: false},
+		{name: "four-part address", raw: "Version 10.0.0.1", valid: false},
+		{name: "empty prerelease", raw: "Version 7.0.0-", valid: false},
+		{name: "empty build", raw: "Version 7.0.0+", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, valid := normalizedProviderVersion(test.raw)
+			if got != test.want || valid != test.valid {
+				t.Fatalf("normalizedProviderVersion(%q) = %q, %t; want %q, %t", test.raw, got, valid, test.want, test.valid)
+			}
+		})
 	}
 }
 
@@ -441,6 +472,92 @@ func TestService_CapabilitiesPreserveCancellationDuringProbe(t *testing.T) {
 	_, err := service.Query(ctx, workspace, Request{Operation: OpCapabilities})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
+
+func TestService_CapabilitiesVersionProbesStructuralProvider(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	workspace := t.TempDir()
+	astGrep := executableFixture(t, t.TempDir(), "ast-grep")
+	runner := &recordingRunner{result: processrunner.Result{Stdout: "ast-grep 0.40.4\n"}}
+	service := NewService()
+	service.runner = runner
+	setProviderPath(service, "ast-grep", astGrep)
+	service.lookPath = func(name string) (string, error) {
+		return "", os.ErrNotExist
+	}
+	result, err := service.Query(context.Background(), workspace, Request{Operation: OpCapabilities})
+	if err != nil {
+		t.Fatalf("capabilities: %v", err)
+	}
+	var structural *Capability
+	for index := range result.Capabilities {
+		if result.Capabilities[index].Language == "structural" {
+			structural = &result.Capabilities[index]
+			break
+		}
+	}
+	if structural == nil || !structural.Available || structural.Status != "installed_unverified" || structural.Version != "0.40.4" {
+		t.Fatalf("structural capability = %+v, want versioned installed_unverified", structural)
+	}
+	if len(runner.requests) != 1 || len(runner.requests[0].Args) != 1 || runner.requests[0].Args[0] != "--version" {
+		t.Fatalf("probe requests = %+v, want fixed ast-grep --version probe", runner.requests)
+	}
+}
+
+func TestService_StructuralCapabilityVersionProbeFailureDoesNotContradictDispatch(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	astGrep := executableFixture(t, t.TempDir(), "ast-grep")
+	runner := &recordingRunner{run: func(request processrunner.Request) (processrunner.Result, error) {
+		if len(request.Args) == 1 && request.Args[0] == "--version" {
+			return processrunner.Result{}, errors.New("version output unavailable")
+		}
+		return processrunner.Result{}, nil
+	}}
+	service := NewService()
+	service.runner = runner
+	setProviderPath(service, "ast-grep", astGrep)
+	service.lookPath = func(name string) (string, error) {
+		return "", os.ErrNotExist
+	}
+
+	capabilities, err := service.Query(context.Background(), workspace, Request{Operation: OpCapabilities})
+	if err != nil {
+		t.Fatalf("capabilities: %v", err)
+	}
+	var structural *Capability
+	for index := range capabilities.Capabilities {
+		if capabilities.Capabilities[index].Language == "structural" {
+			structural = &capabilities.Capabilities[index]
+			break
+		}
+	}
+	if structural == nil || !structural.Available || structural.Status != "installed_unverified" || structural.Version != "" {
+		t.Fatalf("structural capability = %+v, want available installed_unverified without a version", structural)
+	}
+	if !strings.Contains(structural.Detail, "version probe failed") || strings.Contains(structural.Detail, "version output unavailable") {
+		t.Fatalf("structural detail = %q, want bounded category without raw runner error", structural.Detail)
+	}
+
+	result, err := service.Query(context.Background(), workspace, Request{
+		Operation: OpStructuralSearch,
+		Path:      "main.go",
+		Query:     "package $NAME",
+	})
+	if err != nil {
+		t.Fatalf("structural search after failed version probe: %v", err)
+	}
+	if result.Provider != "ast-grep" || result.Text != "structural_search returned no results" {
+		t.Fatalf("structural result = %+v, want successful empty ast-grep query", result)
+	}
+	if len(runner.requests) != 2 || len(runner.requests[1].Args) == 0 || runner.requests[1].Args[0] != "run" {
+		t.Fatalf("provider requests = %+v, want version probe followed by structural run", runner.requests)
 	}
 }
 

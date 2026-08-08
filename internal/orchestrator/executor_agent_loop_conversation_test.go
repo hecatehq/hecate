@@ -27,7 +27,7 @@ func TestAgentLoopConversation_FreshRunBuildsPreludeAndStableArtifactID(t *testi
 	if messages[0].Role != "system" || !strings.Contains(messages[0].Content, "/workspace/run") {
 		t.Fatalf("environment system message = %+v, want workspace grounding", messages[0])
 	}
-	if !strings.Contains(messages[0].Content, "`code_intelligence`") || !strings.Contains(messages[0].Content, "fall back to `grep`") {
+	if !strings.Contains(messages[0].Content, "`code_intelligence` tool description's effective access") || !strings.Contains(messages[0].Content, "fall back to `grep`") {
 		t.Fatalf("environment system message = %q, want code-intelligence guidance", messages[0].Content)
 	}
 	if messages[1].Role != "system" || messages[1].Content != "Use concise answers." {

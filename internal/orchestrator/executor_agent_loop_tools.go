@@ -116,7 +116,7 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			startedAt,
 			"sandbox_code_intelligence",
 			reason,
-			"use grep or structural_search, or run semantic intelligence with a compatible OS sandbox/network-enabled preset",
+			semanticCodeIntelligenceRepair,
 		), nil
 	}
 	if agentReadOnlyBlocksTool(spec.Task, call.Function.Name) {
