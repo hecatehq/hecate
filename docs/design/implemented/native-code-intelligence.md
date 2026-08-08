@@ -2,9 +2,11 @@
 
 > **Status:** first read-only slice implemented.
 > **Current source of truth:** [Agent runtime](../../runtime/agent-runtime.md).
-> **Next action:** dogfood the effective model guidance, provider-version
-> reporting, latency, and result quality before adding a friendly persisted
-> readiness view, per-run language-server pooling, or write-capable refactoring.
+> **Next action:** run the opt-in
+> [model dogfood scorecard](../../contributor/code-intelligence-dogfood.md)
+> repeatedly to measure effective guidance, provider-version reporting,
+> latency, and result quality before adding a friendly persisted readiness
+> view, per-run language-server pooling, or write-capable refactoring.
 
 Hecate's native agent loop already had bounded file reads, regular-expression
 search, and shell access. Those tools are enough to inspect a repository, but
@@ -135,8 +137,9 @@ locations from entering model tool results; it is not full host-read isolation.
 
 Before adding write-side semantic operations:
 
-- measure cold-query latency and useful-result rate on Hecate's Go and
-  TypeScript code;
+- use the [model dogfood scorecard](../../contributor/code-intelligence-dogfood.md)
+  to measure cold-query latency and useful-result rate on Hecate's Go and
+  TypeScript code across repeated runs;
 - add a persisted operator-facing readiness view that extends the current
   model guidance and capability versions with handshake stage, negotiated
   encoding, supported operations, and repair hints;
