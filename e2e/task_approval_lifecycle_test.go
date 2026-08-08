@@ -438,17 +438,22 @@ type e2eTaskRunResponse struct {
 }
 
 type e2eTaskRun struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	LastError     string `json:"last_error,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	ProviderKind  string `json:"provider_kind,omitempty"`
-	Model         string `json:"model,omitempty"`
-	StepCount     int    `json:"step_count,omitempty"`
-	ArtifactCount int    `json:"artifact_count,omitempty"`
-	RequestID     string `json:"request_id,omitempty"`
-	TraceID       string `json:"trace_id,omitempty"`
-	RootSpanID    string `json:"root_span_id,omitempty"`
+	ID                 string `json:"id"`
+	Status             string `json:"status"`
+	LastError          string `json:"last_error,omitempty"`
+	Provider           string `json:"provider,omitempty"`
+	ProviderKind       string `json:"provider_kind,omitempty"`
+	Model              string `json:"model,omitempty"`
+	WorkspacePath      string `json:"workspace_path,omitempty"`
+	StepCount          int    `json:"step_count,omitempty"`
+	ModelCallCount     int    `json:"model_call_count"`
+	ArtifactCount      int    `json:"artifact_count,omitempty"`
+	TotalCostMicrosUSD int64  `json:"total_cost_micros_usd,omitempty"`
+	StartedAt          string `json:"started_at,omitempty"`
+	FinishedAt         string `json:"finished_at,omitempty"`
+	RequestID          string `json:"request_id,omitempty"`
+	TraceID            string `json:"trace_id,omitempty"`
+	RootSpanID         string `json:"root_span_id,omitempty"`
 }
 
 type e2eTaskApprovalsResponse struct {
@@ -480,6 +485,8 @@ type e2eTaskStep struct {
 	OutputSummary map[string]any `json:"output_summary,omitempty"`
 	Error         string         `json:"error,omitempty"`
 	ErrorKind     string         `json:"error_kind,omitempty"`
+	StartedAt     string         `json:"started_at,omitempty"`
+	FinishedAt    string         `json:"finished_at,omitempty"`
 }
 
 type e2eTaskEventsResponse struct {

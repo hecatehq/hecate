@@ -11,8 +11,10 @@
 #
 # .data/ is the default GATEWAY_DATA_DIR for local dev. It may contain the
 # generated bootstrap/control-plane key and sqlite databases, so it must stay
-# local. The Go cache dirs are opt-in repo-local caches used by local scripts.
+# local. .dogfood/ holds local opt-in model scorecards. The Go cache dirs are
+# opt-in repo-local caches used by local scripts.
 .data/
+.dogfood/
 .maintenance/
 .gocache/
 .gocache-windows/

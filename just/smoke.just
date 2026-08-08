@@ -21,3 +21,9 @@ test-acp-real-embedded adapters='codex,claude_code': _go-cache
 # Smoke test authenticated direct ACP vendor CLIs.
 test-acp-real-direct adapters='cursor_agent,grok_build': _go-cache
 	HECATE_ACP_REAL_CLI_SMOKE=1 HECATE_ACP_REAL_ADAPTERS='{{adapters}}' {{go_env}} go test -tags real_cli -count=1 -run TestRealACPCLIsSmoke -timeout 10m ./internal/agentadapters
+
+# Exercise model tool selection through real Project assignments. This is
+# opt-in because it uses an operator-configured provider and may consume quota.
+# Run the code-intelligence model dogfood scorecard.
+test-codeintel-dogfood: _go-cache
+	E2E_HECATE_BIN= HECATE_CODEINTEL_AGENT_DOGFOOD=1 {{go_env}} go test -tags e2e -count=1 -run '^TestCodeIntelligenceModelDogfood$' -timeout 3h -v ./e2e
