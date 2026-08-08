@@ -274,19 +274,41 @@ Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the stan
 
 ### Code intelligence providers
 
+Before every model call, the `code_intelligence` tool description distinguishes
+three current-Run facts: whether capability/structural calls require approval,
+whether semantic LSP operations are permitted by the task and active host
+wrapper, and whether the bounded `grep` fallback requires approval. The same
+semantic-policy helper is used by dispatch, so a read-only or network-denied
+block is visible before the model spends a call on an operation that must be
+refused. The description deliberately reports provider installation as not
+checked. Hecate does not silently start provider processes while preparing a
+model request or bypass the `read_file` / `all_tools` approval family; the model
+uses the audited `capabilities` operation when provider discovery is useful.
+
 `code_intelligence` with `operation=capabilities` is permitted by the native
 sandbox gate, subject to normal preset tool enablement and approval policy. It
-resolves trusted executables and runs bounded `gopls version` / `tsc --version`
-probes, but does not initialize a language server; `ast-grep` discovery only
-inspects the executable. The other operations are available when the matching executable is installed
+resolves trusted executables and runs bounded `gopls version`, `tsc --version`,
+and `ast-grep --version` probes. Results include a normalized, bounded version
+token when the provider emits one Hecate recognizes, the operations Hecate may
+request, and the explicit
+`installed_unverified` stage. Capability discovery does not initialize a
+language server or execute a structural query; initialization or invocation is
+verified only by a real query. The other operations are available when the matching executable is installed
 on the gateway's trusted global `PATH` or bound to an exact operator-owned
 path:
+
+A trusted `ast-grep` executable remains `installed_unverified` when only its
+version probe fails because structural dispatch has no version compatibility
+contract; the first real structural query remains the invocation check.
 
 | Language / mode | Preferred provider                | Operations                                                                                                                      |
 | --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Go              | `gopls serve`                     | definition, references, hover, symbols, diagnostics                                                                             |
 | TypeScript / JS | TypeScript 7+ `tsc --lsp --stdio` | definition, references, hover, symbols, diagnostics                                                                             |
 | Structural      | `ast-grep run ... --json=stream`  | read-only structural search, including an optional contextual-pattern node-kind selector; rewrites are deliberately not exposed |
+
+The structural allowlist covers Go, JavaScript/TypeScript, Python, Rust, Java,
+C/C++/C#, HTML/CSS, JSON/YAML, and Bash.
 
 `just doctor` reports the local discovery state. Typical operator-managed
 installs are `go install golang.org/x/tools/gopls@latest`, a global TypeScript

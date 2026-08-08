@@ -2,8 +2,9 @@
 
 > **Status:** first read-only slice implemented.
 > **Current source of truth:** [Agent runtime](../../runtime/agent-runtime.md).
-> **Next action:** dogfood latency and result quality before adding per-run
-> language-server pooling or any write-capable refactoring operation.
+> **Next action:** dogfood the effective model guidance, provider-version
+> reporting, latency, and result quality before adding a friendly persisted
+> readiness view, per-run language-server pooling, or write-capable refactoring.
 
 Hecate's native agent loop already had bounded file reads, regular-expression
 search, and shell access. Those tools are enough to inspect a repository, but
@@ -16,6 +17,16 @@ This slice adds one read-only `code_intelligence` tool with three layers:
 1. LSP for type-aware navigation, hover, symbols, and diagnostics.
 2. Optional `ast-grep` for syntax-aware structural patterns.
 3. Existing bounded `grep` as the always-available fallback.
+
+The model-visible tool catalog now documents effective access for each Run
+before the model chooses an operation. Capability and structural access,
+semantic isolation policy, and `grep` approval posture are reported separately;
+the semantic statement is rendered from the same helper that enforces dispatch.
+Provider installation remains explicitly unchecked until the model makes the
+normal audited `capabilities` call. That call reports bounded normalized
+provider versions, Hecate's operation allowlist, and
+`installed_unverified` rather than claiming that an LSP handshake or
+structural invocation has succeeded.
 
 ## Decisions
 
@@ -104,6 +115,11 @@ the optional structural subprocess cannot meet.
   Capability discovery and structural search remain usable by read-only presets;
   semantic calls in those presets require Linux `bwrap`. Rename, code actions,
   and rewrites are not part of this contract.
+- Preparing a model request does not execute providers. Effective access
+  guidance exposes approval and isolation posture without turning an implicit
+  harness probe into an unaudited `read_file`-family action. Provider discovery
+  remains an explicit `capabilities` tool call and therefore pauses when
+  `read_file` or `all_tools` approval is configured.
 - The report-only `workflow_mode="qa"` v0 contract is narrower than an ordinary
   read-only preset: its catalog omits `code_intelligence`, and dispatch rejects
   every operation before approval or provider startup, including capability
@@ -121,8 +137,9 @@ Before adding write-side semantic operations:
 
 - measure cold-query latency and useful-result rate on Hecate's Go and
   TypeScript code;
-- add a visible readiness/probe surface with provider version, handshake stage,
-  negotiated encoding, supported operations, and a repair hint;
+- add a persisted operator-facing readiness view that extends the current
+  model guidance and capability versions with handshake stage, negotiated
+  encoding, supported operations, and repair hints;
 - prove a per-run pool has bounded size/idle lifetime, single-flight startup,
   document versioning, cancellation, crash eviction, and process-tree cleanup;
 - make rename/code actions produce proposed patches first, then route approved

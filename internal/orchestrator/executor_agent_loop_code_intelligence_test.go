@@ -39,6 +39,11 @@ func TestAgentLoopCodeIntelligenceToolIsAdvertisedAndReadOnlySafe(t *testing.T) 
 	if !strings.Contains(string(tool.Function.Parameters), `"selector"`) || !strings.Contains(string(tool.Function.Parameters), `^[A-Za-z_][A-Za-z0-9_]*$`) {
 		t.Fatalf("tool schema omits the bounded structural selector: %s", tool.Function.Parameters)
 	}
+	for _, language := range []string{"Go", "TypeScript/JavaScript", "Python", "Rust", "C/C++/C#", "Bash"} {
+		if !strings.Contains(tool.Function.Description+string(tool.Function.Parameters), language) {
+			t.Errorf("tool self-documentation omits language family %q", language)
+		}
+	}
 	toolsEnabled := true
 	readOnlyTools := agentToolDefinitionsForExecution(types.Task{
 		AgentPresetID:           "review-read-only",
@@ -47,6 +52,113 @@ func TestAgentLoopCodeIntelligenceToolIsAdvertisedAndReadOnlySafe(t *testing.T) 
 	}, types.TaskRun{}, agentToolDefinitionOptions{})
 	if !hasToolDefinition(readOnlyTools, AgentToolCodeIntelligence) {
 		t.Fatalf("read-only catalog omits %s", AgentToolCodeIntelligence)
+	}
+}
+
+func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *testing.T) {
+	tests := []struct {
+		name              string
+		wrapper           sandbox.WrapperKind
+		task              types.Task
+		gatedTools        []string
+		serviceConfigured bool
+		want              []string
+	}{
+		{
+			name:              "read only host blocks semantics but preserves discovery and fallbacks",
+			wrapper:           sandbox.WrapperNone,
+			task:              types.Task{SandboxReadOnly: true, SandboxNetwork: true},
+			serviceConfigured: true,
+			want: []string{
+				"capabilities and structural_search are permitted without an approval pause",
+				"semantic LSP operations are blocked: semantic language servers are disabled for read-only tasks",
+				semanticCodeIntelligenceRepair,
+				"grep is permitted without an approval pause",
+			},
+		},
+		{
+			name:              "bwrap permits read only semantic queries",
+			wrapper:           sandbox.WrapperBwrap,
+			task:              types.Task{SandboxReadOnly: true},
+			serviceConfigured: true,
+			want: []string{
+				"semantic LSP operations are permitted by the current task and host isolation policy",
+				"provider installation is not checked yet",
+				"LSP initialization is verified on query",
+			},
+		},
+		{
+			name:              "read approval covers discovery semantics structure and grep",
+			wrapper:           sandbox.WrapperSandboxExec,
+			task:              types.Task{SandboxNetwork: true},
+			gatedTools:        []string{AgentToolCodeIntelligence, "grep"},
+			serviceConfigured: true,
+			want: []string{
+				"capabilities and structural_search require operator approval",
+				"semantic LSP operations are approval-gated",
+				"grep requires operator approval",
+			},
+		},
+		{
+			name:              "missing runtime service is explicit",
+			wrapper:           sandbox.WrapperBwrap,
+			serviceConfigured: false,
+			want:              []string{"code_intelligence is unavailable because its runtime service is not configured"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reset := sandbox.SetWrapperForTesting(test.wrapper)
+			defer reset()
+			tools := agentToolDefinitions()
+			applyCodeIntelligenceSelfDocumentation(tools, test.task, newAgentLoopApprovalGate(test.gatedTools), test.serviceConfigured)
+			tool := findToolDefinition(tools, AgentToolCodeIntelligence)
+			if tool == nil {
+				t.Fatal("code_intelligence tool definition missing")
+			}
+			for _, want := range test.want {
+				if !strings.Contains(tool.Function.Description, want) {
+					t.Errorf("description = %q, want %q", tool.Function.Description, want)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentLoopCodeIntelligenceFirstModelRequestGetsEffectiveSelfDocumentationWithoutProviderProbe(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("Inspection is unavailable under this posture.")),
+	}}
+	fake := &fakeCodeIntelligenceService{}
+	loop := NewAgentLoopExecutor(
+		llm,
+		&stubExecutor{},
+		&stubExecutor{},
+		&stubExecutor{},
+		1,
+		nil,
+		HTTPRequestPolicy{},
+		WithCodeIntelligenceService(fake),
+	)
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = t.TempDir()
+	spec.Task.SandboxReadOnly = true
+	spec.Task.SandboxNetwork = true
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil || res.Status != "completed" {
+		t.Fatalf("Execute() result = %+v, error %v", res, err)
+	}
+	if len(llm.lastReqs) != 1 {
+		t.Fatalf("model requests = %d, want 1", len(llm.lastReqs))
+	}
+	tool := findToolDefinition(llm.lastReqs[0].Tools, AgentToolCodeIntelligence)
+	if tool == nil || !strings.Contains(tool.Function.Description, "semantic LSP operations are blocked") {
+		t.Fatalf("first request tool = %+v, want effective semantic blocker", tool)
+	}
+	if fake.request.Operation != "" {
+		t.Fatalf("self-documentation unexpectedly probed provider with request %+v", fake.request)
 	}
 }
 

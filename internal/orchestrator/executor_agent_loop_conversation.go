@@ -185,7 +185,7 @@ func truncateConversationToRunModelCall(messages []types.Message, runModelCallCo
 
 // hydrateConversation returns the conversation history for this run.
 // On a fresh run, it prepends the composed system prompt (from the
-// runner's four-layer resolver) before the user prompt. On a resume,
+// runner's three-layer resolver) before the user prompt. On a resume,
 // it returns the JSON-decoded prior conversation from the source
 // run's persisted agent_conversation artifact — the loop continues
 // exactly where it left off, preserving tool results, prior reasoning,
@@ -220,8 +220,8 @@ func hydrateConversation(spec ExecutionSpec) ([]types.Message, *types.Message) {
 	//      and uses that path verbatim — which lands outside the
 	//      sandbox (an isolated clone) and the run fails with
 	//      "escapes allowed root".
-	//   2. composed operator system prompt (four layers) — global /
-	//      tenant / workspace CLAUDE.md|AGENTS.md / per-task. Empty
+	//   2. composed operator system prompt (three layers) — global /
+	//      workspace CLAUDE.md|AGENTS.md / per-task. Empty
 	//      when none of those layers contributed.
 	//   3. user prompt.
 	messages := make([]types.Message, 0, 3)
@@ -274,7 +274,7 @@ func environmentSystemMessage(spec ExecutionSpec) string {
 	b.WriteString("Use this path (or paths under it) when calling tools. ")
 	b.WriteString("`shell_exec` / `git_exec` default their working_directory to the workspace when omitted; ")
 	b.WriteString("`read_file` / `list_dir` / `grep` / `glob` / `code_intelligence` / `git_diff` resolve relative paths from the workspace. ")
-	b.WriteString("Prefer `code_intelligence` for definitions, references, symbols, hover, diagnostics, and structural patterns; call its capabilities operation when availability is unclear, then fall back to `grep`. ")
+	b.WriteString("Before choosing code intelligence, follow the `code_intelligence` tool description's effective access for this run; when available, use its capabilities operation to verify installed providers, then fall back to `grep` when needed. ")
 	b.WriteString("Tool calls that target paths outside this directory are rejected by the sandbox — ")
 	b.WriteString("don't reuse paths from the user prompt verbatim if they fall outside the workspace.")
 	return b.String()

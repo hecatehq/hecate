@@ -16,7 +16,19 @@ func formatResult(result Result) string {
 			if capability.Available {
 				status = "available"
 			}
-			fmt.Fprintf(&builder, "%s: %s via %s [%s] (%s)\n", capability.Language, status, capability.Provider, capability.Status, capability.Detail)
+			fmt.Fprintf(&builder, "%s: %s via %s", capability.Language, status, capability.Provider)
+			if capability.Version != "" {
+				fmt.Fprintf(&builder, " version=%s", capability.Version)
+			}
+			fmt.Fprintf(&builder, " [%s]", capability.Status)
+			if len(capability.Operations) > 0 {
+				operations := make([]string, 0, len(capability.Operations))
+				for _, operation := range capability.Operations {
+					operations = append(operations, string(operation))
+				}
+				fmt.Fprintf(&builder, " operations=%s", strings.Join(operations, ","))
+			}
+			fmt.Fprintf(&builder, " (%s)\n", capability.Detail)
 		}
 		return truncateResultText(strings.TrimSpace(builder.String()))
 	}
