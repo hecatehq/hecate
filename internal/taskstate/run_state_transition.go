@@ -93,7 +93,7 @@ func (s *MemoryStore) ApplyRunStateTransition(_ context.Context, tr RunStateTran
 	task := cloneTask(tr.Task)
 	run := mergeStoredRichInputRoute(tr.Run, storedRun)
 	s.tasks[task.ID] = task
-	s.runs[run.ID] = run
+	s.storeRunLocked(run)
 	if tr.ApprovalResolution != nil {
 		s.approvals[resolvedApproval.ID] = cloneApproval(resolvedApproval)
 	}

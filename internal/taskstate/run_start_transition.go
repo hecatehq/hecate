@@ -139,7 +139,7 @@ func (s *MemoryStore) ApplyRunStartTransition(_ context.Context, tr RunStartTran
 	run := tr.Run
 	run.Number = nextRunNumber
 	s.tasks[task.ID] = cloneTask(task)
-	s.runs[run.ID] = run
+	s.storeRunLocked(run)
 	s.signalRun(run.ID)
 	return RunStartTransitionResult{Task: cloneTask(task), Run: run}, nil
 }

@@ -34,7 +34,7 @@ func (s *MemoryStore) RecordRichInputProviderAttempt(_ context.Context, attempt 
 	if err != nil {
 		return RichInputProviderAttemptResult{Run: run}, err
 	}
-	s.runs[updated.ID] = updated
+	s.storeRunLocked(updated)
 	s.signalRun(updated.ID)
 	return RichInputProviderAttemptResult{Run: updated, Applied: true}, nil
 }

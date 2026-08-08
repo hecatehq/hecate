@@ -394,8 +394,8 @@ func TestChatWorkspaceDurableOwnerReadsActiveSQLiteMessageSummary(t *testing.T) 
 		t.Fatal(err)
 	}
 	status, active, err := handler.chatWorkspaceDurableOwner(ctx, workspaceKey, "current-chat")
-	if err != nil || !active || status != "running" {
-		t.Fatalf("SQLite durable owner = status %q active %v err %v, want running message owner", status, active, err)
+	if err != nil || !active || status != "active_message" {
+		t.Fatalf("SQLite durable owner = status %q active %v err %v, want active message owner", status, active, err)
 	}
 }
 

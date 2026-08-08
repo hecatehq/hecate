@@ -744,9 +744,15 @@ describe("ConsoleShell navigation", () => {
       revertChatWorkspaceFiles,
     };
     const onSelectWorkspace = vi.fn();
+    const onChatNavigate = vi.fn();
     const view = render(
       withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={onSelectWorkspace} />,
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_1", messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={onSelectWorkspace}
+        />,
         { state, actions },
       ),
     );
@@ -767,7 +773,28 @@ describe("ConsoleShell navigation", () => {
 
     view.rerender(
       withRuntimeConsole(
-        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: null, messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={onSelectWorkspace}
+        />,
+        { state, actions },
+      ),
+    );
+    expect(screen.getByRole("region", { name: "Workspace review" })).toBeVisible();
+    await waitFor(() =>
+      expect(onChatNavigate).toHaveBeenCalledWith({ chatID: "chat_1", messageID: null }, "replace"),
+    );
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="projects"
+          chatNavigation={{ chatID: "chat_1", messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={onSelectWorkspace}
+        />,
         { state, actions },
       ),
     );

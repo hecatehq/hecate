@@ -112,7 +112,6 @@ import type {
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
   ChatWorkspaceDiffRecord,
-  ChatWorkspaceDiffResponse,
   ChatWorkspaceFilesRecord,
   ChatResponse,
   ChatSessionSummaryRecord,
@@ -128,15 +127,33 @@ type ChatWorkspaceDiscardDecision = {
 };
 
 export function classifyChatWorkspaceDiscardResult(
-  result: ChatWorkspaceDiffResponse["discard_result"],
+  result: unknown,
   selectedPathCount: number,
 ): ChatWorkspaceDiscardDecision {
-  const hasOutcome =
-    result !== undefined &&
-    result !== null &&
-    Object.prototype.hasOwnProperty.call(result, "outcome");
-  const outcome: unknown = result?.outcome;
-  if (hasOutcome && outcome !== "applied") {
+  if (result === undefined) {
+    return {
+      authoritative: true,
+      noticeType: "success",
+      message:
+        selectedPathCount > 0
+          ? "Selected workspace files discarded."
+          : "Workspace changes discarded.",
+    };
+  }
+
+  const record =
+    typeof result === "object" && result !== null && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : null;
+  const outcome = record?.outcome;
+  const cleanupFailed = record?.cleanup_failed;
+  const refreshRequired = record?.refresh_required;
+  const malformedOptionalFields =
+    (Boolean(record && Object.prototype.hasOwnProperty.call(record, "cleanup_failed")) &&
+      typeof cleanupFailed !== "boolean") ||
+    (Boolean(record && Object.prototype.hasOwnProperty.call(record, "refresh_required")) &&
+      typeof refreshRequired !== "boolean");
+  if (outcome !== "applied" || malformedOptionalFields) {
     return {
       authoritative: false,
       noticeType: "error",
@@ -146,7 +163,7 @@ export function classifyChatWorkspaceDiscardResult(
           : "Hecate received an unrecognized discard outcome. Changes may have been applied. Refresh Workspace changes and inspect Git before continuing.",
     };
   }
-  if (result?.cleanup_failed) {
+  if (cleanupFailed) {
     return {
       authoritative: true,
       noticeType: "error",
@@ -154,7 +171,7 @@ export function classifyChatWorkspaceDiscardResult(
         "Workspace changes were discarded, but Git cleanup did not finish. Refresh the review and check Git before continuing.",
     };
   }
-  if (result?.refresh_required) {
+  if (refreshRequired) {
     return {
       authoritative: true,
       noticeType: "success",

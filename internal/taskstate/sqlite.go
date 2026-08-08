@@ -1467,7 +1467,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	statements := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at %s, payload TEXT NOT NULL)`, s.tasksTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_updated_idx" ON %s (status, updated_at DESC)`, tasksUnquoted, s.tasksTable),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, workspace_path TEXT NOT NULL, payload TEXT NOT NULL)`, s.runsTable, timestampColumn),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, workspace_path TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.runsTable, timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_number_started_idx" ON %s (task_id, number DESC, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_started_idx" ON %s (status, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at %s, payload TEXT NOT NULL)`, s.stepsTable, timestampColumn),
@@ -1492,11 +1492,18 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	if err := s.ensureRunWorkspacePathProjection(ctx); err != nil {
 		return err
 	}
+	// An earlier development schema keyed the full workspace path, which can
+	// exceed PostgreSQL's B-tree tuple limit. Remove that unreleased shape and
+	// keep only the cursor key; status/path are projected from the matching row.
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS "%s_workspace_owner_idx"`, runsUnquoted)); err != nil {
+		return fmt.Errorf("migrate %s legacy task workspace owner index: %w", s.backend, err)
+	}
+	workspaceOwnerIndex := storage.BoundedIdentifier(runsUnquoted + "_workspace_owner_id_idx")
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		CREATE INDEX IF NOT EXISTS "%s_workspace_owner_idx"
-		ON %s (id ASC, status, workspace_path)
+		CREATE INDEX IF NOT EXISTS "%s"
+		ON %s (id ASC)
 		WHERE status NOT IN ('completed', 'failed', 'cancelled')
-	`, runsUnquoted, s.runsTable)); err != nil {
+	`, workspaceOwnerIndex, s.runsTable)); err != nil {
 		return fmt.Errorf("migrate %s task workspace owner index: %w", s.backend, err)
 	}
 	return nil
@@ -1507,7 +1514,12 @@ func (s *SQLiteStore) ensureRunWorkspacePathProjection(ctx context.Context) erro
 	if err != nil {
 		return fmt.Errorf("inspect %s task run workspace projection: %w", s.backend, err)
 	}
-	if exists {
+	triggerNames := s.runWorkspaceProjectionTriggerNames()
+	triggersInstalled, err := s.runWorkspaceProjectionTriggersInstalled(ctx, triggerNames)
+	if err != nil {
+		return err
+	}
+	if exists && triggersInstalled {
 		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1515,8 +1527,13 @@ func (s *SQLiteStore) ensureRunWorkspacePathProjection(ctx context.Context) erro
 		return fmt.Errorf("begin %s task run workspace projection migration: %w", s.backend, err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN workspace_path TEXT`, s.runsTable)); err != nil {
-		return fmt.Errorf("add %s task run workspace projection: %w", s.backend, err)
+	if !exists {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN workspace_path TEXT NOT NULL DEFAULT ''`, s.runsTable)); err != nil {
+			return fmt.Errorf("add %s task run workspace projection: %w", s.backend, err)
+		}
+	}
+	if err := s.installRunWorkspaceProjectionTriggers(ctx, tx, triggerNames); err != nil {
+		return err
 	}
 	workspaceExpression := `COALESCE(json_extract(payload, '$.WorkspacePath'), '')`
 	if s.client.Dialect() == storage.DialectPostgres {
@@ -1528,8 +1545,120 @@ func (s *SQLiteStore) ensureRunWorkspacePathProjection(ctx context.Context) erro
 	`, s.runsTable, workspaceExpression)); err != nil {
 		return fmt.Errorf("backfill %s task run workspace projection: %w", s.backend, err)
 	}
+	if s.client.Dialect() == storage.DialectPostgres {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			ALTER TABLE %s
+			ALTER COLUMN workspace_path SET DEFAULT '',
+			ALTER COLUMN workspace_path SET NOT NULL
+		`, s.runsTable)); err != nil {
+			return fmt.Errorf("constrain %s task run workspace projection: %w", s.backend, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit %s task run workspace projection migration: %w", s.backend, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) runWorkspaceProjectionTriggerNames() []string {
+	runsUnquoted := strings.Trim(s.runsTable, `"`)
+	return []string{
+		storage.BoundedIdentifier(runsUnquoted + "_workspace_path_v1_insert"),
+		storage.BoundedIdentifier(runsUnquoted + "_workspace_path_v1_update"),
+	}
+}
+
+func (s *SQLiteStore) runWorkspaceProjectionTriggersInstalled(ctx context.Context, triggerNames []string) (bool, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(triggerNames)), ",")
+	args := make([]any, 0, len(triggerNames))
+	for _, name := range triggerNames {
+		args = append(args, name)
+	}
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'trigger' AND name IN (%s)
+	`, placeholders)
+	if s.client.Dialect() == storage.DialectPostgres {
+		query = fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM information_schema.triggers
+			WHERE trigger_schema = current_schema()
+			  AND trigger_name IN (%s)
+		`, placeholders)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return false, fmt.Errorf("inspect %s task run workspace projection triggers: %w", s.backend, err)
+	}
+	return count == len(triggerNames), nil
+}
+
+func (s *SQLiteStore) installRunWorkspaceProjectionTriggers(ctx context.Context, tx storage.Tx, triggerNames []string) error {
+	if s.client.Dialect() == storage.DialectPostgres {
+		return s.installPostgresRunWorkspaceProjectionTriggers(ctx, tx, triggerNames)
+	}
+	for _, name := range triggerNames {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS "%s"`, name)); err != nil {
+			return fmt.Errorf("drop sqlite task run workspace projection trigger %q: %w", name, err)
+		}
+	}
+	workspaceExpression := `COALESCE(json_extract(NEW.payload, '$.WorkspacePath'), '')`
+	for _, trigger := range []struct {
+		name  string
+		event string
+	}{
+		{name: triggerNames[0], event: "INSERT"},
+		{name: triggerNames[1], event: "UPDATE OF payload"},
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER "%s"
+			AFTER %s ON %s
+			BEGIN
+				UPDATE %s
+				SET workspace_path = %s
+				WHERE id = NEW.id;
+			END
+		`, trigger.name, trigger.event, s.runsTable, s.runsTable, workspaceExpression)); err != nil {
+			return fmt.Errorf("create sqlite task run workspace projection trigger %q: %w", trigger.name, err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) installPostgresRunWorkspaceProjectionTriggers(ctx context.Context, tx storage.Tx, triggerNames []string) error {
+	runsUnquoted := strings.Trim(s.runsTable, `"`)
+	functionName := storage.BoundedIdentifier(runsUnquoted + "_workspace_path_v1_sync_fn")
+	for _, name := range triggerNames {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS "%s" ON %s`, name, s.runsTable)); err != nil {
+			return fmt.Errorf("drop postgres task run workspace projection trigger %q: %w", name, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		CREATE OR REPLACE FUNCTION "%s"() RETURNS TRIGGER
+		LANGUAGE plpgsql AS $hecate$
+		BEGIN
+			NEW.workspace_path := COALESCE(NEW.payload::jsonb ->> 'WorkspacePath', '');
+			RETURN NEW;
+		END;
+		$hecate$
+	`, functionName)); err != nil {
+		return fmt.Errorf("create postgres task run workspace projection function: %w", err)
+	}
+	for _, trigger := range []struct {
+		name  string
+		event string
+	}{
+		{name: triggerNames[0], event: "INSERT"},
+		{name: triggerNames[1], event: "UPDATE OF payload"},
+	} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			CREATE TRIGGER "%s"
+			BEFORE %s ON %s
+			FOR EACH ROW EXECUTE FUNCTION "%s"()
+		`, trigger.name, trigger.event, s.runsTable, functionName)); err != nil {
+			return fmt.Errorf("create postgres task run workspace projection trigger %q: %w", trigger.name, err)
+		}
 	}
 	return nil
 }

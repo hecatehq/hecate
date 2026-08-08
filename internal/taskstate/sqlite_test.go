@@ -58,6 +58,30 @@ func TestSQLiteStore_BackendName(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_WorkspaceOwnerIndexDoesNotKeyWorkspacePath(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	indexName := storage.BoundedIdentifier(strings.Trim(store.runsTable, `"`) + "_workspace_owner_id_idx")
+	var definition string
+	if err := store.db.QueryRowContext(t.Context(), `
+		SELECT sql
+		FROM sqlite_master
+		WHERE type = 'index' AND name = ?
+	`, indexName).Scan(&definition); err != nil {
+		t.Fatalf("read workspace owner index: %v", err)
+	}
+	keyDefinition := definition
+	if before, _, ok := strings.Cut(definition, " WHERE "); ok {
+		keyDefinition = before
+	}
+	if strings.Contains(strings.ToLower(keyDefinition), "workspace_path") {
+		t.Fatalf("workspace owner index keys unbounded path: %s", definition)
+	}
+	if !strings.Contains(strings.ToLower(keyDefinition), "(id asc)") {
+		t.Fatalf("workspace owner index = %s, want id-only cursor key", definition)
+	}
+}
+
 func TestSQLiteStore_BackfillsLegacyRunWorkspaceProjection(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -103,6 +127,11 @@ func TestSQLiteStore_BackfillsLegacyRunWorkspaceProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
+	for _, trigger := range store.runWorkspaceProjectionTriggerNames() {
+		if _, err := store.db.ExecContext(ctx, `DROP TRIGGER "`+trigger+`"`); err != nil {
+			t.Fatalf("drop workspace projection trigger %s: %v", trigger, err)
+		}
+	}
 	if _, err := store.db.ExecContext(ctx, `UPDATE `+store.runsTable+` SET payload = '{' WHERE id = ?`, run.ID); err != nil {
 		t.Fatalf("corrupt hydrated payload fixture: %v", err)
 	}
@@ -112,6 +141,50 @@ func TestSQLiteStore_BackfillsLegacyRunWorkspaceProjection(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != (WorkspaceOwnerSummary{ID: run.ID, Status: run.Status, WorkspacePath: run.WorkspacePath}) {
 		t.Fatalf("legacy workspace owner summary = %+v", got)
+	}
+}
+
+func TestSQLiteStore_WorkspaceProjectionTracksLegacyPayloadWrites(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	store := newSQLiteTestStore(t)
+	run := types.TaskRun{
+		ID:            "run-legacy-writer",
+		TaskID:        "task-legacy-writer",
+		Status:        "running",
+		WorkspacePath: "/workspace/legacy-insert",
+	}
+	payload, err := json.Marshal(run)
+	if err != nil {
+		t.Fatalf("marshal inserted run: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO `+store.runsTable+` (id, task_id, number, status, started_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, run.ID, run.TaskID, run.Number, run.Status, run.StartedAt, string(payload)); err != nil {
+		t.Fatalf("raw legacy run insert: %v", err)
+	}
+	owners, err := store.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after insert): %v", err)
+	}
+	if len(owners) != 1 || owners[0].WorkspacePath != run.WorkspacePath {
+		t.Fatalf("owners after raw insert = %+v, want projected workspace", owners)
+	}
+	run.WorkspacePath = "/workspace/legacy-update"
+	payload, err = json.Marshal(run)
+	if err != nil {
+		t.Fatalf("marshal updated run: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE `+store.runsTable+` SET payload = ? WHERE id = ?`, string(payload), run.ID); err != nil {
+		t.Fatalf("raw legacy run update: %v", err)
+	}
+	owners, err = store.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after update): %v", err)
+	}
+	if len(owners) != 1 || owners[0].WorkspacePath != run.WorkspacePath {
+		t.Fatalf("owners after raw update = %+v, want refreshed workspace", owners)
 	}
 }
 
@@ -155,6 +228,18 @@ func TestSQLiteStore_LegacyRunWorkspaceProjectionMigrationIsAtomic(t *testing.T)
 	}
 	if exists {
 		t.Fatal("workspace_path column survived failed transactional backfill")
+	}
+	for _, trigger := range []string{
+		storage.BoundedIdentifier(client.TableName("task_state_runs") + "_workspace_path_v1_insert"),
+		storage.BoundedIdentifier(client.TableName("task_state_runs") + "_workspace_path_v1_update"),
+	} {
+		var count int
+		if err := client.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(&count); err != nil {
+			t.Fatalf("inspect rolled-back trigger %s: %v", trigger, err)
+		}
+		if count != 0 {
+			t.Fatalf("workspace projection trigger %s survived failed transactional backfill", trigger)
+		}
 	}
 }
 

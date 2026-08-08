@@ -14,29 +14,35 @@ import (
 
 type MemoryStore struct {
 	runEventBus
-	mu          sync.Mutex
-	tasks       map[string]types.Task
-	runs        map[string]types.TaskRun
-	steps       map[string]types.TaskStep
-	approvals   map[string]types.TaskApproval
-	artifacts   map[string]types.TaskArtifact
-	events      map[string][]types.TaskRunEvent
-	schedules   map[string]TaskSchedule
-	occurrences map[string]TaskScheduleOccurrence
-	nextSeq     int64
+	mu    sync.Mutex
+	tasks map[string]types.Task
+	runs  map[string]types.TaskRun
+	// workspaceOwners is the active/non-terminal run projection used by
+	// destructive workspace admission. workspaceOwnerIDs keeps the same keys
+	// ordered so each cursor page is O(log N + limit), not a full history scan.
+	workspaceOwners   map[string]WorkspaceOwnerSummary
+	workspaceOwnerIDs []string
+	steps             map[string]types.TaskStep
+	approvals         map[string]types.TaskApproval
+	artifacts         map[string]types.TaskArtifact
+	events            map[string][]types.TaskRunEvent
+	schedules         map[string]TaskSchedule
+	occurrences       map[string]TaskScheduleOccurrence
+	nextSeq           int64
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		tasks:       make(map[string]types.Task),
-		runs:        make(map[string]types.TaskRun),
-		steps:       make(map[string]types.TaskStep),
-		approvals:   make(map[string]types.TaskApproval),
-		artifacts:   make(map[string]types.TaskArtifact),
-		events:      make(map[string][]types.TaskRunEvent),
-		schedules:   make(map[string]TaskSchedule),
-		occurrences: make(map[string]TaskScheduleOccurrence),
-		nextSeq:     1,
+		tasks:           make(map[string]types.Task),
+		runs:            make(map[string]types.TaskRun),
+		workspaceOwners: make(map[string]WorkspaceOwnerSummary),
+		steps:           make(map[string]types.TaskStep),
+		approvals:       make(map[string]types.TaskApproval),
+		artifacts:       make(map[string]types.TaskArtifact),
+		events:          make(map[string][]types.TaskRunEvent),
+		schedules:       make(map[string]TaskSchedule),
+		occurrences:     make(map[string]TaskScheduleOccurrence),
+		nextSeq:         1,
 	}
 }
 
@@ -129,7 +135,7 @@ func (s *MemoryStore) DeleteTask(_ context.Context, id string) error {
 		if run.TaskID != id {
 			continue
 		}
-		delete(s.runs, runID)
+		s.deleteRunLocked(runID)
 		delete(s.steps, runID)
 		delete(s.events, run.TaskID+"/"+runID)
 	}
@@ -167,7 +173,7 @@ func (s *MemoryStore) CreateRun(_ context.Context, run types.TaskRun) (types.Tas
 	if run.ID == "" {
 		return types.TaskRun{}, fmt.Errorf("run id is required")
 	}
-	s.runs[run.ID] = run
+	s.storeRunLocked(run)
 	s.signalRun(run.ID)
 	return run, nil
 }
@@ -244,26 +250,28 @@ func filterRunsByIDCursor(runs []types.TaskRun, afterID string) []types.TaskRun 
 	return runs[first:]
 }
 
-func (s *MemoryStore) ListWorkspaceOwnerSummaries(_ context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
+func (s *MemoryStore) ListWorkspaceOwnerSummaries(ctx context.Context, afterID string, limit int) ([]WorkspaceOwnerSummary, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("workspace owner summary limit must be positive")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := make([]WorkspaceOwnerSummary, 0, min(limit, len(s.runs)))
-	for id, run := range s.runs {
-		if id <= afterID || types.IsTerminalTaskRunStatus(run.Status) {
-			continue
-		}
-		items = append(items, WorkspaceOwnerSummary{
-			ID:            run.ID,
-			Status:        run.Status,
-			WorkspacePath: run.WorkspacePath,
-		})
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	if len(items) > limit {
-		items = items[:limit]
+	first := sort.Search(len(s.workspaceOwnerIDs), func(index int) bool {
+		return s.workspaceOwnerIDs[index] > afterID
+	})
+	last := min(first+limit, len(s.workspaceOwnerIDs))
+	items := make([]WorkspaceOwnerSummary, 0, last-first)
+	for _, id := range s.workspaceOwnerIDs[first:last] {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		items = append(items, s.workspaceOwners[id])
 	}
 	return items, nil
 }
@@ -274,9 +282,51 @@ func (s *MemoryStore) UpdateRun(_ context.Context, run types.TaskRun) (types.Tas
 	if _, ok := s.runs[run.ID]; !ok {
 		return types.TaskRun{}, fmt.Errorf("run %q not found", run.ID)
 	}
-	s.runs[run.ID] = run
+	s.storeRunLocked(run)
 	s.signalRun(run.ID)
 	return run, nil
+}
+
+func (s *MemoryStore) storeRunLocked(run types.TaskRun) {
+	s.runs[run.ID] = run
+	_, indexed := s.workspaceOwners[run.ID]
+	if types.IsTerminalTaskRunStatus(run.Status) {
+		if indexed {
+			delete(s.workspaceOwners, run.ID)
+			s.removeWorkspaceOwnerIDLocked(run.ID)
+		}
+		return
+	}
+	s.workspaceOwners[run.ID] = WorkspaceOwnerSummary{
+		ID:            run.ID,
+		Status:        run.Status,
+		WorkspacePath: run.WorkspacePath,
+	}
+	if indexed {
+		return
+	}
+	index := sort.SearchStrings(s.workspaceOwnerIDs, run.ID)
+	s.workspaceOwnerIDs = append(s.workspaceOwnerIDs, "")
+	copy(s.workspaceOwnerIDs[index+1:], s.workspaceOwnerIDs[index:])
+	s.workspaceOwnerIDs[index] = run.ID
+}
+
+func (s *MemoryStore) deleteRunLocked(id string) {
+	delete(s.runs, id)
+	if _, indexed := s.workspaceOwners[id]; !indexed {
+		return
+	}
+	delete(s.workspaceOwners, id)
+	s.removeWorkspaceOwnerIDLocked(id)
+}
+
+func (s *MemoryStore) removeWorkspaceOwnerIDLocked(id string) {
+	index := sort.SearchStrings(s.workspaceOwnerIDs, id)
+	if index >= len(s.workspaceOwnerIDs) || s.workspaceOwnerIDs[index] != id {
+		return
+	}
+	copy(s.workspaceOwnerIDs[index:], s.workspaceOwnerIDs[index+1:])
+	s.workspaceOwnerIDs = s.workspaceOwnerIDs[:len(s.workspaceOwnerIDs)-1]
 }
 
 func (s *MemoryStore) AppendStep(_ context.Context, step types.TaskStep) (types.TaskStep, error) {
@@ -597,10 +647,10 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 		}
 	}
 	if terminalReplay {
-		s.runs[run.ID] = run
+		s.storeRunLocked(run)
 	} else {
 		s.tasks[task.ID] = cloneTask(task)
-		s.runs[run.ID] = run
+		s.storeRunLocked(run)
 	}
 	if tr.ApprovalResolution != nil {
 		s.approvals[resolvedApproval.ID] = cloneApproval(resolvedApproval)

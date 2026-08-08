@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,124 @@ func TestSQLiteStoreConformance(t *testing.T) {
 	RunConformanceTests(t, "SQLiteStore", func(t *testing.T) Store {
 		return newSQLiteTestStore(t)
 	})
+}
+
+func TestSQLiteStoreBackfillsWorkspaceOwnerProjection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	store := newSQLiteTestStore(t)
+	for _, trigger := range store.workspaceOwnerTriggerNames() {
+		if _, err := store.client.DB().ExecContext(ctx, `DROP TRIGGER "`+trigger+`"`); err != nil {
+			t.Fatalf("drop workspace owner trigger %s: %v", trigger, err)
+		}
+	}
+	if _, err := store.client.DB().ExecContext(ctx, `DROP TABLE `+store.workspaceOwnersTable); err != nil {
+		t.Fatalf("drop workspace owner projection: %v", err)
+	}
+	if _, err := store.Create(ctx, Session{
+		ID: "chat_legacy_owner", Workspace: "/workspace/legacy", Status: "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, "chat_legacy_owner", Message{
+		ID: "msg_legacy_owner", Role: "assistant", Status: "future_active",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if _, err := store.UpdateSession(ctx, "chat_legacy_owner", func(session *Session) {
+		session.Status = "completed"
+	}); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+
+	migrated, err := newSQLStore(ctx, store.client)
+	if err != nil {
+		t.Fatalf("newSQLStore migration: %v", err)
+	}
+	owners, err := migrated.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries: %v", err)
+	}
+	if len(owners) != 1 || owners[0] != (WorkspaceOwnerSummary{
+		ID: "chat_legacy_owner", Workspace: "/workspace/legacy", Status: "completed", HasPotentialActiveMessage: true,
+	}) {
+		t.Fatalf("backfilled owners = %+v", owners)
+	}
+	if _, err := migrated.UpdateMessage(ctx, "chat_legacy_owner", "msg_legacy_owner", func(message *Message) {
+		message.Status = "completed"
+	}); err != nil {
+		t.Fatalf("UpdateMessage(terminal): %v", err)
+	}
+	owners, err = migrated.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after terminal): %v", err)
+	}
+	if len(owners) != 0 {
+		t.Fatalf("owners after terminal message = %+v, want empty", owners)
+	}
+	if _, err := migrated.client.DB().ExecContext(ctx,
+		`UPDATE `+migrated.messagesTable+` SET status = ? WHERE id = ? AND session_id = ?`,
+		"future_from_legacy_writer", "msg_legacy_owner", "chat_legacy_owner",
+	); err != nil {
+		t.Fatalf("raw legacy message update: %v", err)
+	}
+	owners, err = migrated.ListWorkspaceOwnerSummaries(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after raw update): %v", err)
+	}
+	if len(owners) != 1 || owners[0].ID != "chat_legacy_owner" || !owners[0].HasPotentialActiveMessage {
+		t.Fatalf("owners after raw legacy update = %+v, want active message owner", owners)
+	}
+	now := time.Now().UTC()
+	if _, err := migrated.client.DB().ExecContext(ctx, `
+		INSERT INTO `+migrated.sessionsTable+` (id, title, workspace, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, "chat_z_legacy_insert", "Legacy insert", "/workspace/legacy-insert", "completed", now, now); err != nil {
+		t.Fatalf("raw legacy session insert: %v", err)
+	}
+	if _, err := migrated.client.DB().ExecContext(ctx, `
+		INSERT INTO `+migrated.messagesTable+` (
+			id, session_id, sequence, role, content, agent_id, agent_name, status,
+			exit_code, cost_mode, workspace, diff_stat, diff, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "msg_legacy_insert", "chat_z_legacy_insert", 0, "assistant", "", "external", "External agent",
+		"future_insert_active", 0, "", "/workspace/legacy-insert", "", "", now); err != nil {
+		t.Fatalf("raw legacy message insert: %v", err)
+	}
+	owners, err = migrated.ListWorkspaceOwnerSummaries(ctx, "chat_legacy_owner", 2)
+	if err != nil {
+		t.Fatalf("ListWorkspaceOwnerSummaries(after raw insert): %v", err)
+	}
+	if len(owners) != 1 || owners[0].ID != "chat_z_legacy_insert" || !owners[0].HasPotentialActiveMessage {
+		t.Fatalf("owners after raw legacy insert = %+v, want inserted active message owner", owners)
+	}
+}
+
+func TestSQLiteStoreWorkspaceOwnerIndexesUseBoundedProjectionKeys(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	definitions := map[string]string{
+		storage.BoundedIdentifier(strings.Trim(store.workspaceOwnersTable, `"`) + "_active_id_idx"):       "(session_id asc)",
+		storage.BoundedIdentifier(strings.Trim(store.messagesTable, `"`) + "_workspace_owner_active_idx"): "(session_id, sequence desc)",
+	}
+	for name, wantKey := range definitions {
+		var definition string
+		if err := store.client.DB().QueryRowContext(t.Context(), `
+			SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?
+		`, name).Scan(&definition); err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		keyDefinition := strings.Join(strings.Fields(strings.ToLower(definition)), " ")
+		if before, _, ok := strings.Cut(keyDefinition, " where "); ok {
+			keyDefinition = before
+		}
+		if open := strings.LastIndex(keyDefinition, "("); open >= 0 {
+			keyDefinition = strings.TrimSpace(keyDefinition[open:])
+		}
+		if keyDefinition != wantKey {
+			t.Fatalf("index %s = %s, want bounded key %s", name, definition, wantKey)
+		}
+	}
 }
 
 func TestSQLiteStoreMigratesProviderInstanceColumn(t *testing.T) {

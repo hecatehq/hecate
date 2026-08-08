@@ -194,7 +194,7 @@ func (s *MemoryStore) CommitMessageRequest(_ context.Context, lease MessageReque
 	if err := appendMemoryMessage(&session, message); err != nil {
 		return Session{}, err
 	}
-	s.sessions[lease.SessionID] = session
+	s.storeAppendedSessionLocked(lease.SessionID, session)
 	record.committed = true
 	record.messageID = message.ID
 	close(record.done)

@@ -65,7 +65,7 @@ func (inspector *Inspector) EnsurePath(path string) error {
 	for _, mount := range inspector.mounts {
 		mountPoint := cString(mount.Mntonname[:])
 		mountKey := darwinComparablePath(mountPoint)
-		if !containsPath(mountPoint, absolute) || len(mountKey) < bestLength {
+		if !PathWithinDirectory(mountPoint, absolute) || len(mountKey) < bestLength {
 			continue
 		}
 		if len(mountKey) == bestLength {
@@ -95,7 +95,7 @@ func (inspector *Inspector) EnsureTree(path string) error {
 	seen := make(map[string]struct{})
 	for _, mount := range inspector.mounts {
 		point := filepath.Clean(cString(mount.Mntonname[:]))
-		if !containsPath(absolute, point) {
+		if !PathWithinDirectory(absolute, point) {
 			continue
 		}
 		key := darwinComparablePath(point)
@@ -143,13 +143,15 @@ func cString(value []byte) string {
 	return string(value)
 }
 
-func containsPath(root, path string) bool {
+// PathWithinDirectory reports whether candidate is root or one of its
+// descendants under Darwin's conservative path-comparison posture.
+func PathWithinDirectory(root, candidate string) bool {
 	// Most Darwin installations use case-insensitive APFS or HFS paths whose
 	// lookups also treat canonically equivalent Unicode spellings as identical.
 	// Conservatively normalize and fold both sides so alternate case or NFC/NFD
 	// spelling cannot hide a nested remote/FUSE mount. False rejection on a
 	// stricter volume is safer than pre-opening an unclassified target.
-	relative, err := filepath.Rel(darwinComparablePath(root), darwinComparablePath(path))
+	relative, err := filepath.Rel(darwinComparablePath(root), darwinComparablePath(candidate))
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 

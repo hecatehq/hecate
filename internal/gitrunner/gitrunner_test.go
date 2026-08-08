@@ -674,8 +674,15 @@ func TestLocalRunner_SnapshotReviewSurfacesUnmergedStateWithoutParsingCombinedPa
 	if result, err := runner.Run(context.Background(), dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "main"); err != nil {
 		t.Fatalf("commit main: %v: %s", err, result.Stderr)
 	}
-	if result, err := runner.Run(context.Background(), dir, "merge", "other"); err == nil || result.ExitCode == 0 {
+	if result, err := runner.Run(
+		context.Background(), dir,
+		"-c", "user.name=Test", "-c", "user.email=test@example.com",
+		"merge", "other",
+	); err == nil || result.ExitCode == 0 {
 		t.Fatalf("merge result = %+v, %v, want conflict", result, err)
+	}
+	if result, err := runner.Run(context.Background(), dir, "ls-files", "--unmerged"); err != nil || result.Stdout == "" {
+		t.Fatalf("unmerged fixture = %+v, %v, want conflict-stage index entries", result, err)
 	}
 
 	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
@@ -1943,6 +1950,9 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 	if result, err := runner.Run(context.Background(), dir, "config", "core.longpaths", "true"); err != nil {
 		t.Fatalf("git config longpaths: %v: %s", err, result.Stderr)
 	}
+	if result, err := runner.Run(context.Background(), dir, "config", "core.safecrlf", "warn"); err != nil {
+		t.Fatalf("git config safecrlf: %v: %s", err, result.Stderr)
+	}
 	view, err := runner.NewReadOnlyView(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("NewReadOnlyView: %v", err)
@@ -1953,8 +1963,39 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(config)
-	if !strings.Contains(text, `autocrlf = "input"`) || !strings.Contains(text, `ignorecase = "true"`) || !strings.Contains(text, `longpaths = "true"`) {
+	if !strings.Contains(text, `autocrlf = "input"`) || !strings.Contains(text, `ignorecase = "true"`) || !strings.Contains(text, `longpaths = "true"`) || !strings.Contains(text, `safecrlf = "false"`) {
 		t.Fatalf("passive config = %q, want normalized safe core settings", text)
+	}
+}
+
+func TestLocalRunner_SnapshotReviewSuppressesSafeCRLFRoundTripDiagnostics(t *testing.T) {
+	dir := initRepo(t)
+	runner := NewLocalRunner()
+	for key, value := range map[string]string{
+		"core.autocrlf": "true",
+		"core.safecrlf": "warn",
+	} {
+		if result, err := runner.Run(t.Context(), dir, "config", key, value); err != nil {
+			t.Fatalf("configure %s: %v: %s", key, err, result.Stderr)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\nchanged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := runner.SnapshotReview(t.Context(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotReview: %v", err)
+	}
+	if !strings.Contains(snapshot.Unstaged.Diff, "+changed") {
+		t.Fatalf("review = %+v, want LF worktree change", snapshot)
+	}
+	discard, err := runner.SnapshotDiff(t.Context(), dir, 64*1024)
+	if err != nil {
+		t.Fatalf("SnapshotDiff: %v", err)
+	}
+	if !strings.Contains(discard.Diff, "+changed") {
+		t.Fatalf("discard snapshot = %+v, want LF worktree change", discard)
 	}
 }
 
