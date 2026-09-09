@@ -172,15 +172,16 @@ const (
 // token is never written to the task blob.
 const MCPEnvEncPrefix = "enc:"
 
-// MCP approval policy values. These control whether the agent loop
-// dispatches an MCP tool call from the configured server immediately,
-// pauses for operator approval, or refuses to call it at all.
+// MCP approval policy values. These establish the server-local baseline for
+// whether the agent loop dispatches an MCP tool call, pauses for operator
+// approval, or refuses to call it. Additive runtime policy, including a frozen
+// native-assignment preset approval policy, may require approval for an auto
+// call or deny a call whose server baseline requires approval.
 //
-//   - MCPApprovalAuto: dispatch immediately. Equivalent to leaving
-//     the field empty.
-//   - MCPApprovalRequireApproval: pause the agent loop on every call
-//     to a tool from this server, emit an approval record, and resume
-//     dispatch only after the operator approves.
+//   - MCPApprovalAuto: add no server-specific approval gate. Equivalent to
+//     leaving the field empty.
+//   - MCPApprovalRequireApproval: make every call to a tool from this server
+//     require approval unless a stronger policy denies the call.
 //   - MCPApprovalBlock: never dispatch; the agent loop returns a tool
 //     error to the LLM ("blocked by policy") so the model can pick a
 //     different tool without involving the operator.

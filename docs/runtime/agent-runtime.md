@@ -803,8 +803,9 @@ Hard denials are evaluated first. Workflow restrictions, a tools-disabled
 preset, read-only or network posture, a missing browser grant/runtime, and an
 MCP server with `approval_policy=block` remain non-approvable and keep their own
 policy reason. The preset approval snapshot does not affect pre-execution
-approval gates. Empty is the legacy/manual compatibility state and adds no
-policy; an invalid non-empty stored value fails safely as `require`.
+approval gates. Empty means no frozen native-assignment approval layer is
+present and adds no policy; an invalid non-empty stored value fails safely as
+`require`.
 
 This snapshot is admitted only for native project-assignment agent loops. It is
 not inferred from a preset id and does not apply to Hecate Chat, External Agent,
