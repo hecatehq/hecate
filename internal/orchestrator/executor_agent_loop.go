@@ -493,7 +493,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			if !codeIntelligenceDocumented {
 				applyCodeIntelligenceSelfDocumentation(
 					tools,
-					spec.Task,
+					spec,
 					e.approvalGate,
 					e.toolDispatcher != nil && e.toolDispatcher.codeIntelligence != nil,
 				)

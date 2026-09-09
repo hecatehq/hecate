@@ -117,6 +117,7 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 		name              string
 		wrapper           sandbox.WrapperKind
 		task              types.Task
+		run               types.TaskRun
 		gatedTools        []string
 		serviceConfigured bool
 		want              []string
@@ -157,6 +158,39 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 			},
 		},
 		{
+			name:    "frozen preset require covers code intelligence and grep",
+			wrapper: sandbox.WrapperSandboxExec,
+			task: types.Task{
+				OriginKind:                "project_work_item",
+				AgentPresetID:             "architecture",
+				AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
+				SandboxNetwork:            true,
+			},
+			serviceConfigured: true,
+			want: []string{
+				"calls to `code_intelligence` with `operation=capabilities` or `operation=structural_search` require operator approval",
+				"semantic LSP operations are approval-gated",
+				"`grep` requires operator approval",
+			},
+		},
+		{
+			name:    "frozen preset block overrides global read gates",
+			wrapper: sandbox.WrapperSandboxExec,
+			task: types.Task{
+				OriginKind:                "project_work_item",
+				AgentPresetID:             "architecture",
+				AgentPresetApprovalPolicy: types.AgentPresetApprovalBlock,
+				SandboxNetwork:            true,
+			},
+			gatedTools:        []string{AgentToolCodeIntelligence, "grep"},
+			serviceConfigured: true,
+			want: []string{
+				"calls to `code_intelligence` with `operation=capabilities` or `operation=structural_search` are blocked by the frozen Agent Preset approval policy",
+				"semantic LSP operations are blocked by the frozen Agent Preset approval policy",
+				"`grep` is blocked by the frozen Agent Preset approval policy",
+			},
+		},
+		{
 			name:              "missing runtime service is explicit",
 			wrapper:           sandbox.WrapperBwrap,
 			serviceConfigured: false,
@@ -167,8 +201,8 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 		t.Run(test.name, func(t *testing.T) {
 			reset := sandbox.SetWrapperForTesting(test.wrapper)
 			defer reset()
-			tools := agentToolDefinitions()
-			applyCodeIntelligenceSelfDocumentation(tools, test.task, newAgentLoopApprovalGate(test.gatedTools), test.serviceConfigured)
+			tools := agentToolDefinitionsForExecution(test.task, test.run, agentToolDefinitionOptions{})
+			applyCodeIntelligenceSelfDocumentation(tools, ExecutionSpec{Task: test.task, Run: test.run}, newAgentLoopApprovalGate(test.gatedTools), test.serviceConfigured)
 			tool := findToolDefinition(tools, AgentToolCodeIntelligence)
 			if tool == nil {
 				t.Fatal("code_intelligence tool definition missing")
@@ -179,6 +213,29 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 				}
 			}
 		})
+	}
+}
+
+func TestEffectiveGuidanceToolAccessQAExcludesFrozenPresetPolicy(t *testing.T) {
+	t.Parallel()
+	spec := ExecutionSpec{
+		Task: types.Task{
+			OriginKind:                "project_work_item",
+			AgentPresetID:             "review_qa",
+			AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
+			SandboxNetwork:            true,
+		},
+		Run: types.TaskRun{
+			WorkflowMode:    types.WorkflowModeQA,
+			WorkflowVersion: "v0",
+		},
+	}
+	tools := agentToolDefinitionsForExecution(spec.Task, spec.Run, agentToolDefinitionOptions{})
+	if findToolDefinition(tools, AgentToolCodeIntelligence) != nil {
+		t.Fatal("QA catalog unexpectedly advertises code_intelligence")
+	}
+	if got := effectiveGuidanceToolAccess(newAgentLoopApprovalGate(nil), spec, "grep", `{}`, &tools, false); got != "is permitted without an approval pause" {
+		t.Fatalf("QA grep guidance = %q, want frozen preset policy excluded", got)
 	}
 }
 

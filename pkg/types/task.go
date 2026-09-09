@@ -44,11 +44,11 @@ type Task struct {
 	AgentPresetToolsEnabled *bool `json:",omitempty"`
 	// AgentPresetApprovalPolicy snapshots the resolved Agent Preset approval
 	// posture for a native project-assignment task. QA does not consume this
-	// layer. Empty marks legacy/manual tasks that predate the snapshot and
-	// preserves their existing runtime,
-	// MCP-server, and browser approval behavior. New assignment tasks store one
-	// of the AgentPresetApproval* values below so later preset edits cannot
-	// change retries or resumes.
+	// layer. Empty means there is no frozen native-assignment approval layer,
+	// including for Hecate Chat, External Agent, QA, and legacy/manual tasks, and
+	// preserves their existing runtime, MCP-server, and browser approval
+	// behavior. New assignment tasks store one of the AgentPresetApproval* values
+	// below so later preset edits cannot change retries or resumes.
 	AgentPresetApprovalPolicy string `json:",omitempty"`
 	// AgentPresetBrowserAllowed snapshots whether the resolved Hecate Agent
 	// Preset permits the native, read-only browser evidence tool. nil marks
@@ -149,8 +149,8 @@ const (
 )
 
 // IsValidAgentPresetApprovalPolicy reports whether v is a recognized frozen
-// Agent Preset approval posture. Empty is reserved for legacy/manual Tasks and
-// is therefore accepted by storage/runtime consumers.
+// Agent Preset approval posture. Empty represents the absence of the native
+// project-assignment layer and is accepted by storage/runtime consumers.
 func IsValidAgentPresetApprovalPolicy(v string) bool {
 	switch v {
 	case "", AgentPresetApprovalInherit, AgentPresetApprovalRequire, AgentPresetApprovalBlock, AgentPresetApprovalAllow:

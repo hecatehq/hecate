@@ -116,37 +116,63 @@ func codeIntelligenceToolDefinition() types.Tool {
 	}
 }
 
-func applyCodeIntelligenceSelfDocumentation(tools []types.Tool, task types.Task, gate agentLoopApprovalGate, serviceConfigured bool) {
+func applyCodeIntelligenceSelfDocumentation(tools []types.Tool, spec ExecutionSpec, gate agentLoopApprovalGate, serviceConfigured bool) {
 	for index := range tools {
 		if tools[index].Function.Name != AgentToolCodeIntelligence {
 			continue
 		}
-		tools[index].Function.Description += " " + effectiveCodeIntelligenceGuidance(task, gate, serviceConfigured)
+		tools[index].Function.Description += " " + effectiveCodeIntelligenceGuidance(spec, gate, serviceConfigured, tools)
 		return
 	}
 }
 
-func effectiveCodeIntelligenceGuidance(task types.Task, gate agentLoopApprovalGate, serviceConfigured bool) string {
-	grepAccess := "is permitted without an approval pause"
-	if gate.requiresExplicitApproval("grep") {
-		grepAccess = "requires operator approval"
-	}
+func effectiveCodeIntelligenceGuidance(spec ExecutionSpec, gate agentLoopApprovalGate, serviceConfigured bool, advertisedTools []types.Tool) string {
+	grepAccess := effectiveGuidanceToolAccess(gate, spec, "grep", `{}`, &advertisedTools, false)
 	if !serviceConfigured {
 		return "Effective access for this run: code_intelligence is unavailable because its runtime service is not configured. grep " + grepAccess + "."
 	}
 
-	toolAccess := "are permitted without an approval pause"
-	if gate.requiresExplicitApproval(AgentToolCodeIntelligence) {
-		toolAccess = "require operator approval"
-	}
-	blocked, reason := semanticCodeIntelligencePolicyBlock(task)
+	toolAccess := effectiveGuidanceToolAccess(gate, spec, AgentToolCodeIntelligence, `{"operation":"capabilities"}`, &advertisedTools, true)
+	blocked, reason := semanticCodeIntelligencePolicyBlock(spec.Task)
 	semanticAccess := "permitted by the current task and host isolation policy; provider installation is not checked yet and LSP initialization is verified on query"
 	if blocked {
 		semanticAccess = "blocked: " + reason + "; " + semanticCodeIntelligenceRepair
-	} else if gate.requiresExplicitApproval(AgentToolCodeIntelligence) {
-		semanticAccess = "approval-gated; provider installation is not checked yet and LSP initialization is verified on query"
+	} else {
+		switch gate.approvalDisposition(types.ToolCall{Function: types.ToolCallFunction{
+			Name:      AgentToolCodeIntelligence,
+			Arguments: `{"operation":"definition"}`,
+		}}, spec, &advertisedTools) {
+		case agentLoopApprovalRequired:
+			semanticAccess = "approval-gated; provider installation is not checked yet and LSP initialization is verified on query"
+		case agentLoopApprovalBlockedByPreset:
+			semanticAccess = "blocked by the frozen Agent Preset approval policy"
+		}
 	}
 	return "Effective access for this run: calls to `code_intelligence` with `operation=capabilities` or `operation=structural_search` " + toolAccess + "; semantic LSP operations are " + semanticAccess + ". `grep` " + grepAccess + " as the text fallback. Dispatch-time policy remains authoritative."
+}
+
+func effectiveGuidanceToolAccess(gate agentLoopApprovalGate, spec ExecutionSpec, name, arguments string, advertisedTools *[]types.Tool, plural bool) string {
+	disposition := gate.approvalDisposition(types.ToolCall{Function: types.ToolCallFunction{
+		Name:      name,
+		Arguments: arguments,
+	}}, spec, advertisedTools)
+	switch disposition {
+	case agentLoopApprovalRequired:
+		if plural {
+			return "require operator approval"
+		}
+		return "requires operator approval"
+	case agentLoopApprovalBlockedByPreset:
+		if plural {
+			return "are blocked by the frozen Agent Preset approval policy"
+		}
+		return "is blocked by the frozen Agent Preset approval policy"
+	default:
+		if plural {
+			return "are permitted without an approval pause"
+		}
+		return "is permitted without an approval pause"
+	}
 }
 
 func (d *agentLoopToolDispatcher) codeIntelligenceTool(ctx context.Context, spec ExecutionSpec, args codeIntelligenceArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {

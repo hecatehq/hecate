@@ -376,15 +376,25 @@ no-empty-iframe error fallback.
 
 ### Approval policy
 
-`approval_policy` gates how tool calls dispatch. Per-server, not per-tool.
+`approval_policy` defines the server-local baseline for how tool calls dispatch.
+It is per-server, not per-tool.
 
-| Value                        | Behavior                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto` (default — omittable) | Tool calls dispatch immediately.                                                                                                                                                                                                                                                                                          |
-| `require_approval`           | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
-| `block`                      | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next model call. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`.                                                     |
+| Value                        | Server-local behavior                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auto` (default — omittable) | Adds no server approval gate, so an otherwise-permitted call dispatches immediately.                                                                                                                                                                                                                                                                                        |
+| `require_approval`           | Adds approval to every otherwise-permitted call to this server. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously pending call unless a stricter policy now refuses it. |
+| `block`                      | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next model call. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`.                                                                                                       |
 
 The pause-and-resume machinery is the same the gateway already uses for built-in `shell_exec` gating; MCP gating reuses it without changing the runner or resume path.
+
+These values are server-local baselines. A native project-assignment Task can
+also carry a frozen, additive Agent Preset approval layer: preset `require`
+gates an otherwise-`auto` MCP call, while preset `block` denies a call whose
+server uses `require_approval`. Preset `inherit` and `allow` add no gate and do
+not weaken the server policy; server `block` always remains a hard refusal.
+Hecate Chat, External Agents, QA, and legacy/manual Tasks do not use that frozen
+layer. See [Work policy endpoints](runtime-api.md#work-policy-endpoints) for the
+complete composition and compatibility contract.
 
 Per-tool granularity (e.g. allow read tools on a server while gating write tools) is on the roadmap; for now, gate the whole server or split your task across multiple server entries with different policies.
 

@@ -374,10 +374,12 @@ plus output-only optional `agent_preset_tools_enabled`,
 change when the preset is later edited or deleted. The two browser grants are
 independent and share the snapshotted exact-origin list. They are distinct from
 `sandbox_network`: one controls static `browser_inspect`, and the other
-controls approval-bound `browser_flow`. An omitted tools, approval, or browser
-snapshot identifies a legacy/manual task; no missing approval posture or
-browser capability is inferred for those tasks, while explicit
-`agent_preset_tools_enabled=false` is an all-tools denial.
+controls approval-bound `browser_flow`. An omitted approval snapshot means that
+there is no frozen native-assignment approval layer; Hecate Chat, External
+Agent, QA, and legacy/manual Tasks all use that state. An omitted tools snapshot
+preserves existing tool behavior, while explicit
+`agent_preset_tools_enabled=false` is an all-tools denial. Omitted browser
+snapshots grant no browser capability.
 For `origin_kind="chat"`, every run-creation endpoint and approval-resolution
 requeue validates that the owning chat still exists and participates in the
 chat deletion fence. Start, retry, resume, continue, retry-from-model-call, and
