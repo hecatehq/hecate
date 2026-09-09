@@ -519,6 +519,9 @@ func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, pro
 	readiness.ExecutionProfile = plan.ExecutionProfile
 	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile, projectwork.AssignmentDriverHecateTask, h.browserEvidenceReadiness)
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
+	if warning := projectAssignmentApprovalPolicyWarning(plan.Profile); warning != "" {
+		readiness.Warnings = append(readiness.Warnings, warning)
+	}
 	if warning := projectAssignmentBrowserRuntimeWarning(plan.Profile, h.browserEvidenceReadiness); warning != "" {
 		readiness.Warnings = append(readiness.Warnings, warning)
 	}
@@ -634,6 +637,13 @@ func projectAssignmentBrowserRuntimeWarning(profile projectworkapp.ResolvedAgent
 		warning += " " + action
 	}
 	return warning
+}
+
+func projectAssignmentApprovalPolicyWarning(profile projectworkapp.ResolvedAgentProfile) string {
+	if profile.ApprovalPolicy != types.AgentPresetApprovalBlock || (!profile.BrowserAllowed && !profile.BrowserInteractionsAllowed) {
+		return ""
+	}
+	return "Browser capabilities are configured but will be blocked because the resolved Agent Preset blocks approval-gated actions. Choose another approval policy to use browser_inspect or browser_flow."
 }
 
 func projectAssignmentLaunchPlanBlocker(err error) string {

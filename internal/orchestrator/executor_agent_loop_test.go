@@ -3001,6 +3001,130 @@ func TestAgentLoop_ToolsDisabledResumeDeniesPreviouslyPendingCall(t *testing.T) 
 	}
 }
 
+func TestAgentLoop_AgentPresetBlockDeniesGatedCallWithoutPausingOrDispatching(t *testing.T) {
+	t.Parallel()
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", agentLoopToolCall("call-file", "file_write", `{"path":"out.txt","content":"unsafe"}`))),
+		makeChatResp(makeAssistantMsg("I could not write because the work policy blocked the gated action.")),
+	}}
+	file := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, file, &stubExecutor{}, 8, []string{"file_write"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" || len(res.PendingApprovals) != 0 {
+		t.Fatalf("result = %+v, want completed recovery without approval pause", res)
+	}
+	if len(file.calls) != 0 {
+		t.Fatalf("file executor calls = %d, want none", len(file.calls))
+	}
+	foundDenied := false
+	for _, step := range res.Steps {
+		if step.Phase == "policy" && step.Result == telemetry.ResultDenied && step.ErrorKind == "agent_preset_approval_denied" {
+			foundDenied = step.OutputSummary["policy"] == agentPresetApprovalPolicy
+		}
+	}
+	if !foundDenied {
+		t.Fatalf("steps = %+v, want agent_preset_approval denial", res.Steps)
+	}
+	if len(llm.lastReqs) != 2 {
+		t.Fatalf("LLM requests = %d, want recovery call after denied tool result", len(llm.lastReqs))
+	}
+	foundToolError := false
+	for _, message := range llm.lastReqs[1].Messages {
+		if message.Role == "tool" && message.ToolCallID == "call-file" && message.ToolError && strings.Contains(message.Content, "blocks actions that require approval") {
+			foundToolError = true
+		}
+	}
+	if !foundToolError {
+		t.Fatalf("recovery messages = %+v, want policy-denied tool result", llm.lastReqs[1].Messages)
+	}
+}
+
+func TestAgentLoop_AgentPresetRequirePausesOtherwiseUngatedCall(t *testing.T) {
+	t.Parallel()
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`))),
+	}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetID = "implementation"
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalRequire
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "awaiting_approval" || len(res.PendingApprovals) != 1 {
+		t.Fatalf("result = %+v, want one preset-required approval", res)
+	}
+	if !strings.Contains(res.PendingApprovals[0].Reason, "frozen Agent Preset") {
+		t.Fatalf("approval reason = %q, want frozen-preset explanation", res.PendingApprovals[0].Reason)
+	}
+}
+
+func TestAgentLoop_AgentPresetBlockDeniesApprovedRecoveredCall(t *testing.T) {
+	t.Parallel()
+	savedJSON, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "write the result"},
+		{Role: "assistant", Content: "I will write it.", ToolCalls: []types.ToolCall{
+			agentLoopToolCall("call-file", "file_write", `{"path":"out.txt","content":"unsafe"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal resume checkpoint: %v", err)
+	}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("I could not write because the work policy blocked the gated action.")),
+	}}
+	file := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, file, &stubExecutor{}, 8, []string{"file_write"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:                          spec.Run.ID,
+		SameRun:                              true,
+		AgentConversation:                    savedJSON,
+		Reason:                               "approved_mid_loop",
+		ThisRunModelCallCount:                1,
+		PendingToolCallsOriginRunID:          spec.Run.ID,
+		PendingToolCallsOriginModelCallIndex: 1,
+		PendingToolCallsApproved:             true,
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" || len(res.PendingApprovals) != 0 {
+		t.Fatalf("result = %+v, want completed recovery without approval pause", res)
+	}
+	if len(file.calls) != 0 {
+		t.Fatalf("file executor calls = %d, want none despite recovered approval", len(file.calls))
+	}
+	if got := llm.calls.Load(); got != 1 {
+		t.Fatalf("LLM calls = %d, want one recovery call", got)
+	}
+	foundDeniedResult := false
+	for _, message := range llm.lastReqs[0].Messages {
+		if message.Role == "tool" && message.ToolCallID == "call-file" && message.ToolError && strings.Contains(message.Content, "blocks actions that require approval") {
+			foundDeniedResult = true
+		}
+	}
+	if !foundDeniedResult {
+		t.Fatalf("post-resume messages = %+v, want policy-denied pending tool result", llm.lastReqs[0].Messages)
+	}
+}
+
 func TestAgentLoop_GatedToolListedWithMultipleToolsInModelCall(t *testing.T) {
 	// LLM asks for both a gated and a non-gated tool in one model call.
 	// We pause for approval (any gated tool gates the whole model call);

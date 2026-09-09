@@ -560,6 +560,7 @@ describe("TaskDetail effective sandbox posture", () => {
       task: makeTask({
         agent_preset_id: "review_qa",
         agent_preset_tools_enabled: false,
+        agent_preset_approval_policy: "require",
         agent_preset_browser_allowed: true,
         agent_preset_browser_interactions_allowed: true,
         agent_preset_browser_allowed_origins: ["https://app.example.test"],
@@ -573,6 +574,9 @@ describe("TaskDetail effective sandbox posture", () => {
     expect(within(overview).getByText("Work policy")).toBeTruthy();
     expect(within(overview).getByText("review_qa")).toBeTruthy();
     expect(within(overview).getByText("Disabled")).toBeTruthy();
+    expect(
+      within(overview).getByText("Every otherwise-permitted tool call requires approval"),
+    ).toBeTruthy();
     expect(
       within(overview).getByText(
         /Configured static evidence · approval-gated when the local browser runtime is ready · https:\/\/app\.example\.test/,
@@ -606,6 +610,37 @@ describe("TaskDetail effective sandbox posture", () => {
     expect(within(overview).getByText("Network enabled")).toBeTruthy();
   });
 
+  it("shows blocked browser grants as configured but unusable", () => {
+    const { render } = setup({
+      task: makeTask({
+        agent_preset_id: "locked_review",
+        agent_preset_tools_enabled: true,
+        agent_preset_approval_policy: "block",
+        agent_preset_browser_allowed: true,
+        agent_preset_browser_interactions_allowed: true,
+        agent_preset_browser_allowed_origins: ["https://app.example.test"],
+      }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    expect(
+      within(overview).getByText(
+        "Mid-loop calls that would require approval are blocked; pre-execution gates are unchanged",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(overview).getByText(
+        /Configured static evidence · blocked by frozen approval policy · https:\/\/app\.example\.test/,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(overview).getByText(
+        /Configured flow access · blocked by frozen approval policy · https:\/\/app\.example\.test/,
+      ),
+    ).toBeTruthy();
+  });
+
   it("does not infer preset policy from legacy task boolean defaults", () => {
     const { render } = setup({
       task: makeTask({ sandbox_read_only: false, sandbox_network: false }),
@@ -627,6 +662,7 @@ describe("TaskDetail effective sandbox posture", () => {
     const overview = screen.getByText("Run overview").parentElement!;
     expect(within(overview).getByText("legacy_preset")).toBeTruthy();
     expect(within(overview).queryByText("Tools")).toBeNull();
+    expect(within(overview).queryByText("Approvals")).toBeNull();
     expect(within(overview).queryByText("Browser evidence")).toBeNull();
     expect(within(overview).queryByText("Browser interaction")).toBeNull();
   });

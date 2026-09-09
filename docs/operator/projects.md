@@ -369,18 +369,33 @@ presets for `hecate_task` or `any`, while an External Agent assignment accepts
 `external_agent` or `any`. A mismatch blocks launch instead of treating the
 preset as a loose hint. For native assignments, Hecate also turns the selected
 preset's tools/write/network posture into the created task's runtime policy.
+It also freezes the preset's approval posture for that native assignment's
+mid-loop tool calls. `require` adds approval to every otherwise-permitted tool
+call; `block` refuses only calls that the runtime, mandatory browser gate, or an
+MCP server would otherwise send for approval. `inherit` and `allow` add no gate
+and cannot weaken those stricter controls. This Work policy layer does not
+change pre-execution approval.
+
 After launch, Task Detail shows the snapshotted preset id, effective tools,
-file access, and network state in **Run overview**. Editing the preset later
-does not change an existing task's retries or resumes. Read-only assignment tasks keep structured
+approval posture, file access, and network state in **Run overview**. Editing
+the preset later does not change an existing task's retries or resumes. An
+absent approval snapshot on an older or manually created Task is not inferred
+from its preset id. Read-only assignment tasks keep structured
 inspection and proposal-only patch tools, but Hecate omits and rejects broad
 shell, Git, direct-write, and interactive-terminal tools. A network-disabled
 preset snapshot similarly omits and rejects native HTTP/search without changing
 legacy or manually created task behavior. A tools-disabled snapshot exposes no
 native or MCP catalog, starts no MCP host, and denies any unexpected tool call.
+A Work policy can retain browser grants while using `block`, but every browser
+call requires approval, so launch review warns that those configured browser
+capabilities will be blocked.
 
 External Agent CLIs remain trusted local subprocesses. Their preset
 write/network fields are visible launch posture, not a Hecate sandbox around
-the vendor CLI; use the adapter's own controls and review the workspace diff.
+the vendor CLI; the preset approval field likewise does not replace ACP
+permission controls. Hecate Chat also keeps its existing Task-runtime approval
+configuration instead of inheriting this native project-assignment snapshot.
+Use the adapter's own controls and review the workspace diff.
 
 For a pristine work item, selected-work detail presents one kickoff action.
 **Add responsibility** appears only when no project role can back an assignment.

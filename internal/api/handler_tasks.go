@@ -657,6 +657,7 @@ func renderTaskItem(task types.Task) TaskItem {
 		AssignmentID:                          task.AssignmentID,
 		AgentPresetID:                         task.AgentPresetID,
 		AgentPresetToolsEnabled:               task.AgentPresetToolsEnabled,
+		AgentPresetApprovalPolicy:             task.AgentPresetApprovalPolicy,
 		AgentPresetBrowserAllowed:             task.AgentPresetBrowserAllowed,
 		AgentPresetBrowserInteractionsAllowed: task.AgentPresetBrowserInteractionsAllowed,
 		AgentPresetBrowserAllowedOrigins:      append([]string(nil), task.AgentPresetBrowserAllowedOrigins...),

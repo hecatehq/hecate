@@ -5269,6 +5269,9 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || task.AgentPresetBrowserInteractionsAllowed == nil || !*task.AgentPresetBrowserInteractionsAllowed || !reflect.DeepEqual(task.AgentPresetBrowserAllowedOrigins, []string{"https://qa.example.test"}) {
 		t.Fatalf("task browser snapshot = evidence %v interaction %v origins %v, want enabled role preset browser capabilities", task.AgentPresetBrowserAllowed, task.AgentPresetBrowserInteractionsAllowed, task.AgentPresetBrowserAllowedOrigins)
 	}
+	if task.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire {
+		t.Fatalf("task approval snapshot = %q, want %q", task.AgentPresetApprovalPolicy, types.AgentPresetApprovalRequire)
+	}
 	if !strings.Contains(task.SystemPrompt, "Work policy instructions:\nUse the profile-specific review checklist.") {
 		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
 	}

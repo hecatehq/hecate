@@ -180,6 +180,7 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 		"browser_allowed":              true,
 		"browser_interactions_allowed": true,
 		"browser_allowed_origins":      []string{"https://qa.example.test"},
+		"approval_policy":              "require",
 		"project_memory_policy":        "include",
 		"context_source_policy":        "include_enabled",
 		"skill_ids":                    []string{"backend"},
@@ -232,8 +233,8 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	if task.ProjectID != projectID || task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
 		t.Fatalf("task project/prompt policy = %q/%q, want project id and excluded workspace prompt layer", task.ProjectID, task.WorkspaceSystemPromptPolicy)
 	}
-	if task.AgentPresetID != "prof_backend" || task.AgentPresetToolsEnabled == nil || !*task.AgentPresetToolsEnabled || task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || task.AgentPresetBrowserInteractionsAllowed == nil || !*task.AgentPresetBrowserInteractionsAllowed || len(task.AgentPresetBrowserAllowedOrigins) != 1 || task.AgentPresetBrowserAllowedOrigins[0] != "https://qa.example.test" || !task.SandboxReadOnly || task.SandboxNetwork {
-		t.Fatalf("task runtime policy = preset %q tools=%v browser=%v browser_interactions=%v browser_origins=%v read_only=%v network=%v, want prof_backend/true/true/true/[https://qa.example.test]/true/false", task.AgentPresetID, task.AgentPresetToolsEnabled, task.AgentPresetBrowserAllowed, task.AgentPresetBrowserInteractionsAllowed, task.AgentPresetBrowserAllowedOrigins, task.SandboxReadOnly, task.SandboxNetwork)
+	if task.AgentPresetID != "prof_backend" || task.AgentPresetToolsEnabled == nil || !*task.AgentPresetToolsEnabled || task.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire || task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || task.AgentPresetBrowserInteractionsAllowed == nil || !*task.AgentPresetBrowserInteractionsAllowed || len(task.AgentPresetBrowserAllowedOrigins) != 1 || task.AgentPresetBrowserAllowedOrigins[0] != "https://qa.example.test" || !task.SandboxReadOnly || task.SandboxNetwork {
+		t.Fatalf("task runtime policy = preset %q tools=%v approvals=%q browser=%v browser_interactions=%v browser_origins=%v read_only=%v network=%v, want prof_backend/true/require/true/true/[https://qa.example.test]/true/false", task.AgentPresetID, task.AgentPresetToolsEnabled, task.AgentPresetApprovalPolicy, task.AgentPresetBrowserAllowed, task.AgentPresetBrowserInteractionsAllowed, task.AgentPresetBrowserAllowedOrigins, task.SandboxReadOnly, task.SandboxNetwork)
 	}
 	for _, want := range []string{"Project memory: Runtime preference", "Prefer focused backend tests before handoff.", "Workspace instruction: AGENTS.md", "Use small changes."} {
 		if !strings.Contains(task.SystemPrompt, want) {

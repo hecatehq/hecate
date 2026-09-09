@@ -1289,6 +1289,9 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(readiness).getByText("openai / gpt-5")).toBeTruthy();
     expect(within(readiness).getByText("implementation")).toBeTruthy();
     expect(within(readiness).getByText("tools on · writes on · network off")).toBeTruthy();
+    expect(
+      within(readiness).getByText("Every otherwise-permitted tool call requires approval"),
+    ).toBeTruthy();
     expect(within(readiness).getByText("Enabled · https://qa.example.test")).toBeTruthy();
     expect(
       within(readiness).getByText(
@@ -1377,6 +1380,35 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(readiness).getAllByText("Unavailable on this runtime")).toHaveLength(2);
     expect(within(readiness).getByText(warning)).toBeTruthy();
     expect(within(readiness).queryByText("Enabled · https://qa.example.test")).toBeNull();
+  });
+
+  it("shows browser grants as blocked when the preset blocks approval-gated calls", async () => {
+    getProjectAssignmentLaunchReadinessMock.mockResolvedValueOnce({
+      object: "project_assignment_launch_readiness",
+      data: launchReadiness({
+        profile_posture: {
+          ...launchReadiness().profile_posture!,
+          approval_policy: "block",
+        },
+        warnings: [
+          "Browser capabilities are configured but will be blocked because the resolved Agent Preset blocks approval-gated actions.",
+        ],
+      }),
+    });
+    renderDetail();
+
+    await userEvent.click(screen.getByText("Execution details"));
+    const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
+    await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
+
+    expect(
+      await within(readiness).findByText(
+        "Mid-loop calls that would require approval are blocked; pre-execution gates are unchanged",
+      ),
+    ).toBeTruthy();
+    expect(within(readiness).getAllByText("Configured · blocked by approval policy")).toHaveLength(
+      2,
+    );
   });
 
   it("marks missing launch presets in the posture preview", async () => {
@@ -1476,6 +1508,7 @@ describe("ProjectWorkItemDetail", () => {
     ).toBeTruthy();
     expect(within(preflight).getByText(/Project skill Review/)).toBeTruthy();
     expect(within(posture).queryByText("openai / gpt-5")).toBeNull();
+    expect(within(posture).queryByText(/otherwise-permitted tool call/i)).toBeNull();
   });
 
   it("opens launch preflight when a prepared assignment becomes visible", async () => {

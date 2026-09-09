@@ -1535,6 +1535,7 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 		AssignmentID:                          "asgn-1",
 		AgentPresetID:                         "review_qa",
 		AgentPresetToolsEnabled:               &toolsEnabled,
+		AgentPresetApprovalPolicy:             types.AgentPresetApprovalBlock,
 		AgentPresetBrowserAllowed:             &browserAllowed,
 		AgentPresetBrowserInteractionsAllowed: &browserInteractionsAllowed,
 		AgentPresetBrowserAllowedOrigins:      []string{"https://app.example.test"},
@@ -1568,7 +1569,7 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	if got.Title != "demo" {
 		t.Fatalf("GetTask round-trip mismatch: %+v", got)
 	}
-	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || got.AgentPresetBrowserInteractionsAllowed == nil || !*got.AgentPresetBrowserInteractionsAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || got.WorkflowMode != types.WorkflowModeQA || got.WorkflowVersion != "v0" || got.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude || !got.SandboxReadOnly || got.SandboxNetwork {
+	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || got.AgentPresetApprovalPolicy != types.AgentPresetApprovalBlock || got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || got.AgentPresetBrowserInteractionsAllowed == nil || !*got.AgentPresetBrowserInteractionsAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || got.WorkflowMode != types.WorkflowModeQA || got.WorkflowVersion != "v0" || got.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude || !got.SandboxReadOnly || got.SandboxNetwork {
 		t.Fatalf("GetTask runtime policy snapshot = %+v, want independent browser enabled/origin snapshot and review posture", got)
 	}
 	*got.AgentPresetToolsEnabled = true

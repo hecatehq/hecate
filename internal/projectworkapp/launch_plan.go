@@ -450,6 +450,10 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 	toolsEnabled := plan.Profile.ToolsEnabled
 	browserAllowed := plan.Profile.BrowserAllowed
 	browserInteractionsAllowed := plan.Profile.BrowserInteractionsAllowed
+	approvalPolicy := strings.TrimSpace(plan.Profile.ApprovalPolicy)
+	if approvalPolicy == "" {
+		approvalPolicy = agentprofiles.ApprovalInherit
+	}
 	return types.Task{
 		ID:                                    taskID,
 		Title:                                 AssignmentTaskTitle(workItem, role),
@@ -459,6 +463,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		AssignmentID:                          assignment.ID,
 		AgentPresetID:                         plan.Profile.ID,
 		AgentPresetToolsEnabled:               &toolsEnabled,
+		AgentPresetApprovalPolicy:             approvalPolicy,
 		AgentPresetBrowserAllowed:             &browserAllowed,
 		AgentPresetBrowserInteractionsAllowed: &browserInteractionsAllowed,
 		AgentPresetBrowserAllowedOrigins:      append([]string(nil), plan.Profile.BrowserAllowedOrigins...),

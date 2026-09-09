@@ -1251,12 +1251,24 @@ export function TaskDetail({
                           ...(task.agent_preset_tools_enabled !== undefined
                             ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
                             : []),
+                          ...(task.agent_preset_approval_policy
+                            ? [
+                                [
+                                  "Approvals",
+                                  agentPresetApprovalPolicyDescription(
+                                    task.agent_preset_approval_policy,
+                                  ),
+                                ],
+                              ]
+                            : []),
                           ...(task.agent_preset_browser_allowed !== undefined
                             ? [
                                 [
                                   "Browser evidence",
                                   task.agent_preset_browser_allowed
-                                    ? `Configured static evidence · approval-gated when the local browser runtime is ready · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                    ? task.agent_preset_approval_policy === "block"
+                                      ? `Configured static evidence · blocked by frozen approval policy · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                      : `Configured static evidence · approval-gated when the local browser runtime is ready · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
                                     : "Disabled",
                                 ],
                               ]
@@ -1266,7 +1278,9 @@ export function TaskDetail({
                                 [
                                   "Browser interaction",
                                   task.agent_preset_browser_interactions_allowed
-                                    ? `Configured flow access · approval-gated when the local browser runtime is ready · up to six exact accessible-role/name click or wait actions · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                    ? task.agent_preset_approval_policy === "block"
+                                      ? `Configured flow access · blocked by frozen approval policy · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                      : `Configured flow access · approval-gated when the local browser runtime is ready · up to six exact accessible-role/name click or wait actions · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
                                     : "Disabled",
                                 ],
                               ]
@@ -1929,6 +1943,21 @@ export function TaskDetail({
       )}
     </EntityDetailPane>
   );
+}
+
+function agentPresetApprovalPolicyDescription(policy: string): string {
+  switch (policy) {
+    case "require":
+      return "Every otherwise-permitted tool call requires approval";
+    case "block":
+      return "Mid-loop calls that would require approval are blocked; pre-execution gates are unchanged";
+    case "allow":
+      return "Preset adds no gate; runtime and tool-source policies still apply";
+    case "inherit":
+      return "Runtime and tool-source policies apply";
+    default:
+      return `Unknown frozen policy (${policy}); runtime fails safely to approval`;
+  }
 }
 
 function PatchDiffPreview({ diff }: { diff: string }) {

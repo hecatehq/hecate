@@ -237,6 +237,7 @@ func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
 		ID:                                    "task_1",
 		AgentPresetID:                         "review_qa",
 		AgentPresetToolsEnabled:               &toolsEnabled,
+		AgentPresetApprovalPolicy:             types.AgentPresetApprovalRequire,
 		AgentPresetBrowserAllowed:             &browserAllowed,
 		AgentPresetBrowserInteractionsAllowed: &browserInteractionsAllowed,
 		AgentPresetBrowserAllowedOrigins:      []string{"https://app.example.test"},
@@ -244,7 +245,7 @@ func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
 		SandboxNetwork:                        false,
 		Status:                                "queued",
 	})
-	if item.AgentPresetID != "review_qa" || item.AgentPresetToolsEnabled == nil || *item.AgentPresetToolsEnabled || item.AgentPresetBrowserAllowed == nil || !*item.AgentPresetBrowserAllowed || item.AgentPresetBrowserInteractionsAllowed == nil || !*item.AgentPresetBrowserInteractionsAllowed || len(item.AgentPresetBrowserAllowedOrigins) != 1 || item.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || !item.SandboxReadOnly || item.SandboxNetwork {
+	if item.AgentPresetID != "review_qa" || item.AgentPresetToolsEnabled == nil || *item.AgentPresetToolsEnabled || item.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire || item.AgentPresetBrowserAllowed == nil || !*item.AgentPresetBrowserAllowed || item.AgentPresetBrowserInteractionsAllowed == nil || !*item.AgentPresetBrowserInteractionsAllowed || len(item.AgentPresetBrowserAllowedOrigins) != 1 || item.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || !item.SandboxReadOnly || item.SandboxNetwork {
 		t.Fatalf("rendered policy snapshot = %+v, want independent browser snapshot and review posture", item)
 	}
 }

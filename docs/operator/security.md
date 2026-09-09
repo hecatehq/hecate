@@ -351,6 +351,27 @@ Approvals are safety gates, not a sandbox.
 - Durable external-agent grants can be reviewed and revoked from Connections.
 - Auto-approval modes are dangerous for interactive use because they let tool requests proceed without operator review.
 
+A native project-assignment Task also freezes the selected Work policy's
+approval posture for mid-loop tool calls. This is an additive Hecate runtime
+control, not a portable Cairnline permission and not an override:
+
+- `require` gates every otherwise-permitted call selected from the exact tool
+  catalog advertised to the model;
+- `block` denies only calls that runtime-wide policy, mandatory browser
+  approval, or a `require_approval` MCP-server policy would otherwise gate;
+- `inherit` and `allow` add no gate, and `allow` never auto-approves or weakens a
+  stricter runtime, browser, workflow, sandbox, or MCP-server decision.
+
+Hard denials are evaluated before the Work policy approval layer. A tools-off,
+read-only, network-disabled, browser-unavailable/ungranted, workflow-blocked,
+or MCP-blocked action cannot become approvable. The frozen field affects no
+pre-execution gate and is absent for Hecate Chat, External Agent, QA,
+legacy/manual Tasks, and older Tasks without the snapshot. External Agent
+permission requests continue through the ACP approval and durable-grant path.
+A Work policy that combines `block` with a browser grant keeps its configured
+origins for inspection but cannot execute the always-approval-gated browser
+call; assignment launch readiness warns about this combination.
+
 Review broad grants carefully, especially workspace-wide or adapter-wide grants
 for file writes, shell commands, Git commands, network access, and MCP tools.
 External-agent grants match Hecate's normalized `tool_kind`, not a vendor's

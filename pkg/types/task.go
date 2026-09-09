@@ -42,6 +42,14 @@ type Task struct {
 	// the snapshot and preserves their existing tool behavior; false is an
 	// explicit all-tools denial for new preset-backed assignments.
 	AgentPresetToolsEnabled *bool `json:",omitempty"`
+	// AgentPresetApprovalPolicy snapshots the resolved Agent Preset approval
+	// posture for a native project-assignment task. QA does not consume this
+	// layer. Empty marks legacy/manual tasks that predate the snapshot and
+	// preserves their existing runtime,
+	// MCP-server, and browser approval behavior. New assignment tasks store one
+	// of the AgentPresetApproval* values below so later preset edits cannot
+	// change retries or resumes.
+	AgentPresetApprovalPolicy string `json:",omitempty"`
 	// AgentPresetBrowserAllowed snapshots whether the resolved Hecate Agent
 	// Preset permits the native, read-only browser evidence tool. nil marks
 	// legacy/manual tasks and fails closed: browser evidence is never inferred
@@ -129,6 +137,28 @@ type Task struct {
 // TaskStatusNotStarted is the canonical projection for a Task that has no Run.
 // A Task does not become queued until its first Run is durably admitted.
 const TaskStatusNotStarted = "not_started"
+
+// Agent Preset approval policy values. These are an additive policy layer for
+// native project-assignment agent loops: they never weaken the runtime-wide,
+// per-MCP-server, browser, workflow, or sandbox policy floors.
+const (
+	AgentPresetApprovalInherit = "inherit"
+	AgentPresetApprovalRequire = "require"
+	AgentPresetApprovalBlock   = "block"
+	AgentPresetApprovalAllow   = "allow"
+)
+
+// IsValidAgentPresetApprovalPolicy reports whether v is a recognized frozen
+// Agent Preset approval posture. Empty is reserved for legacy/manual Tasks and
+// is therefore accepted by storage/runtime consumers.
+func IsValidAgentPresetApprovalPolicy(v string) bool {
+	switch v {
+	case "", AgentPresetApprovalInherit, AgentPresetApprovalRequire, AgentPresetApprovalBlock, AgentPresetApprovalAllow:
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	WorkspaceSystemPromptInherit = "inherit"

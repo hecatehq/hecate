@@ -196,6 +196,7 @@ type TaskItem struct {
 	AssignmentID                          string   `json:"assignment_id,omitempty"`
 	AgentPresetID                         string   `json:"agent_preset_id,omitempty"`
 	AgentPresetToolsEnabled               *bool    `json:"agent_preset_tools_enabled,omitempty"`
+	AgentPresetApprovalPolicy             string   `json:"agent_preset_approval_policy,omitempty"`
 	AgentPresetBrowserAllowed             *bool    `json:"agent_preset_browser_allowed,omitempty"`
 	AgentPresetBrowserInteractionsAllowed *bool    `json:"agent_preset_browser_interactions_allowed,omitempty"`
 	AgentPresetBrowserAllowedOrigins      []string `json:"agent_preset_browser_allowed_origins,omitempty"`

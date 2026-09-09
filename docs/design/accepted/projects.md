@@ -262,17 +262,22 @@ mirror its Agent Preset/runtime posture into Cairnline. Hecate enforces
 provider/model, approval, sandbox, write, network, and adapter policy.
 
 The current native-assignment contract enforces preset surface compatibility
-and snapshots tools/write/network posture onto the Hecate task. A tools-off
-snapshot preserves normal Task/Run supervision while sending an empty tool
-catalog, skipping MCP startup, and denying unexpected calls before dispatch.
+and snapshots tools/write/network plus mid-loop approval posture onto the
+Hecate Task. A tools-off snapshot preserves normal Task/Run supervision while
+sending an empty tool catalog, skipping MCP startup, and denying unexpected
+calls before dispatch.
 Read-only snapshots remove broad subprocess, direct-write, and interactive-terminal
 surfaces while keeping structured inspection and proposal-only patches;
 network-disabled snapshots remove native HTTP/search. The preset id is the
 compatibility marker, so legacy/manual tasks are not reinterpreted from a
-zero-valued network flag. Preset-wide approval semantics remain narrower: the
-gateway's global task policy and each MCP server's explicit policy stay
-authoritative, and a preset cannot weaken them. External Agent CLIs
-remain trusted subprocesses rather than Hecate-sandboxed native tasks.
+zero-valued network flag. The approval snapshot is additive and applies only to
+native project-assignment mid-loop calls: `require` gates every
+otherwise-permitted advertised tool, `block` denies calls that global,
+mandatory browser, or per-MCP policy would otherwise gate, and `inherit` /
+`allow` add no gate. Hard denials remain authoritative, and the snapshot does
+not alter pre-execution approval or apply to Hecate Chat, External Agents, QA,
+legacy/manual Tasks, or an absent snapshot. External Agent CLIs remain trusted
+subprocesses rather than Hecate-sandboxed native tasks.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate
 taxonomy. The initial built-in MCP toolset presets are `readonly`, `operator`,

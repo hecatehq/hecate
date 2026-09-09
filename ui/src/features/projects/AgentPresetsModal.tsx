@@ -547,6 +547,7 @@ export function AgentPresetsModal({
                     className="input"
                     value={form.approvalPolicy}
                     disabled={pending || editingBuiltIn}
+                    aria-describedby="approval-policy-help"
                     onChange={(event) =>
                       setForm((current) => ({ ...current, approvalPolicy: event.target.value }))
                     }
@@ -611,6 +612,19 @@ export function AgentPresetsModal({
                   />
                 </label>
               </div>
+              <div id="approval-policy-help" style={presetRoleSubtleTextStyle}>
+                Frozen onto new native Hecate Task project assignments. Require adds an approval
+                gate to every otherwise-permitted tool call. Block converts agent-loop tool calls
+                that global runtime, mandatory browser, or per-MCP-server policy would otherwise
+                send for approval into denials. Allow never bypasses a stricter gate. Hecate Chat
+                and External Agents keep their own approval controls.
+              </div>
+              {form.approvalPolicy === "block" && browserConfigured && (
+                <div role="status" style={{ ...presetRoleSubtleTextStyle, color: "var(--amber)" }}>
+                  Browser capabilities stay configured, but browser calls always require approval
+                  and will therefore be blocked for native Hecate Task assignments.
+                </div>
+              )}
               <ProjectSkillPicker
                 disabled={pending || editingBuiltIn}
                 onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}

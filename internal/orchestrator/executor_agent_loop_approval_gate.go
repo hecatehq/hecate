@@ -23,6 +23,14 @@ type agentLoopApprovalPause struct {
 	Step     types.TaskStep
 }
 
+type agentLoopApprovalDisposition uint8
+
+const (
+	agentLoopApprovalNone agentLoopApprovalDisposition = iota
+	agentLoopApprovalRequired
+	agentLoopApprovalBlockedByPreset
+)
+
 func newAgentLoopApprovalGate(gatedTools []string) agentLoopApprovalGate {
 	gated := make(map[string]struct{}, len(gatedTools))
 	for _, name := range gatedTools {
@@ -36,15 +44,30 @@ func newAgentLoopApprovalGate(gatedTools []string) agentLoopApprovalGate {
 }
 
 func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
-	return g.EvaluateForModelCallRef(spec, currentAgentLoopModelCallRef(spec, modelCall), stepIndex, when, calls)
+	return g.evaluateForModelCallRef(spec, currentAgentLoopModelCallRef(spec, modelCall), stepIndex, when, calls, nil)
 }
 
 func (g agentLoopApprovalGate) EvaluateForModelCallRef(spec ExecutionSpec, modelCallRef agentLoopModelCallRef, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
-	gatedNames := g.gatedToolsInModelCall(calls, spec)
+	return g.evaluateForModelCallRef(spec, modelCallRef, stepIndex, when, calls, nil)
+}
+
+func (g agentLoopApprovalGate) EvaluateAdvertised(spec ExecutionSpec, modelCall, stepIndex int, when time.Time, calls []types.ToolCall, tools []types.Tool) (agentLoopApprovalPause, bool) {
+	return g.evaluateForModelCallRef(spec, currentAgentLoopModelCallRef(spec, modelCall), stepIndex, when, calls, &tools)
+}
+
+func (g agentLoopApprovalGate) EvaluateForModelCallRefAdvertised(spec ExecutionSpec, modelCallRef agentLoopModelCallRef, stepIndex int, when time.Time, calls []types.ToolCall, tools []types.Tool) (agentLoopApprovalPause, bool) {
+	return g.evaluateForModelCallRef(spec, modelCallRef, stepIndex, when, calls, &tools)
+}
+
+func (g agentLoopApprovalGate) evaluateForModelCallRef(spec ExecutionSpec, modelCallRef agentLoopModelCallRef, stepIndex int, when time.Time, calls []types.ToolCall, advertisedTools *[]types.Tool) (agentLoopApprovalPause, bool) {
+	gatedNames := g.gatedToolsInModelCall(calls, spec, advertisedTools)
 	if len(gatedNames) == 0 {
 		return agentLoopApprovalPause{}, false
 	}
 	approval := buildApprovalForModelCall(spec, gatedNames, when)
+	if effectiveAgentPresetApprovalPolicy(spec) == types.AgentPresetApprovalRequire {
+		approval.Reason += ". The Task's frozen Agent Preset requires approval for every otherwise-permitted tool call"
+	}
 	approval.ActionSummary, approval.ActionSummaryIncomplete = buildApprovalActionSummary(calls)
 	if detail := browserApprovalDetail(calls, spec.Task); detail != "" {
 		approval.Reason += ". " + detail
@@ -58,11 +81,11 @@ func (g agentLoopApprovalGate) EvaluateForModelCallRef(spec ExecutionSpec, model
 	}, true
 }
 
-func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, spec ExecutionSpec) []string {
+func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, spec ExecutionSpec, advertisedTools *[]types.Tool) []string {
 	seen := make(map[string]struct{}, len(calls))
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
-		if !g.isGated(c, spec) {
+		if !g.isGated(c, spec, advertisedTools) {
 			continue
 		}
 		if _, dup := seen[c.Function.Name]; dup {
@@ -74,7 +97,22 @@ func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, spe
 	return out
 }
 
-func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec) bool {
+func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec, advertisedTools ...*[]types.Tool) bool {
+	return g.approvalDisposition(call, spec, firstAdvertisedToolCatalog(advertisedTools)) == agentLoopApprovalRequired
+}
+
+func (g agentLoopApprovalGate) isBlockedByAgentPreset(call types.ToolCall, spec ExecutionSpec, advertisedTools ...*[]types.Tool) bool {
+	return g.approvalDisposition(call, spec, firstAdvertisedToolCatalog(advertisedTools)) == agentLoopApprovalBlockedByPreset
+}
+
+func firstAdvertisedToolCatalog(catalogs []*[]types.Tool) *[]types.Tool {
+	if len(catalogs) == 0 {
+		return nil
+	}
+	return catalogs[0]
+}
+
+func (g agentLoopApprovalGate) approvalDisposition(call types.ToolCall, spec ExecutionSpec, advertisedTools *[]types.Tool) agentLoopApprovalDisposition {
 	task := spec.Task
 	toolName := call.Function.Name
 	workflowMode := taskworkflow.ModeForExecution(task, spec.Run)
@@ -83,18 +121,69 @@ func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec) 
 	// and would turn a fail-closed decision into an unnecessary pause.
 	blockedCodeIntelligence, _ := agentSandboxBlocksCodeIntelligence(task, call)
 	if taskworkflow.BlocksTool(workflowMode, toolName) || taskworkflow.IsUnavailableEvidenceTool(workflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || blockedCodeIntelligence || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
-		return false
+		return agentLoopApprovalNone
 	}
+
+	requiresApproval := false
 	if toolName == AgentToolBrowserInspect {
-		return g.browserInspectionAvailable && browserInspectionCallAllowed(task, call)
+		requiresApproval = g.browserInspectionAvailable && browserInspectionCallAllowed(task, call)
+	} else if toolName == AgentToolBrowserFlow {
+		requiresApproval = g.browserFlowAvailable && browserFlowCallAllowed(task, call)
+	} else {
+		requiresApproval = g.requiresExplicitApproval(toolName) || mcpServerPolicy(toolName, task) == types.MCPApprovalRequireApproval
 	}
-	if toolName == AgentToolBrowserFlow {
-		return g.browserFlowAvailable && browserFlowCallAllowed(task, call)
+
+	switch effectiveAgentPresetApprovalPolicy(spec) {
+	case types.AgentPresetApprovalRequire:
+		// Browser calls remain non-approvable when the configured capability or
+		// runtime is unavailable. Every other call that survived the hard policy
+		// checks receives the preset's additional approval gate.
+		if toolName != AgentToolBrowserInspect && toolName != AgentToolBrowserFlow && toolWasAdvertised(toolName, advertisedTools) {
+			return agentLoopApprovalRequired
+		}
+	case types.AgentPresetApprovalBlock:
+		if requiresApproval {
+			return agentLoopApprovalBlockedByPreset
+		}
 	}
-	if g.requiresExplicitApproval(toolName) {
+	if requiresApproval {
+		return agentLoopApprovalRequired
+	}
+	return agentLoopApprovalNone
+}
+
+func toolWasAdvertised(toolName string, advertisedTools *[]types.Tool) bool {
+	if advertisedTools == nil {
+		// Unit-level callers that predate catalog-aware admission already pass
+		// calls selected from a known catalog. Production always supplies the
+		// exact per-run tool list.
 		return true
 	}
-	return mcpServerPolicy(toolName, task) == types.MCPApprovalRequireApproval
+	for _, tool := range *advertisedTools {
+		if tool.Function.Name == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+// effectiveAgentPresetApprovalPolicy returns only the immutable policy carried
+// by a native project-assignment Task. An empty value is the legacy/manual
+// compatibility state. An invalid non-empty stored value fails safely by
+// requiring operator approval rather than silently allowing tool dispatch.
+func effectiveAgentPresetApprovalPolicy(spec ExecutionSpec) string {
+	task := spec.Task
+	if taskworkflow.IsQAExecution(task, spec.Run) || task.OriginKind != "project_work_item" || strings.TrimSpace(task.AgentPresetID) == "" {
+		return ""
+	}
+	policy := strings.TrimSpace(task.AgentPresetApprovalPolicy)
+	if policy == "" {
+		return ""
+	}
+	if !types.IsValidAgentPresetApprovalPolicy(policy) {
+		return types.AgentPresetApprovalRequire
+	}
+	return policy
 }
 
 func (g agentLoopApprovalGate) requiresExplicitApproval(toolName string) bool {

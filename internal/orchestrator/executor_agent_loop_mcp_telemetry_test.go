@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -218,6 +219,101 @@ func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 	got, ok := calls.DataPoints[0].Attributes.Value("hecate.mcp.call.result")
 	if !ok || got.AsString() != telemetry.MCPCallResultBlocked {
 		t.Errorf("result attr = %v ok=%v, want %q", got.AsString(), ok, telemetry.MCPCallResultBlocked)
+	}
+}
+
+func TestAgentLoop_MCPPresetBlockDoesNotCallToolOrExposeArguments(t *testing.T) {
+	t.Parallel()
+	const sensitiveArgument = "private-argument-value"
+	host := &fakeMCPHost{
+		tools: []types.Tool{mcpTool("mcp__github__create_issue", "Create issue")},
+		handlers: map[string]func(json.RawMessage) (string, bool, error){
+			"mcp__github__create_issue": func(json.RawMessage) (string, bool, error) {
+				return "created", false, nil
+			},
+		},
+	}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", agentLoopToolCall("c1", "mcp__github__create_issue", `{"body":"`+sensitiveArgument+`"}`))),
+		makeChatResp(makeAssistantMsg("The work policy blocked that action.")),
+	}}
+	executor := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	executor.SetMCPHostFactory(func(_ context.Context, _ []types.MCPServerConfig) (AgentMCPHost, error) {
+		return host, nil
+	})
+
+	cap := &captureRunEvent{}
+	spec := newAgentLoopSpec(t)
+	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+	spec.Task.MCPServers = []types.MCPServerConfig{{
+		Name: "github", Command: "fake", ApprovalPolicy: types.MCPApprovalRequireApproval,
+	}}
+	spec.EmitRunEvent = cap.emit
+
+	res, err := executor.Execute(context.Background(), spec)
+	if err != nil || res.Status != "completed" {
+		t.Fatalf("Execute: status=%q err=%v", res.Status, err)
+	}
+	if len(host.calls) != 0 {
+		t.Fatalf("MCP host calls = %+v, want no tool call", host.calls)
+	}
+	blocked := cap.byType(telemetry.EventMCPToolBlocked)
+	if len(blocked) != 1 || blocked[0].Data["policy"] != agentPresetApprovalPolicy {
+		t.Fatalf("blocked events = %+v, want one Agent Preset approval refusal", blocked)
+	}
+	recorded, err := json.Marshal(struct {
+		Steps  []types.TaskStep
+		Events []capturedEvent
+	}{Steps: res.Steps, Events: blocked})
+	if err != nil {
+		t.Fatalf("marshal recorded policy data: %v", err)
+	}
+	if strings.Contains(string(recorded), sensitiveArgument) {
+		t.Fatalf("policy telemetry exposed MCP arguments: %s", recorded)
+	}
+}
+
+func TestAgentLoop_PresetBlockDeniesGatedCallButDispatchesAllowedSibling(t *testing.T) {
+	t.Parallel()
+	host := &fakeMCPHost{
+		tools: []types.Tool{mcpTool("mcp__docs__lookup", "Look up documentation")},
+		handlers: map[string]func(json.RawMessage) (string, bool, error){
+			"mcp__docs__lookup": func(json.RawMessage) (string, bool, error) {
+				return "documentation", false, nil
+			},
+		},
+	}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("",
+			agentLoopToolCall("file", "file_write", `{"path":"out.txt","content":"blocked"}`),
+			agentLoopToolCall("docs", "mcp__docs__lookup", `{}`),
+		)),
+		makeChatResp(makeAssistantMsg("I used the allowed documentation result and skipped the blocked write.")),
+	}}
+	file := &stubExecutor{}
+	executor := NewAgentLoopExecutor(llm, &stubExecutor{}, file, &stubExecutor{}, 4, []string{"file_write"}, HTTPRequestPolicy{})
+	executor.SetMCPHostFactory(func(_ context.Context, _ []types.MCPServerConfig) (AgentMCPHost, error) {
+		return host, nil
+	})
+	spec := newAgentLoopSpec(t)
+	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+	spec.Task.MCPServers = []types.MCPServerConfig{{
+		Name: "docs", Command: "fake", ApprovalPolicy: types.MCPApprovalAuto,
+	}}
+
+	res, err := executor.Execute(context.Background(), spec)
+	if err != nil || res.Status != "completed" {
+		t.Fatalf("Execute: status=%q err=%v", res.Status, err)
+	}
+	if len(res.PendingApprovals) != 0 || len(file.calls) != 0 {
+		t.Fatalf("result approvals=%d file calls=%d, want blocked write without pause or dispatch", len(res.PendingApprovals), len(file.calls))
+	}
+	if len(host.calls) != 1 || host.calls[0].Name != "mcp__docs__lookup" {
+		t.Fatalf("MCP host calls = %+v, want allowed sibling dispatch", host.calls)
 	}
 }
 

@@ -328,6 +328,49 @@ describe("AgentPresetsModal", () => {
     ).toBeInTheDocument();
   });
 
+  it("warns that block keeps browser grants configured but denies their calls", async () => {
+    const onCreate = vi.fn(async (form) => preset({ id: form.id, name: form.name }));
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText("Policy ID"), "blocked-browser");
+    await userEvent.type(screen.getByLabelText("Name"), "Blocked browser");
+    await userEvent.click(screen.getByLabelText("Allow static browser evidence"));
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Approval policy"), "block");
+
+    expect(screen.getByText(/Browser capabilities stay configured/)).toHaveAttribute(
+      "role",
+      "status",
+    );
+    expect(screen.getByLabelText("Allowed browser origins")).toHaveValue(
+      "https://app.example.test",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create policy" }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalPolicy: "block",
+        browserAllowed: true,
+        browserAllowedOrigins: "https://app.example.test",
+      }),
+    );
+  });
+
   it("shows built-in presets as read-only", () => {
     render(
       <AgentPresetsModal

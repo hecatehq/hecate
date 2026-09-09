@@ -32,6 +32,7 @@ func TestTaskJSONRoundTrip_MCPServers(t *testing.T) {
 		WorkflowMode:                WorkflowModeQA,
 		WorkflowVersion:             "v0",
 		WorkspaceSystemPromptPolicy: WorkspaceSystemPromptExclude,
+		AgentPresetApprovalPolicy:   AgentPresetApprovalRequire,
 		MCPServers: []MCPServerConfig{
 			// Stdio entry — the canonical filesystem-server shape,
 			// with env values in all three storage forms.

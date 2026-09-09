@@ -49,6 +49,7 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 		BrowserAllowed:             true,
 		BrowserInteractionsAllowed: true,
 		BrowserAllowedOrigins:      []string{"https://qa.example.test"},
+		ApprovalPolicy:             agentprofiles.ApprovalBlock,
 	}); err != nil {
 		t.Fatalf("Create browser review preset: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	if readiness.Data.Provider != "anthropic" || readiness.Data.Model != "gpt-4o-mini" || readiness.Data.ExecutionProfile != "coding_agent" {
 		t.Fatalf("launch hints = provider/model/profile %q/%q/%q, want anthropic/gpt-4o-mini/coding_agent", readiness.Data.Provider, readiness.Data.Model, readiness.Data.ExecutionProfile)
 	}
-	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.ID != "browser_review" || !readiness.Data.ProfilePosture.ToolsEnabled || !readiness.Data.ProfilePosture.WritesAllowed || readiness.Data.ProfilePosture.NetworkAllowed || readiness.Data.ProfilePosture.BrowserEvidenceStatus != projectAssignmentBrowserEvidenceStatusEnabled || !readiness.Data.ProfilePosture.BrowserAllowed || readiness.Data.ProfilePosture.BrowserInteractionStatus != projectAssignmentBrowserInteractionStatusEnabled || !readiness.Data.ProfilePosture.BrowserInteractionsAllowed || !reflect.DeepEqual(readiness.Data.ProfilePosture.BrowserAllowedOrigins, []string{"https://qa.example.test"}) {
+	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.ID != "browser_review" || !readiness.Data.ProfilePosture.ToolsEnabled || !readiness.Data.ProfilePosture.WritesAllowed || readiness.Data.ProfilePosture.NetworkAllowed || readiness.Data.ProfilePosture.ApprovalPolicy != agentprofiles.ApprovalBlock || readiness.Data.ProfilePosture.BrowserEvidenceStatus != projectAssignmentBrowserEvidenceStatusEnabled || !readiness.Data.ProfilePosture.BrowserAllowed || readiness.Data.ProfilePosture.BrowserInteractionStatus != projectAssignmentBrowserInteractionStatusEnabled || !readiness.Data.ProfilePosture.BrowserInteractionsAllowed || !reflect.DeepEqual(readiness.Data.ProfilePosture.BrowserAllowedOrigins, []string{"https://qa.example.test"}) {
 		t.Fatalf("profile_posture = %+v, want browser-enabled native task posture with tools/writes on and network off", readiness.Data.ProfilePosture)
 	}
 	if runtime := readiness.Data.ProfilePosture.BrowserRuntimeReadiness; runtime == nil || !runtime.Available || runtime.Status != "ready" {
@@ -104,6 +105,9 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	}
 	if !launchReadinessWarningContains(readiness.Data.Warnings, "Project skill Network (network) declares network enabled") {
 		t.Fatalf("warnings = %+v, want project skill network posture warning", readiness.Data.Warnings)
+	}
+	if !launchReadinessWarningContains(readiness.Data.Warnings, "Browser capabilities are configured but will be blocked") {
+		t.Fatalf("warnings = %+v, want blocked-browser approval-policy warning", readiness.Data.Warnings)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
@@ -208,6 +212,54 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessWarnsWhenGrantedBrowserToolsAre
 				if !strings.Contains(warning, want) {
 					t.Fatalf("warnings = %q, want %q", warning, want)
 				}
+			}
+		})
+	}
+}
+
+func TestProjectAssignmentApprovalPolicyWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		profile projectworkapp.ResolvedAgentProfile
+		want    bool
+	}{
+		{
+			name: "block with static browser grant",
+			profile: projectworkapp.ResolvedAgentProfile{
+				ApprovalPolicy: agentprofiles.ApprovalBlock,
+				BrowserAllowed: true,
+			},
+			want: true,
+		},
+		{
+			name: "block with interaction grant",
+			profile: projectworkapp.ResolvedAgentProfile{
+				ApprovalPolicy:             agentprofiles.ApprovalBlock,
+				BrowserInteractionsAllowed: true,
+			},
+			want: true,
+		},
+		{
+			name: "require with browser grant",
+			profile: projectworkapp.ResolvedAgentProfile{
+				ApprovalPolicy: agentprofiles.ApprovalRequire,
+				BrowserAllowed: true,
+			},
+		},
+		{
+			name:    "block without browser grant",
+			profile: projectworkapp.ResolvedAgentProfile{ApprovalPolicy: agentprofiles.ApprovalBlock},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			warning := projectAssignmentApprovalPolicyWarning(test.profile)
+			if (warning != "") != test.want {
+				t.Fatalf("warning = %q, want present=%v", warning, test.want)
+			}
+			if warning != "" && (!strings.Contains(warning, "blocked") || !strings.Contains(warning, "browser_flow")) {
+				t.Fatalf("warning = %q, want blocked browser repair guidance", warning)
 			}
 		})
 	}

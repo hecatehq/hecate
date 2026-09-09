@@ -448,7 +448,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// recovery may have checkpointed an assistant response before its
 			// approval record existed.
 			if !pendingToolCallsApproved {
-				pause, approvalRequired := e.approvalGate.EvaluateForModelCallRef(spec, modelCallRef, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls)
+				pause, approvalRequired := e.approvalGate.EvaluateForModelCallRefAdvertised(spec, modelCallRef, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls, tools)
 				if approvalRequired {
 					conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt)
 					if artifactErr != nil {
@@ -545,7 +545,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// the same run is re-queued and we re-enter the loop
 			// with the same conversation tail — this branch is
 			// short-circuited by the resume-detection above.
-			pause, ok := e.approvalGate.Evaluate(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, assistantMsg.ToolCalls)
+			pause, ok := e.approvalGate.EvaluateAdvertised(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, assistantMsg.ToolCalls, tools)
 			if ok {
 				if err := runState.AddStep(spec, pause.Step); err != nil {
 					return nil, err
@@ -574,7 +574,13 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			if err := runState.AddStep(spec, intent); err != nil {
 				return nil, err
 			}
-			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, intent.Index, mcpHost, terminals)
+			var dispatch agentLoopToolDispatchResult
+			var dispatchErr error
+			if e.approvalGate.isBlockedByAgentPreset(toolCall, spec, &tools) {
+				dispatch = e.toolDispatcher.blockedAgentPresetApprovalCall(ctx, spec, toolCall, intent.Index, time.Now().UTC())
+			} else {
+				dispatch, dispatchErr = e.toolDispatcher.Dispatch(ctx, spec, toolCall, intent.Index, mcpHost, terminals)
+			}
 			finalStep, artifacts := finalizeAgentToolDispatch(intent, toolCall, dispatch, dispatchErr, time.Now().UTC())
 			if err := runState.FinalizeStep(spec, finalStep); err != nil {
 				return nil, err

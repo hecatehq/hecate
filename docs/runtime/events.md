@@ -454,7 +454,11 @@ execution target. Current producers are:
   though its Agent Preset snapshot disables network;
 - a broad native process, direct-write, or terminal call returned for a
   read-only task; and
-- an MCP tool whose server config has `approval_policy=block`.
+- an MCP tool whose server config has `approval_policy=block`; or
+- an otherwise-permitted native or MCP call on a native project-assignment
+  Task whose frozen Agent Preset uses `approval_policy=block` and whose call
+  would otherwise require runtime, mandatory browser, or per-MCP-server
+  approval (`policy=agent_preset_approval`).
 
 The event is an audit signal rather than a runtime failure. Its task step uses
 `status=completed`, `phase=policy`, and `result=denied`, while the agent still
@@ -494,7 +498,7 @@ MCP events carry the same shared payload shape:
 | `duration_ms`  | `int64`  | Wall-clock processing time from dispatcher entry to local denial or upstream result                                                                                           |
 | `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error`                                                             |
 | `reason`       | `string` | Present on `policy.tool_blocked`                                                                                                                                              |
-| `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy` or `agent_preset_tools`                                                                                               |
+| `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy`, `agent_preset_tools`, or `agent_preset_approval`                                                                     |
 
 ### `tool.completed` for MCP
 
@@ -506,17 +510,30 @@ Protocol-level failure before a result was in hand: transport closed, RPC error,
 
 ### `policy.tool_blocked` for MCP
 
-Emitted for either of two hard-refusal paths:
+Emitted for one of three hard-refusal paths:
 
 - the matching task `mcp_servers[]` entry has `approval_policy=block`
   (`policy=mcp_approval_policy`); or
 - the task's Agent Preset snapshot explicitly disables every tool
-  (`policy=agent_preset_tools`).
+  (`policy=agent_preset_tools`); or
+- the matching server uses `approval_policy=require_approval`, but the native
+  project-assignment Task's frozen Agent Preset blocks approval-gated calls
+  (`policy=agent_preset_approval`).
 
-The upstream is never contacted; the LLM sees a tool error suggesting it pick
-a different path. This is distinct from `tool.failed` so operators can alert on
+The blocked tool call is never sent upstream; the LLM sees a tool error
+suggesting it pick a different path. This is distinct from `tool.failed` so operators can alert on
 failed execution without their pages firing on a legitimate policy block. It
-is also distinct from `approval.requested`: neither policy pauses the run.
+is also distinct from `approval.requested`: none of these policy blocks pauses
+the run.
+
+The frozen preset approval layer is additive. `require` produces the normal
+`approval.requested` event for every otherwise-permitted advertised tool call;
+`inherit` and `allow` add no event or gate. `block` produces
+`policy.tool_blocked` only where another policy would have required approval.
+Workflow, tools, sandbox, network, browser-capability/runtime, and MCP-server
+hard denials take precedence and retain their existing policy value. This
+snapshot is present only on native project-assignment Tasks and never changes
+pre-execution approval events.
 
 ## Typed file tool events
 

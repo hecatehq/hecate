@@ -109,9 +109,15 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
 - Native project-assignment launches enforce Work policy surface, tools, write,
-  and network posture. The stable stored/API field remains `agent_preset`. The
-  task snapshots the policy id, tools setting, and
-  effective sandbox flags. Tools-disabled tasks run as supervised model-only
+  network, and additive mid-loop approval posture. The stable stored/API field
+  remains `agent_preset`. The task snapshots the policy id, tools and approval
+  settings, and effective sandbox flags. `require` gates every
+  otherwise-permitted advertised tool call; `block` denies only calls that
+  global runtime, mandatory browser, or per-MCP-server policy would otherwise
+  gate. `inherit` and `allow` add no gate and cannot weaken a stricter policy.
+  This snapshot does not change pre-execution gates and does not apply to
+  Hecate Chat, External Agents, QA, legacy/manual Tasks, or an absent snapshot.
+  Tools-disabled tasks run as supervised model-only
   tasks: they expose no native or MCP tools, start no MCP host, and reject
   unexpected tool calls before dispatch. Legacy tasks without the tools snapshot
   retain their prior catalog behavior. Network-disabled preset tasks neither
@@ -119,9 +125,11 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   tasks omit broad shell, Git, file-write,
   and interactive-terminal tools; structured inspection and proposal-only
   patch creation remain available. Legacy/manual tasks without a preset snapshot
-  retain their prior native-network behavior. Preset-wide `approval_policy`
-  remains inspection metadata in this alpha; global task approval policy and
-  per-MCP-server policy remain authoritative and cannot be weakened by a preset.
+  retain their prior native-network and approval behavior. Hard workflow,
+  tools, sandbox, network, browser-capability/runtime, and MCP blocks remain
+  non-approvable. A preset that combines `approval_policy=block` with browser
+  grants keeps their configuration but cannot use those always-approval-gated
+  calls; launch readiness warns about that posture.
 - The built-in `workflow_mode="qa"` slice is report-only inspection, not a
   test runner or general workflow engine. It is available only to native
   `agent_loop` Tasks and forces an ephemeral read-only/native-network-tool-disabled posture. It

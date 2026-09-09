@@ -220,6 +220,115 @@ func TestAgentLoopApprovalGate_ReadOnlyProposalCallsStillHonorGlobalApproval(t *
 	}
 }
 
+func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *testing.T) {
+	t.Parallel()
+
+	assignmentSpec := func(policy string) ExecutionSpec {
+		spec := newAgentLoopSpec(t)
+		spec.Task.OriginKind = "project_work_item"
+		spec.Task.AgentPresetID = "implementation"
+		spec.Task.AgentPresetApprovalPolicy = policy
+		return spec
+	}
+
+	t.Run("require adds a gate to an otherwise ungated call", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalRequire)
+		gate := newAgentLoopApprovalGate(nil)
+		pause, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+		})
+		if !ok || !strings.Contains(pause.Approval.Reason, "frozen Agent Preset") {
+			t.Fatalf("approval = %+v ok=%v, want preset-required pause", pause.Approval, ok)
+		}
+	})
+
+	t.Run("allow does not weaken a global gate", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalAllow)
+		gate := newAgentLoopApprovalGate([]string{"shell_exec"})
+		if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-shell", "shell_exec", `{"command":"pwd"}`),
+		}); !ok {
+			t.Fatal("allow policy bypassed the runtime shell approval gate")
+		}
+	})
+
+	t.Run("block converts a global gate into a hard refusal", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalBlock)
+		gate := newAgentLoopApprovalGate([]string{"shell_exec"})
+		call := agentLoopToolCall("call-shell", "shell_exec", `{"command":"pwd"}`)
+		if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{call}); ok {
+			t.Fatal("block policy requested approval, want dispatcher refusal")
+		}
+		if !gate.isBlockedByAgentPreset(call, spec) {
+			t.Fatal("block policy did not refuse globally gated call")
+		}
+	})
+
+	t.Run("block converts an MCP server gate into a hard refusal", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalBlock)
+		spec.Task.MCPServers = []types.MCPServerConfig{{
+			Name: "github", Command: "fake", ApprovalPolicy: types.MCPApprovalRequireApproval,
+		}}
+		gate := newAgentLoopApprovalGate(nil)
+		call := agentLoopToolCall("call-mcp", "mcp__github__create_issue", `{}`)
+		if !gate.isBlockedByAgentPreset(call, spec) {
+			t.Fatal("block policy did not refuse MCP require_approval call")
+		}
+	})
+
+	t.Run("block leaves otherwise permitted calls available", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalBlock)
+		spec.Task.MCPServers = []types.MCPServerConfig{{
+			Name: "docs", Command: "fake", ApprovalPolicy: types.MCPApprovalAuto,
+		}}
+		gate := newAgentLoopApprovalGate(nil)
+		for _, call := range []types.ToolCall{
+			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+			agentLoopToolCall("call-mcp", "mcp__docs__lookup", `{}`),
+		} {
+			if gate.isBlockedByAgentPreset(call, spec) || gate.isGated(call, spec) {
+				t.Fatalf("otherwise permitted call %q was gated or blocked", call.Function.Name)
+			}
+		}
+	})
+
+	t.Run("legacy non-assignment and QA tasks do not activate a stored value", func(t *testing.T) {
+		gate := newAgentLoopApprovalGate(nil)
+		call := agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`)
+		legacy := assignmentSpec("")
+		manual := assignmentSpec(types.AgentPresetApprovalRequire)
+		manual.Task.OriginKind = "manual"
+		qa := assignmentSpec(types.AgentPresetApprovalRequire)
+		qa.Run.WorkflowMode = types.WorkflowModeQA
+		qa.Run.WorkflowVersion = "v0"
+		for name, spec := range map[string]ExecutionSpec{"legacy": legacy, "manual": manual, "qa": qa} {
+			if gate.isGated(call, spec) || gate.isBlockedByAgentPreset(call, spec) {
+				t.Fatalf("%s task unexpectedly activated preset approval policy", name)
+			}
+		}
+	})
+
+	t.Run("invalid persisted value fails safely to approval", func(t *testing.T) {
+		spec := assignmentSpec("unexpected")
+		gate := newAgentLoopApprovalGate(nil)
+		if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+		}); !ok {
+			t.Fatal("invalid persisted approval snapshot did not fail safely")
+		}
+	})
+
+	t.Run("require does not gate a stale unadvertised call", func(t *testing.T) {
+		spec := assignmentSpec(types.AgentPresetApprovalRequire)
+		gate := newAgentLoopApprovalGate(nil)
+		if _, ok := gate.EvaluateAdvertised(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-stale", "removed_tool", `{}`),
+		}, []types.Tool{{Function: types.ToolFunction{Name: "read_file"}}}); ok {
+			t.Fatal("preset require paused for a call absent from the run's advertised catalog")
+		}
+	})
+}
+
 func agentLoopToolCall(id, name, args string) types.ToolCall {
 	return types.ToolCall{
 		ID:   id,

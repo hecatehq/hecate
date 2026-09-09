@@ -43,6 +43,8 @@ const mcpAppHTMLMaxBytes = 1 << 20
 const (
 	agentPresetToolsPolicy         = "agent_preset_tools"
 	agentPresetToolsDisabledReason = "tools are disabled by the resolved agent preset"
+	agentPresetApprovalPolicy      = "agent_preset_approval"
+	agentPresetApprovalBlockReason = "the frozen Agent Preset blocks actions that require approval"
 )
 
 func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
@@ -356,6 +358,37 @@ func blockedAgentPresetToolCall(spec ExecutionSpec, call types.ToolCall, stepInd
 		"agent_preset_policy_denied",
 		agentPresetToolsDisabledReason,
 		"continue without tools or ask the operator to use a tools-enabled preset",
+	)
+}
+
+func (d *agentLoopToolDispatcher) blockedAgentPresetApprovalCall(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time) agentLoopToolDispatchResult {
+	kind := "builtin"
+	if isMCPToolName(call.Function.Name) {
+		kind = "mcp"
+		server, toolLeaf, _ := mcpclient.SplitNamespacedToolName(call.Function.Name)
+		d.recordMCPCallTelemetry(
+			ctx,
+			spec,
+			call.ID,
+			call.Function.Name,
+			server,
+			toolLeaf,
+			telemetry.MCPCallResultBlocked,
+			time.Since(startedAt).Milliseconds(),
+			agentPresetApprovalBlockReason,
+			agentPresetApprovalPolicy,
+		)
+	}
+	return blockedToolCall(
+		spec,
+		call,
+		stepIndex,
+		startedAt,
+		kind,
+		agentPresetApprovalPolicy,
+		"agent_preset_approval_denied",
+		agentPresetApprovalBlockReason,
+		"choose a non-gated action or ask the operator to use a different Agent Preset approval policy",
 	)
 }
 

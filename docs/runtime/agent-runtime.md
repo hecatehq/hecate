@@ -142,13 +142,13 @@ sequenceDiagram
     participant Store
     Runner->>Agent: Execute
     Agent->>Store: load saved conversation if resume
-    Note over Agent,Tools: Tools-off preset snapshots send an empty catalog and skip MCP startup while other tasks use filtered built-ins with configured MCP tools
+    Note over Agent,Tools: Native assignment Tasks reuse frozen tool and approval posture and tools-off snapshots send an empty catalog and skip MCP startup
     loop model-call cycle
         Agent->>LLM: Chat with messages and tool schemas
         LLM-->>Agent: assistant message
         Agent->>Store: persist conversation snapshot
         alt assistant emitted tool_calls
-            opt any tool gated by policy (built-in approval or per-server MCP policy)
+            opt any tool gated by runtime, frozen preset, browser, or per-server MCP policy
                 Agent->>Store: persist approval as pending
                 Agent-->>Runner: pause as awaiting_approval
             end
@@ -715,7 +715,7 @@ workspace-instruction bodies. Host-specific guidance files and `SKILL.md` bodies
 remain metadata-only for this path. If the selected route is a cloud provider,
 included project memory and workspace-instruction bodies are sent to that
 provider as normal task prompt content. The task also snapshots the resolved
-preset id and `tools_enabled`, maps `writes_allowed=false` to
+preset id, `tools_enabled`, and `approval_policy`, maps `writes_allowed=false` to
 `sandbox_read_only=true`, and maps `network_allowed` to `sandbox_network`;
 when the preset enables static browser evidence or browser interaction, it
 separately snapshots both browser grants and their shared exact-origin
@@ -776,6 +776,42 @@ mapping: every otherwise-permitted browser call pauses for
 operator-visible content or trigger an application-specific `GET` effect;
 `browser_flow` additionally runs scripts and approved clicks that can change
 the application.
+
+Native project-assignment Tasks add one immutable Agent Preset approval layer
+to those mid-loop decisions. The task exposes the output-only
+`agent_preset_approval_policy` snapshot, and retries and resumes keep the same
+value even if the saved preset changes:
+
+- `inherit` leaves runtime-wide, mandatory browser, and per-MCP-server approval
+  policy unchanged.
+- `allow` also adds no approval gate. It is an explicit preset posture, not an
+  auto-approval override, so it cannot bypass a stricter runtime, browser, or
+  MCP-server policy.
+- `require` sends every otherwise-permitted tool call selected from the exact
+  catalog advertised for that model call through the normal
+  `agent_loop_tool_call` approval flow. This includes tools that are ungated by
+  the runtime default and MCP servers configured with `approval_policy=auto`.
+- `block` denies only a call that the runtime-wide policy, mandatory browser
+  gate, or matching `approval_policy=require_approval` MCP server would
+  otherwise send for approval. It does not block an otherwise-ungated tool
+  merely because the preset says `block`. No approval is created for the
+  denied call; Hecate records `policy.tool_blocked` with
+  `policy=agent_preset_approval`, returns a tool-error result to the model, and
+  may still dispatch other ungated calls from that response.
+
+Hard denials are evaluated first. Workflow restrictions, a tools-disabled
+preset, read-only or network posture, a missing browser grant/runtime, and an
+MCP server with `approval_policy=block` remain non-approvable and keep their own
+policy reason. The preset approval snapshot does not affect pre-execution
+approval gates. Empty is the legacy/manual compatibility state and adds no
+policy; an invalid non-empty stored value fails safely as `require`.
+
+This snapshot is admitted only for native project-assignment agent loops. It is
+not inferred from a preset id and does not apply to Hecate Chat, External Agent,
+QA, legacy, or manually created Tasks. A preset may retain browser grants while
+using `block`, but every otherwise-available browser call requires approval and
+is therefore denied; assignment launch readiness warns about that configured
+but unusable combination.
 
 Approval never grants a capability denied by the resolved runtime policy. In
 particular, unexpected calls on a task whose Agent Preset snapshot sets

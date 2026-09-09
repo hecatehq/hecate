@@ -113,6 +113,28 @@ func TestAgentLoopBrowserFlowAlwaysRequiresCompleteApprovalBeforeRuntime(t *test
 	}
 }
 
+func TestAgentLoopBrowserFlowPresetBlockOverridesMandatoryApproval(t *testing.T) {
+	t.Parallel()
+	spec := newAgentLoopSpec(t)
+	spec.Task = browserFlowTask()
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+	gate := newAgentLoopApprovalGate(nil)
+	gate.browserFlowAvailable = true
+	call := validBrowserFlowCall("flow-blocked")
+
+	if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{call}); ok {
+		t.Fatal("blocked browser flow paused for approval")
+	}
+	if !gate.isBlockedByAgentPreset(call, spec) {
+		t.Fatal("preset block did not override mandatory browser-flow approval")
+	}
+
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalAllow
+	if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{call}); !ok {
+		t.Fatal("preset allow weakened the mandatory browser-flow approval gate")
+	}
+}
+
 func TestAgentLoopBrowserFlowDispatchScopesOriginAndPersistsBoundedEvidence(t *testing.T) {
 	t.Parallel()
 	runner := &fakeBrowserFlowRunner{result: browserrunner.FlowResult{
@@ -418,6 +440,39 @@ func TestAgentLoopBrowserFlowPausesBeforeRuntimeDispatch(t *testing.T) {
 	}
 	if len(runner.requests) != 0 {
 		t.Fatalf("browser flow ran before approval: %+v", runner.requests)
+	}
+}
+
+func TestAgentLoopBrowserFlowPresetBlockNeverStartsBrowser(t *testing.T) {
+	t.Parallel()
+	runner := &fakeBrowserFlowRunner{}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", validBrowserFlowCall("flow-1"))),
+		makeChatResp(makeAssistantMsg("The work policy blocked browser interaction.")),
+	}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{}, WithBrowserFlowRunner(runner))
+	spec := newAgentLoopSpec(t)
+	spec.Task = browserFlowTask()
+	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
+
+	result, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Status != "completed" || len(result.PendingApprovals) != 0 {
+		t.Fatalf("Execute() result = %+v, want completed recovery without approval", result)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("browser flow ran despite frozen block policy: %+v", runner.requests)
+	}
+	foundDenied := false
+	for _, step := range result.Steps {
+		if step.ErrorKind == "agent_preset_approval_denied" {
+			foundDenied = true
+		}
+	}
+	if !foundDenied {
+		t.Fatalf("steps = %+v, want Agent Preset approval refusal", result.Steps)
 	}
 }
 

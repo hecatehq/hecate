@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 var (
@@ -23,10 +24,10 @@ const (
 	SurfaceHecateTask    = "hecate_task"
 	SurfaceExternalAgent = "external_agent"
 
-	ApprovalInherit = "inherit"
-	ApprovalRequire = "require"
-	ApprovalBlock   = "block"
-	ApprovalAllow   = "allow"
+	ApprovalInherit = types.AgentPresetApprovalInherit
+	ApprovalRequire = types.AgentPresetApprovalRequire
+	ApprovalBlock   = types.AgentPresetApprovalBlock
+	ApprovalAllow   = types.AgentPresetApprovalAllow
 
 	MemoryInherit     = "inherit"
 	MemoryInclude     = "include"

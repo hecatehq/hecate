@@ -114,12 +114,22 @@ capability.
 
 Assignment launch and preflight therefore combine Cairnline coordination state
 with Hecate runtime policy. The shared launch-plan seam validates preset surface
-compatibility; native assignment tasks snapshot the preset id and tools posture
-and enforce write/network posture through task sandbox fields. A tools-disabled
+compatibility; native assignment tasks snapshot the preset id, tools posture,
+and approval posture and enforce write/network posture through task sandbox
+fields. The frozen approval posture is additive and applies only to mid-loop
+tool calls on native project-assignment Tasks. `require` gates every
+otherwise-permitted call selected from the exact advertised catalog; `block`
+denies only a call that runtime-wide policy, the mandatory browser gate, or the
+matching MCP server would otherwise send for approval. `inherit` and `allow`
+add no gate and never weaken those stricter policies. Workflow, tools,
+read-only, network, browser availability/grant, and MCP hard denials take
+precedence and cannot be made approvable by a preset. The snapshot does not
+alter pre-execution approval and is never inferred for Hecate Chat, External
+Agents, QA, legacy/manual Tasks, or Tasks whose snapshot is absent. A tools-disabled
 snapshot runs as a supervised model-only task: it exposes no native, Project
 Assistant, or MCP tools, starts no MCP host, and rejects unexpected calls before
-dispatch. Preset-backed native
-HTTP/search tools fail closed when that snapshot disables network access;
+dispatch. Preset-backed native HTTP/search tools fail closed when that snapshot
+disables network access;
 read-only tasks omit and reject broad shell, Git, file-write, and interactive
 terminal surfaces while retaining structured inspection and proposal-only
 edits. Browser capability is separate from generic network: a native-task
@@ -129,7 +139,10 @@ origin list. Assignment launch snapshots both booleans and the normalized
 origins. Neither is inferred from `sandbox_network`, later preset edits, or a
 legacy/manual Task. Every call uses one query-free URL at one exact origin,
 requires approval, starts a fresh local browser process/profile, and returns
-bounded plain-text evidence. A flow runs 1–6 fully declared exact accessibility
+bounded plain-text evidence. A native preset that both grants a browser
+capability and sets `approval_policy=block` keeps the grant configured but makes
+otherwise-available browser calls unusable; launch readiness must warn about
+that effective posture. A flow runs 1–6 fully declared exact accessibility
 click/wait actions with scripts enabled; same-origin `GET`/`HEAD` requests and
 clicks may change the application, and a failure retains partial action audit.
 There is no typing, upload, download, screenshot, authentication import,
@@ -138,10 +151,11 @@ timeout spans preflight, startup, and the call; Hecate cancels after observing
 4 MiB of aggregate response data, including unknown-length streams, though
 browser/socket buffering can overshoot before cancellation. Do not treat
 private-IP preflight as an OS/network sandbox. Legacy/manual tasks without a
-tools snapshot keep their prior tool behavior, and tasks without a preset
-snapshot keep their prior native network-tool behavior, so do not infer policy
-from an absent snapshot or a zero-valued sandbox flag. Persist task/run or
-chat-session references in the Hecate project-runtime overlay, while assignment
+tools snapshot keep their prior tool behavior, and tasks without the respective
+preset snapshots keep their prior native network-tool and approval behavior, so
+do not infer policy from an absent snapshot or a zero-valued sandbox flag.
+Persist task/run or chat-session references in the Hecate project-runtime
+overlay, while assignment
 lifecycle state remains in Cairnline. Linked External Agent reconciliation
 follows the same split.
 

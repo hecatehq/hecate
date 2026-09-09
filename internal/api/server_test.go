@@ -6246,7 +6246,7 @@ func TestTasksCreateListGetAndFirstRunLifecycle(t *testing.T) {
 	handler := NewServer(logger, apiHandler)
 	tasks := newTaskTestClient(t, handler)
 
-	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Upgrade TypeScript","prompt":"Upgrade the UI workspace to TypeScript 7 beta.","project_id":"proj_ui","repo":"hecate","base_branch":"main","workspace_mode":"ephemeral","requested_model":"gpt-5.4-mini","requested_provider":"openai","budget_micros_usd":500000}`)
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Upgrade TypeScript","prompt":"Upgrade the UI workspace to TypeScript 7 beta.","project_id":"proj_ui","repo":"hecate","base_branch":"main","workspace_mode":"ephemeral","requested_model":"gpt-5.4-mini","requested_provider":"openai","budget_micros_usd":500000,"agent_preset_id":"injected","origin_kind":"project_work_item","agent_preset_approval_policy":"allow"}`)
 	if created.Object != "task" {
 		t.Fatalf("object = %q, want task", created.Object)
 	}
@@ -6264,6 +6264,9 @@ func TestTasksCreateListGetAndFirstRunLifecycle(t *testing.T) {
 	}
 	if created.Data.ProjectID != project.ID {
 		t.Fatalf("project_id = %q, want %q", created.Data.ProjectID, project.ID)
+	}
+	if created.Data.AgentPresetID != "" || created.Data.AgentPresetApprovalPolicy != "" || created.Data.OriginKind != "" {
+		t.Fatalf("manual task accepted output-only Agent Preset authority: %+v", created.Data)
 	}
 
 	listed := mustTaskRequestJSON[TasksResponse](tasks, http.MethodGet, "/hecate/v1/tasks?limit=10", "")

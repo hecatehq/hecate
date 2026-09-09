@@ -150,28 +150,32 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 		wantBrowserInteractions bool
 		wantOrigins             []string
 		wantPresetID            string
+		wantApprovalPolicy      string
 	}{
 		{
-			name:         "review preset is read only and offline",
-			profile:      ResolvedAgentProfile{ID: "review_qa", ToolsEnabled: false, WritesAllowed: false, NetworkAllowed: false},
-			wantReadOnly: true,
-			wantPresetID: "review_qa",
+			name:               "review preset is read only and offline",
+			profile:            ResolvedAgentProfile{ID: "review_qa", ToolsEnabled: false, WritesAllowed: false, NetworkAllowed: false},
+			wantReadOnly:       true,
+			wantPresetID:       "review_qa",
+			wantApprovalPolicy: agentprofiles.ApprovalInherit,
 		},
 		{
 			name:                    "implementation preset permits writes and network",
-			profile:                 ResolvedAgentProfile{ID: "implementation", ToolsEnabled: true, WritesAllowed: true, NetworkAllowed: true, BrowserAllowed: true, BrowserInteractionsAllowed: true, BrowserAllowedOrigins: []string{"https://app.example.test"}},
+			profile:                 ResolvedAgentProfile{ID: "implementation", ToolsEnabled: true, WritesAllowed: true, NetworkAllowed: true, BrowserAllowed: true, BrowserInteractionsAllowed: true, BrowserAllowedOrigins: []string{"https://app.example.test"}, ApprovalPolicy: agentprofiles.ApprovalRequire},
 			wantTools:               true,
 			wantNetwork:             true,
 			wantBrowser:             true,
 			wantBrowserInteractions: true,
 			wantOrigins:             []string{"https://app.example.test"},
 			wantPresetID:            "implementation",
+			wantApprovalPolicy:      agentprofiles.ApprovalRequire,
 		},
 		{
-			name:         "missing preset posture fails closed",
-			profile:      ResolvedAgentProfile{ID: "missing", Missing: true},
-			wantReadOnly: true,
-			wantPresetID: "missing",
+			name:               "missing preset posture fails closed",
+			profile:            ResolvedAgentProfile{ID: "missing", Missing: true},
+			wantReadOnly:       true,
+			wantPresetID:       "missing",
+			wantApprovalPolicy: agentprofiles.ApprovalInherit,
 		},
 	}
 	for _, test := range tests {
@@ -198,6 +202,9 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 			}
 			if task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled != test.wantTools {
 				t.Fatalf("task tools snapshot = %v, want explicit %v", task.AgentPresetToolsEnabled, test.wantTools)
+			}
+			if task.AgentPresetApprovalPolicy != test.wantApprovalPolicy {
+				t.Fatalf("task approval snapshot = %q, want %q", task.AgentPresetApprovalPolicy, test.wantApprovalPolicy)
 			}
 			if task.AgentPresetBrowserAllowed == nil || *task.AgentPresetBrowserAllowed != test.wantBrowser {
 				t.Fatalf("task browser snapshot = %v, want explicit %v", task.AgentPresetBrowserAllowed, test.wantBrowser)

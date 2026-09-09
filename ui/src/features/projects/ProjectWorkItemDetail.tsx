@@ -2386,6 +2386,12 @@ function assignmentLaunchPostureRows(
   if (capabilities) {
     rows.push({ label: "Capabilities", value: capabilities });
   }
+  if (readiness.driver_kind === "hecate_task" && readiness.profile_posture?.approval_policy) {
+    rows.push({
+      label: "Approvals",
+      value: assignmentLaunchApprovalPolicy(readiness.profile_posture.approval_policy),
+    });
+  }
   const browserEvidence = assignmentLaunchBrowserEvidencePosture(readiness);
   if (browserEvidence) {
     rows.push({ label: "Browser evidence", value: browserEvidence });
@@ -2446,6 +2452,21 @@ function assignmentLaunchCapabilityPosture(
   ].join(" · ");
 }
 
+function assignmentLaunchApprovalPolicy(policy: string): string {
+  switch (policy) {
+    case "require":
+      return "Every otherwise-permitted tool call requires approval";
+    case "block":
+      return "Mid-loop calls that would require approval are blocked; pre-execution gates are unchanged";
+    case "allow":
+      return "Preset adds no gate; stricter runtime and tool-source policies still apply";
+    case "inherit":
+      return "Use runtime and tool-source policies";
+    default:
+      return `Unknown policy (${policy}); runtime fails safely to approval`;
+  }
+}
+
 function assignmentLaunchBrowserEvidencePosture(
   readiness: ProjectAssignmentLaunchReadinessRecord,
 ): string {
@@ -2457,11 +2478,13 @@ function assignmentLaunchBrowserEvidencePosture(
   ) {
     return "Not available for External Agent assignments";
   }
+  if (!posture.browser_allowed || posture.browser_evidence_status === "disabled") return "Disabled";
+  if (posture.approval_policy === "block") {
+    return "Configured · blocked by approval policy";
+  }
   if (posture.browser_evidence_status === "unavailable") {
     return "Unavailable on this runtime";
   }
-  const enabled = posture.browser_evidence_status === "enabled";
-  if (!enabled) return "Disabled";
   const origins = posture.browser_allowed_origins ?? [];
   return origins.length > 0 ? `Enabled · ${origins.join(", ")}` : "Enabled";
 }
@@ -2477,11 +2500,14 @@ function assignmentLaunchBrowserInteractionPosture(
   ) {
     return "Not available for External Agent assignments";
   }
+  if (!posture.browser_interactions_allowed || posture.browser_interaction_status === "disabled")
+    return "Disabled";
+  if (posture.approval_policy === "block") {
+    return "Configured · blocked by approval policy";
+  }
   if (posture.browser_interaction_status === "unavailable") {
     return "Unavailable on this runtime";
   }
-  const enabled = posture.browser_interaction_status === "enabled";
-  if (!enabled) return "Disabled";
   const origins = posture.browser_allowed_origins ?? [];
   return origins.length > 0
     ? `Enabled · approval-gated · up to six exact accessible-role/name click or wait actions · ${origins.join(", ")}`
