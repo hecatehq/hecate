@@ -47,6 +47,6 @@
     "oxlint-tsgolint": "7.0.2002",
     "typescript": "^7.0.2",
     "vite": "^8.0.10",
-    "vitest": "^4.1.5"
+    "vitest": "^5.0.1"
   }
 }
