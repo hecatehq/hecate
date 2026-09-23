@@ -163,6 +163,7 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 			task: types.Task{
 				OriginKind:                "project_work_item",
 				AgentPresetID:             "architecture",
+				AgentPresetToolsEnabled:   enabledAgentPresetToolsSnapshot(),
 				AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
 				SandboxNetwork:            true,
 			},
@@ -179,6 +180,7 @@ func TestAgentLoopCodeIntelligenceSelfDocumentationMatchesEffectivePolicy(t *tes
 			task: types.Task{
 				OriginKind:                "project_work_item",
 				AgentPresetID:             "architecture",
+				AgentPresetToolsEnabled:   enabledAgentPresetToolsSnapshot(),
 				AgentPresetApprovalPolicy: types.AgentPresetApprovalBlock,
 				SandboxNetwork:            true,
 			},
@@ -222,6 +224,7 @@ func TestEffectiveGuidanceToolAccessQAExcludesFrozenPresetPolicy(t *testing.T) {
 		Task: types.Task{
 			OriginKind:                "project_work_item",
 			AgentPresetID:             "review_qa",
+			AgentPresetToolsEnabled:   enabledAgentPresetToolsSnapshot(),
 			AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
 			SandboxNetwork:            true,
 		},

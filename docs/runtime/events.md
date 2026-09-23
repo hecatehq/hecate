@@ -455,7 +455,7 @@ execution target. Current producers are:
 - a broad native process, direct-write, or terminal call returned for a
   read-only task; and
 - an MCP tool whose server config has `approval_policy=block`; or
-- an otherwise-permitted native or MCP call on a native project-assignment
+- an otherwise-permitted native or MCP call on a Work-policy-backed native
   Task whose frozen Agent Preset uses `approval_policy=block` and whose call
   would otherwise require runtime, mandatory browser, or per-MCP-server
   approval (`policy=agent_preset_approval`).
@@ -516,8 +516,8 @@ Emitted for one of three hard-refusal paths:
   (`policy=mcp_approval_policy`); or
 - the task's Agent Preset snapshot explicitly disables every tool
   (`policy=agent_preset_tools`); or
-- the matching server uses `approval_policy=require_approval`, but the native
-  project-assignment Task's frozen Agent Preset blocks approval-gated calls
+- the matching server uses `approval_policy=require_approval`, but the
+  Work-policy-backed native Task's frozen Agent Preset blocks approval-gated calls
   (`policy=agent_preset_approval`).
 
 The blocked tool call is never sent upstream; the LLM sees a tool error
@@ -532,8 +532,8 @@ The frozen preset approval layer is additive. `require` produces the normal
 `policy.tool_blocked` only where another policy would have required approval.
 Workflow, tools, sandbox, network, browser-capability/runtime, and MCP-server
 hard denials take precedence and retain their existing policy value. This
-snapshot is present only on native project-assignment Tasks and never changes
-pre-execution approval events.
+snapshot is present only on standard Work-policy-backed native Tasks and never
+changes pre-execution approval events.
 
 ## Typed file tool events
 

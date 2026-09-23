@@ -19,6 +19,7 @@ var taskAppErrorMappings = []appErrorMapping{
 		taskapp.ErrBudgetLower,
 	),
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound,
+		taskapp.ErrAgentPresetNotFound,
 		taskapp.ErrTaskNotFound,
 		taskapp.ErrRunNotFound,
 		taskapp.ErrApprovalNotFound,
@@ -35,6 +36,10 @@ var taskAppErrorMappings = []appErrorMapping{
 }
 
 func writeTaskAppError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, taskapp.ErrAgentPresetStoreNotConfigured) {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, taskapp.ErrAgentPresetStoreNotConfigured.Error())
+		return true
+	}
 	if errors.Is(err, taskapp.ErrOriginValidationFailed) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, taskapp.ErrOriginValidationFailed.Error())
 		return true

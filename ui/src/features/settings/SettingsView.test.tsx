@@ -3,7 +3,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, getDictationOptions, getPlugins } from "../../lib/api";
+import {
+  ApiError,
+  createAgentPreset,
+  deleteAgentPreset,
+  getAgentPresets,
+  getDictationOptions,
+  getPlugins,
+  updateAgentPreset,
+} from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -23,6 +31,10 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getDictationOptions: vi.fn(),
   getPlugins: vi.fn(),
+  getAgentPresets: vi.fn(),
+  createAgentPreset: vi.fn(),
+  updateAgentPreset: vi.fn(),
+  deleteAgentPreset: vi.fn(),
 }));
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -51,6 +63,12 @@ beforeEach(() => {
   vi.mocked(getDictationOptions).mockResolvedValue({ object: "dictation_options", data: [] });
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
+  vi.mocked(getAgentPresets).mockReset();
+  vi.mocked(getAgentPresets).mockResolvedValue({ object: "agent_presets", data: [] });
+  vi.mocked(createAgentPreset).mockReset();
+  vi.mocked(updateAgentPreset).mockReset();
+  vi.mocked(deleteAgentPreset).mockReset();
+  vi.mocked(deleteAgentPreset).mockResolvedValue();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
 });
@@ -61,6 +79,34 @@ beforeEach(() => {
 // gating and the MCP cache was pure informational stats). Usage lives
 // in the Usage workspace.
 describe("SettingsView", () => {
+  it("exposes global work policy management without requiring a Project", async () => {
+    vi.mocked(getAgentPresets).mockResolvedValue({
+      object: "agent_presets",
+      data: [
+        {
+          id: "implementation",
+          name: "Implementation",
+          surface: "hecate_task",
+          tools_enabled: true,
+          writes_allowed: true,
+          network_allowed: false,
+          browser_interactions_allowed: false,
+          approval_policy: "require",
+          project_memory_policy: "inherit",
+          context_source_policy: "inherit",
+        },
+      ],
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByText("1 saved")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Manage policies/i }));
+    expect(screen.getByRole("dialog", { name: "Work policies" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Implementation" })).toBeTruthy();
+    expect(screen.getByText(/Standalone Tasks do not activate them/i)).toBeTruthy();
+  });
+
   it("renders maintenance cleanup without legacy tabs", () => {
     const { state, actions } = setup();
     render(withRuntimeConsole(<SettingsView />, { state, actions }));

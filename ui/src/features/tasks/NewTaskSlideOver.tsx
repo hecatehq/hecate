@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ModelRecord } from "../../types/model";
-import type { ProviderPresetRecord, ProviderRecord } from "../../types/provider";
+import type {
+  BrowserEvidenceRuntimeReadiness,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../../types/provider";
 import {
   Icon,
   Icons,
@@ -73,6 +78,7 @@ export type CreateTaskPayload = {
   working_directory?: string;
   requested_model?: string;
   requested_provider?: string;
+  agent_preset_id?: string;
   workspace_mode?: string;
   // Per-task agent_loop system prompt — narrowest layer (after
   // global / tenant / workspace CLAUDE.md|AGENTS.md).
@@ -108,6 +114,9 @@ type Props = {
   // shows raw provider ids in its per-row suffix.
   providers?: ProviderRecord[];
   providerPresets?: ProviderPresetRecord[];
+  agentPresets?: AgentPresetRecord[];
+  agentPresetsError?: string;
+  browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
   defaultWorkspace?: string;
   busyAction: string;
   errorMessage?: string;
@@ -120,6 +129,9 @@ export function NewTaskSlideOver({
   models,
   providers = [],
   providerPresets = [],
+  agentPresets = [],
+  agentPresetsError = "",
+  browserEvidenceReadiness,
   defaultWorkspace = "",
   busyAction,
   errorMessage,
@@ -144,6 +156,7 @@ export function NewTaskSlideOver({
   // the chat surface's ProviderFilter pattern but kept local since
   // the new-task panel is a one-shot form, not a persisted setting.
   const [taskProvider, setTaskProvider] = useState("auto");
+  const [taskAgentPresetID, setTaskAgentPresetID] = useState("");
   // In-place mode: run inside the source directory rather than an
   // isolated clone. Toggling this on tells the gateway to use
   // working_directory as the sandbox root, so writes hit the real
@@ -173,17 +186,48 @@ export function NewTaskSlideOver({
       });
   }, [providers, providerPresets]);
 
-  // Models scoped to the selected provider. "auto" means show all.
+  const compatibleAgentPresets = useMemo(
+    () =>
+      agentPresets.filter((preset) => preset.surface === "any" || preset.surface === "hecate_task"),
+    [agentPresets],
+  );
+  const selectedAgentPreset = useMemo(
+    () => compatibleAgentPresets.find((preset) => preset.id === taskAgentPresetID) ?? null,
+    [compatibleAgentPresets, taskAgentPresetID],
+  );
+  const standardNativeAgentLoop = taskKind === "agent_loop" && taskWorkflowMode === "standard";
+  const explicitProvider = taskProvider !== "auto" ? taskProvider : "";
+  const policyProvider = standardNativeAgentLoop
+    ? (selectedAgentPreset?.provider_hint?.trim() ?? "")
+    : "";
+  const routingProvider = explicitProvider || policyProvider;
+  const policyProviderLabel = policyProvider
+    ? (providerOptions.find((provider) => provider.id === policyProvider)?.name ?? policyProvider)
+    : "";
+
+  // Models are scoped by an explicit provider first, then by the selected
+  // policy's provider hint. Selecting a provider or model remains an explicit
+  // per-Task override; merely displaying a policy hint never writes it into
+  // the request.
   // The ModelPicker still type-filters within whatever slice we hand
   // it, so this doesn't fight the picker's internal filter.
   const scopedModels = useMemo(() => {
-    if (taskProvider === "auto") return models;
-    return models.filter((m) => m.metadata?.provider === taskProvider);
-  }, [models, taskProvider]);
+    if (!routingProvider) return models;
+    return models.filter((m) => m.metadata?.provider === routingProvider);
+  }, [models, routingProvider]);
+  const compatiblePolicyModel = useMemo(() => {
+    if (!standardNativeAgentLoop || !selectedAgentPreset?.model_hint?.trim()) return "";
+    const modelHint = selectedAgentPreset.model_hint.trim();
+    if (!explicitProvider) return modelHint;
+    if (policyProvider && policyProvider !== explicitProvider) return "";
+    const catalogModel = models.find((model) => model.id === modelHint);
+    return !catalogModel || catalogModel.metadata?.provider === explicitProvider ? modelHint : "";
+  }, [explicitProvider, models, policyProvider, selectedAgentPreset, standardNativeAgentLoop]);
   const effectiveTaskModel = useMemo(() => {
     if (taskModel) return taskModel;
+    if (compatiblePolicyModel) return compatiblePolicyModel;
     return defaultModelID(scopedModels);
-  }, [scopedModels, taskModel]);
+  }, [compatiblePolicyModel, scopedModels, taskModel]);
 
   // When the operator switches provider, clear the model selection if
   // it's no longer in the scoped list. Without this the trigger
@@ -279,7 +323,10 @@ export function NewTaskSlideOver({
     // never send both even if the operator's stale state for the
     // inactive side is still in memory.
     const mcpPayload =
-      taskKind === "agent_loop" && !isReportOnlyQA ? mcpServerFormEntriesToPayload(mcpServers) : [];
+      taskKind === "agent_loop" && !isReportOnlyQA && selectedAgentPreset?.tools_enabled !== false
+        ? mcpServerFormEntriesToPayload(mcpServers)
+        : [];
+    const policyOwnsModel = standardNativeAgentLoop && Boolean(compatiblePolicyModel);
 
     try {
       const created = await onCreate({
@@ -294,8 +341,15 @@ export function NewTaskSlideOver({
           ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp }
           : {}),
         ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
-        ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
-        ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
+        ...(taskModel
+          ? { requested_model: taskModel }
+          : !policyOwnsModel && effectiveTaskModel
+            ? { requested_model: effectiveTaskModel }
+            : {}),
+        ...(explicitProvider ? { requested_provider: explicitProvider } : {}),
+        ...(standardNativeAgentLoop && selectedAgentPreset
+          ? { agent_preset_id: selectedAgentPreset.id }
+          : {}),
         ...(isReportOnlyQA ? { workflow_mode: "qa" as const } : {}),
         ...(taskInPlace && !isReportOnlyQA ? { workspace_mode: "in_place" } : {}),
         ...(taskKind === "agent_loop" && !isReportOnlyQA && taskSystemPrompt.trim()
@@ -327,6 +381,7 @@ export function NewTaskSlideOver({
     setTaskBudgetUSD("");
     setTaskProvider("auto");
     setTaskModel("");
+    setTaskAgentPresetID("");
     setTaskInPlace(false);
     setStartImmediately(true);
     setMcpServers([]);
@@ -631,6 +686,52 @@ export function NewTaskSlideOver({
                   : "Use a standard task for normal agent execution. QA report mode is a separate, report-only runtime contract."}
               </div>
             </div>
+            {standardNativeAgentLoop && (
+              <div>
+                <label
+                  htmlFor="task-agent-preset"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t2)",
+                    display: "block",
+                    marginBottom: 4,
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  WORK POLICY <span style={{ color: "var(--t3)" }}>(optional)</span>
+                </label>
+                <select
+                  id="task-agent-preset"
+                  className="input"
+                  aria-describedby={
+                    agentPresetsError
+                      ? "task-agent-preset-help task-agent-preset-error"
+                      : "task-agent-preset-help"
+                  }
+                  value={taskAgentPresetID}
+                  onChange={(event) => setTaskAgentPresetID(event.target.value)}
+                >
+                  <option value="">No work policy</option>
+                  {compatibleAgentPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name || preset.id}
+                    </option>
+                  ))}
+                </select>
+                <div id="task-agent-preset-help" className="field-hint" style={{ marginTop: 5 }}>
+                  Hecate snapshots the selected policy onto this Task when it is created.
+                </div>
+                {agentPresetsError && (
+                  <div
+                    id="task-agent-preset-error"
+                    role="status"
+                    style={{ color: "var(--amber)", fontSize: 11, marginTop: 5 }}
+                  >
+                    Work policies unavailable: {agentPresetsError}
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label
                 style={{
@@ -793,14 +894,28 @@ export function NewTaskSlideOver({
           </div>
         )}
 
-        {taskKind === "agent_loop" && !isReportOnlyQA && (
-          <MCPServerEditor
-            entries={mcpServers}
-            onChange={setMcpServers}
-            label="MCP SERVERS"
-            description="(optional, exposes external tools as mcp__<name>__<tool>)"
-          />
-        )}
+        {taskKind === "agent_loop" &&
+          !isReportOnlyQA &&
+          selectedAgentPreset?.tools_enabled !== false && (
+            <MCPServerEditor
+              entries={mcpServers}
+              onChange={setMcpServers}
+              label="MCP SERVERS"
+              description="(optional, exposes external tools as mcp__<name>__<tool>)"
+            />
+          )}
+
+        {taskKind === "agent_loop" &&
+          !isReportOnlyQA &&
+          selectedAgentPreset?.tools_enabled === false && (
+            <div
+              role="status"
+              className="card"
+              style={{ padding: "10px 12px", color: "var(--t2)", fontSize: 11 }}
+            >
+              This work policy disables tools, so external MCP servers cannot be attached.
+            </div>
+          )}
 
         <div>
           <label
@@ -820,7 +935,7 @@ export function NewTaskSlideOver({
               onChange={handleProviderChange}
               options={providerOptions}
               includeAuto
-              autoLabel="Any provider"
+              autoLabel={policyProviderLabel ? `Policy · ${policyProviderLabel}` : "Any provider"}
             />
             <ModelPicker
               value={effectiveTaskModel}
@@ -840,6 +955,19 @@ export function NewTaskSlideOver({
             />
           </div>
         </div>
+
+        {standardNativeAgentLoop && selectedAgentPreset && (
+          <EffectivePolicyPreview
+            preset={selectedAgentPreset}
+            provider={explicitProvider || policyProvider || "runtime default"}
+            providerSource={
+              explicitProvider ? "Task override" : policyProvider ? "policy" : "runtime"
+            }
+            model={taskModel || compatiblePolicyModel || effectiveTaskModel || "runtime default"}
+            modelSource={taskModel ? "Task override" : compatiblePolicyModel ? "policy" : "runtime"}
+            browserEvidenceReadiness={browserEvidenceReadiness}
+          />
+        )}
 
         <fieldset disabled={busyAction === "create"} style={{ border: 0, padding: 0, margin: 0 }}>
           <legend
@@ -904,6 +1032,117 @@ export function NewTaskSlideOver({
 
 function defaultModelID(models: ModelRecord[]): string {
   return models.find((m) => m.metadata?.default)?.id || "";
+}
+
+function EffectivePolicyPreview({
+  preset,
+  provider,
+  providerSource,
+  model,
+  modelSource,
+  browserEvidenceReadiness,
+}: {
+  preset: AgentPresetRecord;
+  provider: string;
+  providerSource: string;
+  model: string;
+  modelSource: string;
+  browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
+}) {
+  const browserConfigured = Boolean(preset.browser_allowed || preset.browser_interactions_allowed);
+  const browser = preset.browser_interactions_allowed
+    ? preset.browser_allowed
+      ? "Static evidence + interaction"
+      : "Interaction"
+    : preset.browser_allowed
+      ? "Static evidence"
+      : "Off";
+  const origins = preset.browser_allowed_origins ?? [];
+  const rows = [
+    ["Route", `${provider} (${providerSource}) · ${model} (${modelSource})`],
+    ["Tools", preset.tools_enabled ? "On" : "Off"],
+    ["Workspace changes", preset.writes_allowed ? "Allowed" : "Blocked"],
+    ["Network", preset.network_allowed ? "Allowed" : "Blocked"],
+    ["Approval", approvalPolicyLabel(preset.approval_policy)],
+    ["Browser", browser],
+    ["Origins", origins.length > 0 ? origins.join(", ") : "None"],
+  ];
+
+  return (
+    <section
+      aria-label="Effective work policy"
+      className="card"
+      style={{ padding: "12px 14px", display: "grid", gap: 9 }}
+    >
+      <div>
+        <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 600 }}>
+          Effective policy · {preset.name || preset.id}
+        </div>
+        {preset.description && (
+          <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.45, marginTop: 3 }}>
+            {preset.description}
+          </div>
+        )}
+        {preset.instructions && (
+          <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45, marginTop: 3 }}>
+            Includes saved instructions for this Task.
+          </div>
+        )}
+      </div>
+      <dl
+        style={{
+          display: "grid",
+          gridTemplateColumns: "max-content minmax(0, 1fr)",
+          gap: "5px 10px",
+          margin: 0,
+          fontSize: 11,
+          lineHeight: 1.4,
+        }}
+      >
+        {rows.map(([label, value]) => (
+          <div key={label} style={{ display: "contents" }}>
+            <dt style={{ color: "var(--t3)" }}>{label}</dt>
+            <dd style={{ color: "var(--t1)", margin: 0, overflowWrap: "anywhere" }}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {browserConfigured && browserEvidenceReadiness && !browserEvidenceReadiness.available && (
+        <div role="status" style={{ color: "var(--amber)", fontSize: 11, lineHeight: 1.45 }}>
+          Browser runtime unavailable: {browserEvidenceReadiness.message}
+          {browserEvidenceReadiness.operator_action
+            ? ` ${browserEvidenceReadiness.operator_action}`
+            : ""}
+        </div>
+      )}
+      {browserConfigured && !browserEvidenceReadiness && (
+        <div role="status" style={{ color: "var(--amber)", fontSize: 11, lineHeight: 1.45 }}>
+          Browser runtime readiness has not loaded. The Task can be created, but browser tools may
+          be unavailable when it runs.
+        </div>
+      )}
+      {browserConfigured && preset.approval_policy === "block" && (
+        <div role="status" style={{ color: "var(--amber)", fontSize: 11, lineHeight: 1.45 }}>
+          This policy blocks approval-gated actions, so its browser capabilities cannot run.
+        </div>
+      )}
+      <div style={{ color: "var(--t3)", fontSize: 10, lineHeight: 1.4 }}>
+        Standalone Tasks do not activate project memory, context sources, or project skills.
+      </div>
+    </section>
+  );
+}
+
+function approvalPolicyLabel(policy: string): string {
+  switch (policy) {
+    case "require":
+      return "Always require approval";
+    case "block":
+      return "Block approval-gated actions";
+    case "allow":
+      return "Allow when otherwise permitted";
+    default:
+      return "Runtime default";
+  }
 }
 
 // WorkspacePreview tells the operator where writes will land on

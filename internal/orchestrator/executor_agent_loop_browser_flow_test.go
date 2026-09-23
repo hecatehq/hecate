@@ -25,9 +25,11 @@ func (f *fakeBrowserFlowRunner) RunFlow(_ context.Context, request browserrunner
 
 func browserFlowTask() types.Task {
 	allowed := true
+	toolsEnabled := true
 	return types.Task{
 		AgentPresetID:                         "prof_browser_flow",
 		OriginKind:                            "project_work_item",
+		AgentPresetToolsEnabled:               &toolsEnabled,
 		AgentPresetBrowserInteractionsAllowed: &allowed,
 		AgentPresetBrowserAllowedOrigins:      []string{"https://app.example.test", "https://status.example.test"},
 	}
@@ -41,11 +43,13 @@ func TestAgentLoopBrowserFlowCatalogRequiresIndependentProjectPresetGrant(t *tes
 	t.Parallel()
 	enabled := true
 	disabled := false
+	toolsEnabled := true
 	opts := agentToolDefinitionOptions{IncludeBrowserInspection: true, IncludeBrowserFlow: true}
 
 	staticOnly := types.Task{
 		AgentPresetID:                    "prof_static",
 		OriginKind:                       "project_work_item",
+		AgentPresetToolsEnabled:          &toolsEnabled,
 		AgentPresetBrowserAllowed:        &enabled,
 		AgentPresetBrowserAllowedOrigins: []string{"https://app.example.test"},
 	}
@@ -61,6 +65,12 @@ func TestAgentLoopBrowserFlowCatalogRequiresIndependentProjectPresetGrant(t *tes
 	if hasToolDefinition(tools, AgentToolBrowserInspect) || !hasToolDefinition(tools, AgentToolBrowserFlow) {
 		t.Fatalf("interaction-only tools = %+v, want flow without inspect", tools)
 	}
+	standalone := interactionOnly
+	standalone.OriginKind = ""
+	standalone.AgentPresetToolsEnabled = &toolsEnabled
+	if !hasToolDefinition(agentToolDefinitionsForTask(standalone, opts), AgentToolBrowserFlow) {
+		t.Fatal("browser_flow missing for standalone preset-backed task")
+	}
 
 	legacy := interactionOnly
 	legacy.AgentPresetBrowserInteractionsAllowed = nil
@@ -69,8 +79,9 @@ func TestAgentLoopBrowserFlowCatalogRequiresIndependentProjectPresetGrant(t *tes
 	}
 	chat := interactionOnly
 	chat.OriginKind = "chat"
+	chat.AgentPresetToolsEnabled = &toolsEnabled
 	if hasToolDefinition(agentToolDefinitionsForTask(chat, opts), AgentToolBrowserFlow) {
-		t.Fatal("browser_flow advertised for Hecate Chat")
+		t.Fatal("browser_flow advertised for Hecate Chat with forged preset fields")
 	}
 	manual := interactionOnly
 	manual.AgentPresetID = ""

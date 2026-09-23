@@ -1160,17 +1160,17 @@ func agentPresetBlocksNativeNetwork(task types.Task, name string) bool {
 
 // agentPresetBlocksBrowser is deliberately independent from SandboxNetwork.
 // Browser evidence is opt-in through a snapshotted Hecate Agent Preset and a
-// non-empty exact origin allowlist. Legacy/manual tasks have a nil snapshot and
+// non-empty exact origin allowlist. Legacy tasks have a nil snapshot and
 // therefore fail closed.
 func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	if name != AgentToolBrowserInspect && name != AgentToolBrowserFlow {
 		return false
 	}
-	// Browser evidence is a project-assignment capability, not a generic task
-	// field that Hecate Chat or a manually constructed task can activate. A
-	// resolved preset ID is the additional snapshot marker emitted by the
-	// project-assignment launch path; direct task creation cannot set it.
-	if task.OriginKind != "project_work_item" || strings.TrimSpace(task.AgentPresetID) == "" {
+	// Browser evidence is a native preset-backed Task capability, not a generic
+	// task field that Hecate Chat or an unrelated origin can activate. Project
+	// assignment and standalone Task creation are the only public paths that
+	// emit the complete immutable snapshot.
+	if !hasAuthoritativeNativeAgentPresetSnapshot(task) {
 		return true
 	}
 	switch name {
@@ -1185,6 +1185,13 @@ func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	}
 	origins, err := browserrunner.NormalizeAllowedOrigins(task.AgentPresetBrowserAllowedOrigins)
 	return err != nil || len(origins) == 0
+}
+
+func hasAuthoritativeNativeAgentPresetSnapshot(task types.Task) bool {
+	if strings.TrimSpace(task.AgentPresetID) == "" || task.AgentPresetToolsEnabled == nil {
+		return false
+	}
+	return task.OriginKind == "" || task.OriginKind == "project_work_item"
 }
 
 func agentReadOnlyBlocksTool(task types.Task, name string) bool {

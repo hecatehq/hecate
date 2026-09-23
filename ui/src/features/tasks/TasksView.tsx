@@ -6,6 +6,7 @@ import {
   createTask,
   deleteTaskSchedule,
   deleteTask,
+  getAgentPresets,
   getModels,
   getProviders,
   getTask,
@@ -35,8 +36,10 @@ import {
 } from "../../app/state/providersAndModels";
 import { useChat } from "../../app/state/chat";
 import { useProjects } from "../../app/state/projects";
+import { useSettings } from "../../app/state/settings";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { ModelRecord } from "../../types/model";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProviderRecord } from "../../types/provider";
 import type {
   TaskActivityRecord,
@@ -266,10 +269,13 @@ export function TasksView({
   // changes (enabling/disabling a provider) take effect after the
   // operator opens a new tab or refreshes.
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);
+  const [agentPresets, setAgentPresets] = useState<AgentPresetRecord[]>([]);
+  const [agentPresetsError, setAgentPresetsError] = useState("");
   useEnsureProviderPresetsLoaded();
   const providerPresets = useProvidersAndModels().state.providerPresets;
   const chat = useChat();
   const projects = useProjects();
+  const settings = useSettings();
   const selectProject = projects.actions.selectProject;
   const activeProjectID = projects.activeProjectID;
   const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
@@ -573,6 +579,15 @@ export function TasksView({
     getProviders()
       .then((res) => setAvailableProviders(res.data ?? []))
       .catch(() => {});
+    getAgentPresets()
+      .then((res) => {
+        setAgentPresets(res.data ?? []);
+        setAgentPresetsError("");
+      })
+      .catch((error) => {
+        setAgentPresets([]);
+        setAgentPresetsError(error instanceof Error ? error.message : "Failed to load.");
+      });
   }, []);
 
   useEffect(() => {
@@ -1434,6 +1449,9 @@ export function TasksView({
         models={availableModels}
         providers={availableProviders}
         providerPresets={providerPresets}
+        agentPresets={agentPresets}
+        agentPresetsError={agentPresetsError}
+        browserEvidenceReadiness={settings.state.config?.browser_evidence}
         defaultWorkspace={defaultTaskWorkspace}
         busyAction={busyAction}
         errorMessage={notice?.tone === "error" ? notice.message : undefined}

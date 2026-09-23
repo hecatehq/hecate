@@ -168,14 +168,15 @@ func toolWasAdvertised(toolName string, advertisedTools *[]types.Tool) bool {
 }
 
 // effectiveAgentPresetApprovalPolicy returns only the immutable policy carried
-// by a native project-assignment Task. An empty value means no frozen
-// native-assignment approval layer is present, including for intentionally
-// out-of-scope Chat, External Agent, and QA Tasks and for legacy/manual Tasks.
+// by a native preset-backed project assignment or standalone Task. An empty
+// value means no frozen native approval layer is present, including for
+// intentionally out-of-scope Chat, External Agent, and QA Tasks and for legacy
+// Tasks.
 // An invalid non-empty stored value fails safely by requiring operator approval
 // rather than silently allowing tool dispatch.
 func effectiveAgentPresetApprovalPolicy(spec ExecutionSpec) string {
 	task := spec.Task
-	if taskworkflow.IsQAExecution(task, spec.Run) || task.OriginKind != "project_work_item" || strings.TrimSpace(task.AgentPresetID) == "" {
+	if taskworkflow.IsQAExecution(task, spec.Run) || !hasAuthoritativeNativeAgentPresetSnapshot(task) {
 		return ""
 	}
 	policy := strings.TrimSpace(task.AgentPresetApprovalPolicy)

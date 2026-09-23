@@ -503,7 +503,18 @@ Key invariants:
 - **Shell execution goes through the sandbox and ProcessRunner.** The sandbox layer validates policy, sanitises the environment, prepares the optional OS isolation wrapper (`bwrap` / `sandbox-exec`) where available, then `internal/processrunner` starts the child process with bounded cwd, timeout, streaming output, and output caps.
 - **Git helpers go through GitRunner.** Hecate-owned Git helpers (`git_status`, `git_diff`, workspace setup, change review) use `internal/gitrunner` rather than ad hoc shell commands. GitRunner validates the workspace directory and dispatches Git through the controlled process path with a sanitised environment. Ordinary agent-loop structured reads use an immutable temporary gitdir containing only safe core settings plus snapshotted HEAD/ref/info metadata; the source config is never reloaded by the actual status/diff process. Report-only QA v0 is deliberately stricter: its copied evidence workspace excludes every `.git` entry, and its Git tool names report that evidence is unavailable without starting Git. A workspace nested inside a checkout is resolved against the true repository top-level while status/diff pathspecs and returned paths remain scoped to that workspace. Optional locks, lazy fetch, fsmonitor, global/system config and attributes, and recursion are disabled; bounded NUL-safe effective-attribute resolution fails closed when a scoped path has an effective or ambiguous content-conversion filter; and the OS wrapper supplies a read-only root plus network isolation where available. The broad `git_exec` tool still goes through the sandbox command executor because it intentionally accepts a shell-shaped Git subcommand string.
 - **Execution remains per-call.** There is no separate sandbox daemon — the safety properties are applied inline for each Hecate-owned call. Container/chroot/VM-level isolation is not provided. See [`sandbox.md`](../runtime/sandbox.md) for the full isolation-layer model.
-- **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. An `agent_loop` task whose Agent Preset snapshot explicitly disables tools skips the network gate because it has no executable network capability to approve. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a model call produced a gated tool call. A native project-assignment Task adds its frozen preset approval posture only to this mid-loop decision: `require` gates every otherwise-permitted advertised call, `block` denies only calls another policy would gate, and `inherit` / `allow` add no gate or override. Hard denials precede this layer, and an absent legacy/manual snapshot changes nothing. Both approval flavors resolve via `POST /approvals/{id}/resolve`.
+- **Work policy resolution belongs at Task creation.** `taskapp` resolves an
+  explicit `agent_preset_id` only for a standard native `agent_loop`, validates
+  its Hecate Task surface, composes its instructions, and stores the effective
+  route/profile plus tool, sandbox, approval, and browser snapshots. Explicit
+  provider/model selections override only their corresponding hints; an
+  explicit provider conflict suppresses the preset model hint, and an effective
+  provider without a model fails creation. The
+  standalone path activates no Cairnline/project memory, context, or skills.
+  Start, Schedule dispatch, Retry, Resume, Continue, and retry-from-model-call
+  consume the stored Task and never re-resolve the preset. Project assignments
+  resolve their coordinated context separately in `projectworkapp`.
+- **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. An `agent_loop` task whose Agent Preset snapshot explicitly disables tools skips the network gate because it has no executable network capability to approve. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a model call produced a gated tool call. A standard Work-policy-backed native Task adds its frozen preset approval posture only to this mid-loop decision: `require` gates every otherwise-permitted advertised call, `block` denies only calls another policy would gate, and `inherit` / `allow` add no gate or override. Hard denials precede this layer, and an absent non-preset snapshot changes nothing. Both approval flavors resolve via `POST /approvals/{id}/resolve`.
 - **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each state payload carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](../runtime/events.md).
 - **Resume creates a new attempt.** A resumed run gets a fresh `run_id`; the original run stays terminal. The new run normally reuses the prior workspace so file state carries forward, gets the prior checkpoint context in step input, and inherits the chain's cumulative cost via `PriorCostMicrosUSD` so the per-task ceiling holds across the full chain. The report-only `workflow_mode="qa"` contract is the exception: retry, resume, and retry-from-model-call receive a new Hecate-managed workspace for their new run.
 
@@ -557,7 +568,7 @@ sequenceDiagram
     participant Store
     Worker->>Agent: Execute
     Agent->>Store: load conversation if resume
-    Note over Agent: prepend workspace env message + system prompt layers and reuse frozen native-assignment tool and approval posture
+    Note over Agent: prepend workspace env message + system prompt layers and reuse frozen Work policy tool and approval posture
     alt Agent Preset tools enabled or legacy task
         Agent->>MCP: bring up configured MCP clients
         MCP-->>Agent: merge namespaced tools into the catalog
@@ -619,15 +630,15 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
 - **Provider hint.** `ChatRequest.Scope.ProviderHint` is set from `run.Provider` (mirrored from `task.RequestedProvider`), so the operator's pinned provider actually routes — no fallback to the default for generic model ids.
 - **Resolved route survives streaming.** Streaming and non-streaming model calls both copy the resolved provider, provider kind, and model back onto the run result, so task detail and resumes see what actually served the call.
 - **Cost ceiling is task-cumulative.** The per-task `BudgetMicrosUSD` is checked against `priorCost + costSpent` after each model call, where `priorCost` includes every prior run in the resume chain. A chain of resumes can't escape the ceiling.
-- **Frozen preset approval is additive and assignment-local.** Only a native
-  `origin_kind=project_work_item` Task with a non-empty launch snapshot uses the
+- **Frozen preset approval is additive and native-Task-local.** Only a standard
+  native Task with a non-empty resolved Work policy snapshot uses the
   preset approval layer. `require` gates every otherwise-permitted call from
   the advertised catalog; `block` turns an existing runtime, browser, or MCP
   approval decision into `policy.tool_blocked`; `inherit` and `allow` do not
   weaken those policies. Hard denials run first. Pre-execution approval,
-  Hecate Chat, External Agents, QA, and legacy/manual Tasks are unchanged.
+  Hecate Chat, External Agents, QA, and non-preset Tasks are unchanged.
 - **Browser grants are independent runtime capabilities.** Only a native
-  project-assignment Task whose immutable Agent Preset snapshot grants the
+  Work-policy-backed Task whose immutable snapshot grants the
   requested capability and shared exact origins can reach the local browser
   runtime. `browser_inspect` disables scripts and returns bounded static text;
   `browser_flow` enables scripts for one approval-bound sequence of 1–6 exact
@@ -637,8 +648,8 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
   deadline, response budget, and browser-to-Hecate DevTools relay budget, and
   always require approval when otherwise available. A frozen `block` posture
   therefore refuses the configured call instead of pausing. Hecate Chat,
-  External Agent, QA, legacy/manual, and remote-runtime paths never receive
-  them. Fresh-profile isolation does not override OS or enterprise browser
+  External Agents, QA, non-preset Tasks, and remote-runtime execution never
+  receive them. Fresh-profile isolation does not override OS or enterprise browser
   identity policy, and origin/private-IP checks are application controls, not
   OS-level browser network isolation.
 
@@ -646,7 +657,12 @@ The interaction authority and audit path is intentionally one-way:
 
 ```mermaid
 flowchart LR
-    Preset["Agent Preset<br/>browser_interactions_allowed + origins"] --> Snapshot["Immutable native assignment Task snapshot"]
+    Direct["Standalone Task create<br/>agent_preset_id"] --> Resolve["taskapp resolves Work policy"]
+    Assignment["Project assignment launch"] --> ResolveAssignment["projectworkapp resolves policy<br/>plus coordinated context"]
+    Resolve --> Snapshot["Immutable native Task snapshot"]
+    ResolveAssignment --> Snapshot
+    Preset["Work policy<br/>browser_interactions_allowed + origins"] --> Resolve
+    Preset --> ResolveAssignment
     Snapshot --> Eligibility{"Grant, exact origin,<br/>and runtime available?"}
     Eligibility -->|"no"| HardDenied["Authoritative hard denial<br/>no approval"]
     Eligibility -->|"yes"| PresetPolicy{"Frozen approval policy"}

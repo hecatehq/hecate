@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -44,6 +45,16 @@ type recordingTaskApplicationRunner struct {
 
 	resolveCalls int
 	resolveReq   orchestrator.ResolveApprovalRequest
+}
+
+type countingAgentPresetStore struct {
+	delegate AgentPresetStore
+	getCalls int
+}
+
+func (s *countingAgentPresetStore) Get(ctx context.Context, id string) (agentprofiles.Profile, bool, error) {
+	s.getCalls++
+	return s.delegate.Get(ctx, id)
 }
 
 func (r *recordingTaskApplicationRunner) StartTask(_ context.Context, task types.Task, _ func(string) string) (*orchestrator.StartTaskResult, error) {
@@ -146,6 +157,17 @@ func newTestTaskApplicationWithProjects(store taskstate.Store, runner Runner, pr
 	})
 }
 
+func newTestTaskApplicationWithPresets(store taskstate.Store, presets AgentPresetStore) *Application {
+	return New(Options{
+		Store:        store,
+		AgentPresets: presets,
+		IDGenerator:  func(prefix string) string { return prefix + "_fixed" },
+		Now: func() time.Time {
+			return time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+		},
+	})
+}
+
 func createTaskForAppTest(t *testing.T, ctx context.Context, store taskstate.Store, task types.Task) types.Task {
 	t.Helper()
 	if task.ID == "" {
@@ -224,6 +246,275 @@ func TestTaskApplication_CreateTaskAppliesDefaults(t *testing.T) {
 	}
 	if got := task.CreatedAt; !got.Equal(time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)) {
 		t.Fatalf("created_at = %s, want fixed clock", got)
+	}
+}
+
+func TestTaskApplication_CreateTaskFreezesStandaloneAgentPreset(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	presets := agentprofiles.NewMemoryStore()
+	_, err := presets.Create(ctx, agentprofiles.Profile{
+		ID:                         "guarded_implementation",
+		Name:                       "Guarded implementation",
+		Instructions:               "Keep the change reviewable.",
+		Surface:                    agentprofiles.SurfaceHecateTask,
+		ProviderHint:               "hint-provider",
+		ModelHint:                  "hint-model",
+		ExecutionProfile:           "coding_agent",
+		ToolsEnabled:               true,
+		WritesAllowed:              false,
+		NetworkAllowed:             true,
+		BrowserAllowed:             true,
+		BrowserInteractionsAllowed: true,
+		BrowserAllowedOrigins:      []string{"https://app.example.test"},
+		ApprovalPolicy:             agentprofiles.ApprovalBlock,
+	})
+	if err != nil {
+		t.Fatalf("Create preset: %v", err)
+	}
+	app := newTestTaskApplicationWithPresets(store, presets)
+	task, err := app.CreateTask(ctx, CreateCommand{
+		Prompt:            "Implement the change",
+		AgentPresetID:     "guarded_implementation",
+		ExecutionProfile:  "caller_override",
+		RequestedProvider: "explicit-provider",
+		RequestedModel:    "explicit-model",
+		SystemPrompt:      "Keep the API stable.",
+		MCPServers: []MCPServerCommand{{
+			Name:    "docs",
+			Command: "docs-server",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+
+	if task.ExecutionKind != "agent_loop" || task.ExecutionProfile != "coding_agent" {
+		t.Fatalf("execution kind/profile = %q/%q, want agent_loop/coding_agent", task.ExecutionKind, task.ExecutionProfile)
+	}
+	if task.RequestedProvider != "explicit-provider" || task.RequestedModel != "explicit-model" {
+		t.Fatalf("explicit route = %q/%q, want explicit-provider/explicit-model", task.RequestedProvider, task.RequestedModel)
+	}
+	if task.SystemPrompt != "Work policy instructions:\nKeep the change reviewable.\n\nTask instructions:\nKeep the API stable." {
+		t.Fatalf("system prompt = %q, want composed preset then task instructions", task.SystemPrompt)
+	}
+	if task.AgentPresetID != "guarded_implementation" || task.AgentPresetToolsEnabled == nil || !*task.AgentPresetToolsEnabled {
+		t.Fatalf("preset snapshot = id %q tools %v", task.AgentPresetID, task.AgentPresetToolsEnabled)
+	}
+	if task.AgentPresetApprovalPolicy != agentprofiles.ApprovalBlock || task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || task.AgentPresetBrowserInteractionsAllowed == nil || !*task.AgentPresetBrowserInteractionsAllowed {
+		t.Fatalf("approval/browser snapshot = approval %q browser %v interactions %v", task.AgentPresetApprovalPolicy, task.AgentPresetBrowserAllowed, task.AgentPresetBrowserInteractionsAllowed)
+	}
+	if len(task.AgentPresetBrowserAllowedOrigins) != 1 || task.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("browser origins = %v", task.AgentPresetBrowserAllowedOrigins)
+	}
+	if !task.SandboxReadOnly || !task.SandboxNetwork {
+		t.Fatalf("sandbox posture = read_only:%t network:%t, want true/true", task.SandboxReadOnly, task.SandboxNetwork)
+	}
+	if len(task.MCPServers) != 1 || task.MCPServers[0].Name != "docs" {
+		t.Fatalf("MCP servers = %#v, want enabled preset to retain explicit server", task.MCPServers)
+	}
+
+	_, err = presets.Update(ctx, "guarded_implementation", func(profile *agentprofiles.Profile) {
+		profile.ApprovalPolicy = agentprofiles.ApprovalAllow
+		profile.BrowserAllowedOrigins = []string{"https://changed.example.test"}
+	})
+	if err != nil {
+		t.Fatalf("Update preset: %v", err)
+	}
+	stored, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask() found=%t err=%v", found, err)
+	}
+	if stored.AgentPresetApprovalPolicy != agentprofiles.ApprovalBlock || stored.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("stored Task changed with live preset: approval=%q origins=%v", stored.AgentPresetApprovalPolicy, stored.AgentPresetBrowserAllowedOrigins)
+	}
+}
+
+func TestTaskApplication_CreateTaskUsesStandaloneAgentPresetRouteHints(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	presets := agentprofiles.NewMemoryStore()
+	_, err := presets.Create(ctx, agentprofiles.Profile{
+		ID:               "planner",
+		Name:             "Planner",
+		Surface:          agentprofiles.SurfaceAny,
+		ProviderHint:     "hint-provider",
+		ModelHint:        "hint-model",
+		ToolsEnabled:     true,
+		ApprovalPolicy:   agentprofiles.ApprovalRequire,
+		ExecutionProfile: "",
+	})
+	if err != nil {
+		t.Fatalf("Create preset: %v", err)
+	}
+	task, err := newTestTaskApplicationWithPresets(taskstate.NewMemoryStore(), presets).CreateTask(ctx, CreateCommand{
+		Prompt:        "Plan the work",
+		AgentPresetID: "planner",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if task.RequestedProvider != "hint-provider" || task.RequestedModel != "hint-model" || task.ExecutionProfile != "planner" {
+		t.Fatalf("preset hints/profile = %q/%q/%q, want hint-provider/hint-model/planner", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
+	}
+}
+
+func TestTaskApplication_CreateTaskValidatesStandaloneAgentPresetRoutePair(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	presets := agentprofiles.NewMemoryStore()
+	for _, profile := range []agentprofiles.Profile{
+		{
+			ID:             "provider_only",
+			Name:           "Provider only",
+			Surface:        agentprofiles.SurfaceHecateTask,
+			ProviderHint:   "openai",
+			ToolsEnabled:   true,
+			ApprovalPolicy: agentprofiles.ApprovalInherit,
+		},
+		{
+			ID:             "openai_pair",
+			Name:           "OpenAI pair",
+			Surface:        agentprofiles.SurfaceHecateTask,
+			ProviderHint:   "openai",
+			ModelHint:      "gpt-review",
+			ToolsEnabled:   true,
+			ApprovalPolicy: agentprofiles.ApprovalInherit,
+		},
+	} {
+		if _, err := presets.Create(ctx, profile); err != nil {
+			t.Fatalf("Create preset %s: %v", profile.ID, err)
+		}
+	}
+	app := newTestTaskApplicationWithPresets(taskstate.NewMemoryStore(), presets)
+
+	for name, cmd := range map[string]CreateCommand{
+		"provider hint without model": {
+			Prompt: "Review", AgentPresetID: "provider_only",
+		},
+		"conflicting explicit provider without model": {
+			Prompt: "Review", AgentPresetID: "openai_pair", RequestedProvider: "ollama",
+		},
+	} {
+		_, err := app.CreateTask(ctx, cmd)
+		if err == nil || !IsValidationError(err) || !strings.Contains(err.Error(), "provider without a model") {
+			t.Fatalf("%s error = %v, want route-pair validation", name, err)
+		}
+	}
+
+	sameProvider, err := app.CreateTask(ctx, CreateCommand{
+		Prompt: "Review", AgentPresetID: "openai_pair", RequestedProvider: "openai",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask with matching explicit provider: %v", err)
+	}
+	if sameProvider.RequestedProvider != "openai" || sameProvider.RequestedModel != "gpt-review" {
+		t.Fatalf("matching route = %q/%q, want openai/gpt-review", sameProvider.RequestedProvider, sameProvider.RequestedModel)
+	}
+}
+
+func TestTaskApplication_StandaloneAgentPresetIsResolvedOnlyAtCreation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	presets := agentprofiles.NewMemoryStore()
+	if _, err := presets.Create(ctx, agentprofiles.Profile{
+		ID:             "frozen_review",
+		Name:           "Frozen review",
+		Surface:        agentprofiles.SurfaceHecateTask,
+		ToolsEnabled:   true,
+		WritesAllowed:  false,
+		ApprovalPolicy: agentprofiles.ApprovalRequire,
+	}); err != nil {
+		t.Fatalf("Create preset: %v", err)
+	}
+	countingPresets := &countingAgentPresetStore{delegate: presets}
+	runner := &recordingTaskApplicationRunner{}
+	app := New(Options{
+		Store:        store,
+		Runner:       runner,
+		AgentPresets: countingPresets,
+		IDGenerator:  func(prefix string) string { return prefix + "_frozen" },
+	})
+	task, err := app.CreateTask(ctx, CreateCommand{Prompt: "Review", AgentPresetID: "frozen_review"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if countingPresets.getCalls != 1 {
+		t.Fatalf("preset Get calls after creation = %d, want 1", countingPresets.getCalls)
+	}
+
+	if err := presets.Delete(ctx, "frozen_review"); err != nil {
+		t.Fatalf("Delete preset: %v", err)
+	}
+	if _, err := app.StartTask(ctx, task); err != nil {
+		t.Fatalf("StartTask after preset deletion: %v", err)
+	}
+	if _, err := app.StartScheduledTask(ctx, task, ScheduledStartCommand{
+		ScheduleID:           "schedule_frozen",
+		ScheduleOccurrenceID: "occurrence_frozen",
+		ScheduledFor:         time.Now().UTC(),
+		ClaimOwner:           "dispatcher_frozen",
+	}); err != nil {
+		t.Fatalf("StartScheduledTask after preset deletion: %v", err)
+	}
+	run := types.TaskRun{ID: "run_source", TaskID: task.ID, Status: "failed", ModelCallCount: 1}
+	if _, err := app.RetryTaskRun(ctx, task, run); err != nil {
+		t.Fatalf("RetryTaskRun after preset deletion: %v", err)
+	}
+	if _, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{Reason: "resume"}); err != nil {
+		t.Fatalf("ResumeTaskRun after preset deletion: %v", err)
+	}
+	if _, err := app.ContinueTaskRun(ctx, task, run, "continue"); err != nil {
+		t.Fatalf("ContinueTaskRun after preset deletion: %v", err)
+	}
+	if _, err := app.RetryTaskRunFromModelCall(ctx, task, run, RetryFromModelCallCommand{ModelCallIndex: 1}); err != nil {
+		t.Fatalf("RetryTaskRunFromModelCall after preset deletion: %v", err)
+	}
+	if countingPresets.getCalls != 1 {
+		t.Fatalf("preset Get calls after lifecycle operations = %d, want creation-only resolution", countingPresets.getCalls)
+	}
+}
+
+func TestTaskApplication_CreateTaskRejectsInvalidStandaloneAgentPresetUse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	presets := agentprofiles.NewMemoryStore()
+	for _, profile := range []agentprofiles.Profile{
+		{ID: "chat_only", Name: "Chat only", Surface: agentprofiles.SurfaceHecateChat, ToolsEnabled: true},
+		{ID: "no_tools", Name: "No tools", Surface: agentprofiles.SurfaceHecateTask, ToolsEnabled: false},
+	} {
+		if _, err := presets.Create(ctx, profile); err != nil {
+			t.Fatalf("Create preset %s: %v", profile.ID, err)
+		}
+	}
+	app := newTestTaskApplicationWithPresets(taskstate.NewMemoryStore(), presets)
+	tests := []struct {
+		name string
+		cmd  CreateCommand
+		want string
+	}{
+		{name: "missing", cmd: CreateCommand{Prompt: "work", AgentPresetID: "missing"}, want: "agent preset not found"},
+		{name: "chat surface", cmd: CreateCommand{Prompt: "work", AgentPresetID: "chat_only"}, want: "not available for Hecate Tasks"},
+		{name: "qa", cmd: CreateCommand{Prompt: "inspect", AgentPresetID: "no_tools", WorkflowMode: "qa"}, want: "unavailable for workflow_mode=qa"},
+		{name: "non agent", cmd: CreateCommand{Prompt: "echo", AgentPresetID: "no_tools", ExecutionKind: "shell"}, want: "only supported for execution_kind=agent_loop"},
+		{name: "tools disabled MCP", cmd: CreateCommand{Prompt: "work", AgentPresetID: "no_tools", MCPServers: []MCPServerCommand{{Name: "docs", Command: "docs-server"}}}, want: "mcp_servers require an Agent Preset with tools enabled"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := app.CreateTask(ctx, test.cmd)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("CreateTask() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

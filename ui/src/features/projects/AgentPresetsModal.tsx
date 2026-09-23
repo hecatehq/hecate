@@ -49,9 +49,9 @@ type AgentPresetsModalProps = {
   error: string;
   pending: boolean;
   presets: AgentPresetRecord[];
-  project: ProjectRecord;
-  projectSkills: ProjectSkillRecord[];
-  roles: ProjectWorkRoleRecord[];
+  project?: ProjectRecord;
+  projectSkills?: ProjectSkillRecord[];
+  roles?: ProjectWorkRoleRecord[];
   onClose: () => void;
   onCreate: (
     form: AgentPresetForm,
@@ -69,13 +69,14 @@ export function AgentPresetsModal({
   pending,
   presets,
   project,
-  projectSkills,
-  roles,
+  projectSkills = [],
+  roles = [],
   onClose,
   onCreate,
   onDelete,
   onUpdate,
 }: AgentPresetsModalProps) {
+  const projectContext = Boolean(project);
   const [selectedPresetID, setSelectedPresetID] = useState(presets[0]?.id ?? "new");
   const selectedPreset = presets.find((preset) => preset.id === selectedPresetID) ?? null;
   const editingNew = selectedPresetID === "new";
@@ -219,8 +220,8 @@ export function AgentPresetsModal({
             <div className="work-policy-intro" role="note">
               <strong>Reusable launch posture</strong>
               <span>
-                Choose the instructions, intended runtime, and permission boundary for future
-                project work. Starting work copies this policy into the run, so later edits do not
+                Choose the instructions, intended runtime, and permission boundary for future Hecate
+                work. Creating compatible work freezes this policy onto it, so later edits do not
                 change work already in progress.
               </span>
             </div>
@@ -228,7 +229,7 @@ export function AgentPresetsModal({
             <div className="work-policy-section">
               <PolicySectionHeader
                 title="Identity"
-                description="A stable name for selecting this policy from project and role defaults."
+                description="A stable name for selecting this policy from Tasks, Projects, and role defaults."
               />
               <div
                 className="agent-presets-form-grid"
@@ -613,26 +614,33 @@ export function AgentPresetsModal({
                 </label>
               </div>
               <div id="approval-policy-help" style={presetRoleSubtleTextStyle}>
-                Frozen onto new native Hecate Task project assignments. Require adds an approval
-                gate to every otherwise-permitted tool call. Block converts agent-loop tool calls
-                that global runtime, mandatory browser, or per-MCP-server policy would otherwise
-                send for approval into denials. Allow never bypasses a stricter gate. Hecate Chat
-                and External Agents keep their own approval controls.
+                Frozen onto new compatible native Hecate Tasks and project assignments. Require adds
+                an approval gate to every otherwise-permitted tool call. Block converts agent-loop
+                tool calls that global runtime, mandatory browser, or per-MCP-server policy would
+                otherwise send for approval into denials. Allow never bypasses a stricter gate.
+                Hecate Chat and External Agents keep their own approval controls.
+              </div>
+              <div style={presetRoleSubtleTextStyle}>
+                Project memory, context-source, and skill settings activate only through Project
+                work. Standalone Tasks use the policy instructions and runtime controls without
+                loading Project context.
               </div>
               {form.approvalPolicy === "block" && browserConfigured && (
                 <div role="status" style={{ ...presetRoleSubtleTextStyle, color: "var(--amber)" }}>
                   Browser capabilities stay configured, but browser calls always require approval
-                  and will therefore be blocked for native Hecate Task assignments.
+                  and will therefore be blocked for compatible native Hecate Tasks.
                 </div>
               )}
               <ProjectSkillPicker
                 disabled={pending || editingBuiltIn}
                 onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
                 skills={projectSkills}
+                warnUnknownSkills={projectContext}
                 value={form.skillIDs}
               />
               <div style={presetRoleSubtleTextStyle}>
-                Skills add context references only. They never grant tools, workspace changes,
+                Skills add project context references only when this policy is used by Project work.
+                Standalone Tasks do not activate them. They never grant tools, workspace changes,
                 network, or approvals.
               </div>
             </div>
@@ -650,8 +658,10 @@ export function AgentPresetsModal({
           message={
             <>
               Delete <strong>{deletePreset.name || deletePreset.id}</strong>.{" "}
-              {presetReferenceSummary(deletePreset, project, roles)} Other projects may also
-              reference this global work policy.
+              {project
+                ? presetReferenceSummary(deletePreset, project, roles)
+                : "Projects or roles may reference this global work policy and will fall back until changed."}
+              {project && " Other projects may also reference this global work policy."}
             </>
           }
         />

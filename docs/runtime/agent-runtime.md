@@ -142,7 +142,7 @@ sequenceDiagram
     participant Store
     Runner->>Agent: Execute
     Agent->>Store: load saved conversation if resume
-    Note over Agent,Tools: Native assignment Tasks reuse frozen tool and approval posture and tools-off snapshots send an empty catalog and skip MCP startup
+    Note over Agent,Tools: Work-policy-backed native Tasks reuse frozen posture and tools-off snapshots send an empty catalog and skip MCP startup
     loop model-call cycle
         Agent->>LLM: Chat with messages and tool schemas
         LLM-->>Agent: assistant message
@@ -246,31 +246,31 @@ general browser automation.
 Chat-origin Task Runs for project-linked Hecate Chat receive one additional
 proposal-only tool.
 
-| Tool                     | What it does                                                          | Policy                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shell_exec`             | Run a shell command in the workspace through ProcessRunner            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), with env sanitisation + output cap + timeout and optional OS wrapper (see [`sandbox.md`](sandbox.md))                                                                                                                                                                                                          |
-| `terminal_open`          | Open a long-lived terminal process in the workspace                   | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), using `LocalWorkspace.OpenTerminal`, static command policy, env sanitisation, workspace root, and optional OS wrapper                                                                                                                                                                                          |
-| `terminal_write`         | Write stdin to an open native agent-loop terminal                     | Gated by `shell_exec` or `all_tools` policy (default on); terminal handles are scoped to the current run and preserved across same-run approval requeues                                                                                                                                                                                                                                                                                  |
-| `terminal_read`          | Read the retained output tail from an open native agent-loop terminal | Gated by `shell_exec` or `all_tools` policy (default on); output returned to the model is bounded                                                                                                                                                                                                                                                                                                                                         |
-| `terminal_wait`          | Wait for an open native agent-loop terminal to exit                   | Gated by `shell_exec` or `all_tools` policy (default on); wait calls are bounded by `timeout_ms`, and a timeout leaves the terminal running                                                                                                                                                                                                                                                                                               |
-| `terminal_kill`          | Terminate an open native agent-loop terminal                          | Gated by `shell_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                                                                                  |
-| `git_exec`               | Run a Git subcommand in the workspace through the sandbox executor    | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `git_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                   |
-| `file_write`             | Write or append a file under the workspace                            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `file_write` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                 |
-| `file_edit`              | Replace exact text in an existing workspace file                      | Gated by `file_write` or `all_tools` policy (default on); read-only tasks may propose a patch but cannot apply it                                                                                                                                                                                                                                                                                                                         |
-| `apply_patch`            | Apply or propose structured multi-file patches                        | Gated by `file_write` or `all_tools` policy (default on); emits patch artifacts; read-only tasks may propose but cannot apply                                                                                                                                                                                                                                                                                                             |
-| `read_file`              | Read a file under the workspace, optionally by line range             | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
-| `grep`                   | Search workspace text files with a bounded regular-expression search  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
-| `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
-| `code_intelligence`      | Query code semantics, diagnostics, symbols, or structural patterns    | Ungated by default; gate with `read_file` or `all_tools` policy. Uses only allowlisted executables found on a trusted global gateway `PATH` or pinned by an exact operator path, with sanitized env, bounded protocol/output limits, and workspace-confined input/output paths. Semantic LSP calls fail closed when the task's read-only or network-denied policy cannot be enforced by the active OS wrapper                             |
-| `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                                                                                                                                                                                 |
-| `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                                        |
-| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                                  |
-| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                   |
-| `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                    |
-| `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                               |
-| `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to native project-assignment tasks whose Agent Preset snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is omitted from Hecate Chat, External Agent, legacy, and manual tasks. |
-| `browser_flow`           | Run one approved accessibility click/wait flow                        | Independently granted to eligible native project-assignment Tasks. One approval covers the query-free start URL and fully declared 1–6 action flow; scripts and same-origin `GET`/`HEAD` may cause effects. No Hecate Chat, External Agent, QA, legacy/manual, or remote-runtime use.                                                                                                                                                     |
-| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to Chat-origin Task Runs backing Hecate Chat Turns with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                       |
+| Tool                     | What it does                                                          | Policy                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shell_exec`             | Run a shell command in the workspace through ProcessRunner            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), with env sanitisation + output cap + timeout and optional OS wrapper (see [`sandbox.md`](sandbox.md))                                                                                                                                                                                                                          |
+| `terminal_open`          | Open a long-lived terminal process in the workspace                   | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), using `LocalWorkspace.OpenTerminal`, static command policy, env sanitisation, workspace root, and optional OS wrapper                                                                                                                                                                                                          |
+| `terminal_write`         | Write stdin to an open native agent-loop terminal                     | Gated by `shell_exec` or `all_tools` policy (default on); terminal handles are scoped to the current run and preserved across same-run approval requeues                                                                                                                                                                                                                                                                                                  |
+| `terminal_read`          | Read the retained output tail from an open native agent-loop terminal | Gated by `shell_exec` or `all_tools` policy (default on); output returned to the model is bounded                                                                                                                                                                                                                                                                                                                                                         |
+| `terminal_wait`          | Wait for an open native agent-loop terminal to exit                   | Gated by `shell_exec` or `all_tools` policy (default on); wait calls are bounded by `timeout_ms`, and a timeout leaves the terminal running                                                                                                                                                                                                                                                                                                               |
+| `terminal_kill`          | Terminate an open native agent-loop terminal                          | Gated by `shell_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `git_exec`               | Run a Git subcommand in the workspace through the sandbox executor    | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `git_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                                   |
+| `file_write`             | Write or append a file under the workspace                            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `file_write` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                                 |
+| `file_edit`              | Replace exact text in an existing workspace file                      | Gated by `file_write` or `all_tools` policy (default on); read-only tasks may propose a patch but cannot apply it                                                                                                                                                                                                                                                                                                                                         |
+| `apply_patch`            | Apply or propose structured multi-file patches                        | Gated by `file_write` or `all_tools` policy (default on); emits patch artifacts; read-only tasks may propose but cannot apply                                                                                                                                                                                                                                                                                                                             |
+| `read_file`              | Read a file under the workspace, optionally by line range             | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                          |
+| `grep`                   | Search workspace text files with a bounded regular-expression search  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                          |
+| `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                          |
+| `code_intelligence`      | Query code semantics, diagnostics, symbols, or structural patterns    | Ungated by default; gate with `read_file` or `all_tools` policy. Uses only allowlisted executables found on a trusted global gateway `PATH` or pinned by an exact operator path, with sanitized env, bounded protocol/output limits, and workspace-confined input/output paths. Semantic LSP calls fail closed when the task's read-only or network-denied policy cannot be enforced by the active OS wrapper                                             |
+| `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                                                                                                                                                                                                 |
+| `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                                                        |
+| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                                                  |
+| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                   |
+| `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                                    |
+| `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                                               |
+| `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to Work-policy-backed native Tasks whose frozen snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is omitted from Hecate Chat, External Agent, QA, non-preset Tasks, and remote-runtime Tasks. |
+| `browser_flow`           | Run one approved accessibility click/wait flow                        | Independently granted to eligible Work-policy-backed native Tasks. One approval covers the query-free start URL and fully declared 1–6 action flow; scripts and same-origin `GET`/`HEAD` may cause effects. No Hecate Chat, External Agent, QA, non-preset Task, or remote-runtime use.                                                                                                                                                                   |
+| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to Chat-origin Task Runs backing Hecate Chat Turns with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                                       |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
@@ -410,7 +410,7 @@ rendered-result truncation independently as `output_truncated`, so one limit
 cannot hide the other. A no-match search therefore cannot materialize or read
 an unbounded monorepo before returning.
 
-For a project-assignment task carrying an explicit
+For a Work-policy-backed native Task carrying an explicit
 `agent_preset_tools_enabled=false` snapshot, that setting is the master tool
 gate. Hecate sends an empty catalog, does not start configured MCP hosts, and
 keeps the execution as a normal supervised Task/Run so context, route, cost,
@@ -418,18 +418,17 @@ events, and the final answer remain inspectable. If an upstream nevertheless
 returns a native or namespaced MCP call, Hecate bypasses approval, records a
 denied policy step, emits `policy.tool_blocked` with
 `policy=agent_preset_tools`, and returns a tool error without dispatch. A
-missing snapshot preserves the catalog behavior of legacy and manually created
-tasks.
+missing snapshot preserves the catalog behavior of non-preset Tasks.
 
 The machine-generated system message states that tools are unavailable but
 omits the absolute workspace path because a model-only call cannot use it.
 
-For a task carrying an `agent_preset_id` launch snapshot, `sandbox_network` is
+For a Task carrying an `agent_preset_id` launch snapshot, `sandbox_network` is
 the master gate for Hecate-native egress. When false, `http_request` and
 `web_search` are omitted from the model request. If an upstream still returns
 either call, the dispatcher records a denied policy step, emits
 `policy.tool_blocked`, and returns a tool error without contacting the
-HTTP/search provider. Legacy and manually created tasks without a preset
+HTTP/search provider. Legacy and non-preset Tasks without a preset
 snapshot retain the pre-existing native HTTP/search behavior; setting their
 process-network bit is not silently reinterpreted as a new native-tool policy.
 When preset network is enabled, global approval and host/private-IP policies
@@ -448,10 +447,11 @@ controller:
 
 Both tools are available only when the gateway runs locally, the operator sets
 `HECATE_TASK_BROWSER_EXECUTABLE` to an absolute Chromium-compatible executable,
-and the Task came from a native project assignment with a resolved
-`hecate_task` (or `any`) Agent Preset and tools enabled. Hecate does not search
+and the native Task was created with a resolved `hecate_task` (or `any`) Work
+policy and tools enabled. This includes standalone Tasks and native project
+assignments. Hecate does not search
 `PATH`, download a browser, attach to an existing browser, or expose either
-tool in Hecate Chat, External Agent sessions, QA v0, legacy/manual Tasks, or
+tool in Hecate Chat, External Agent sessions, QA v0, non-preset Tasks, or
 remote-runtime mode.
 
 The grants are independent. `browser_allowed=true` enables only
@@ -706,6 +706,16 @@ The operator-tunable system prompt is composed from three layers, broadest first
 
 Layers are concatenated with blank lines between them. Empty layers are skipped (no wasted message). The composed prompt is the second system message in the conversation; the workspace-environment message above is the first.
 
+A standalone native Task may select a Work policy with `agent_preset_id`.
+Task creation freezes the preset instructions ahead of the optional per-Task
+instructions inside the per-task layer. It also freezes the preset execution
+profile, route hints, and tool/write/network/approval/browser posture. Explicit
+provider or model values in the create request win over the corresponding
+preset hints. A preset model hint is ignored when the request selects a
+different provider, and an effective provider without a model fails Task
+creation. This path does not load Project memory, context sources, or skill
+bodies and does not create or mutate Cairnline state.
+
 Project assignment tasks set `workspace_system_prompt_policy="exclude"` and use
 the project/preset context builder instead. That keeps project memory and
 workspace-instruction bodies controlled by the resolved Agent Preset:
@@ -777,7 +787,7 @@ operator-visible content or trigger an application-specific `GET` effect;
 `browser_flow` additionally runs scripts and approved clicks that can change
 the application.
 
-Native project-assignment Tasks add one immutable Agent Preset approval layer
+Work-policy-backed native Tasks add one immutable Agent Preset approval layer
 to those mid-loop decisions. The task exposes the output-only
 `agent_preset_approval_policy` snapshot, and retries and resumes keep the same
 value even if the saved preset changes:
@@ -803,16 +813,17 @@ Hard denials are evaluated first. Workflow restrictions, a tools-disabled
 preset, read-only or network posture, a missing browser grant/runtime, and an
 MCP server with `approval_policy=block` remain non-approvable and keep their own
 policy reason. The preset approval snapshot does not affect pre-execution
-approval gates. Empty means no frozen native-assignment approval layer is
+approval gates. Empty means no frozen Work policy approval layer is
 present and adds no policy; an invalid non-empty stored value fails safely as
 `require`.
 
-This snapshot is admitted only for native project-assignment agent loops. It is
-not inferred from a preset id and does not apply to Hecate Chat, External Agent,
-QA, legacy, or manually created Tasks. A preset may retain browser grants while
+This snapshot is admitted only for standard native agent loops created from a
+resolved Work policy, either directly through `agent_preset_id` or through a
+project assignment. It does not apply to Hecate Chat, External Agent, QA, or
+non-preset Tasks. A preset may retain browser grants while
 using `block`, but every otherwise-available browser call requires approval and
-is therefore denied; assignment launch readiness warns about that configured
-but unusable combination.
+is therefore denied; assignment launch readiness and the standalone New Task
+preview warn about that configured but unusable combination.
 
 Approval never grants a capability denied by the resolved runtime policy. In
 particular, unexpected calls on a task whose Agent Preset snapshot sets
@@ -854,6 +865,11 @@ requests cannot create two active runs. A resume may raise
 `budget_micros_usd`, but the store compares against the latest durable task in
 the same transaction that creates the run, so a stale lower request or a
 zero-budget retry cannot erase a higher committed ceiling.
+
+They also reuse every Work policy value frozen on the Task. Retry, Resume,
+Continue, scheduled starts, and retry-from-model-call never look up the current
+preset again, so editing or deleting a Work policy cannot broaden or otherwise
+change an existing Task.
 
 The conversation viewer in the run-replay UI shows a `↻ retry from here` button on each assistant model call (terminal runs only).
 
@@ -908,6 +924,10 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
   a normal Task; Hecate assigns and snapshots `workflow_version: "v0"`. QA
   forces an ephemeral read-only/native-HTTP-and-search-disabled posture, rejects `mcp_servers`, and
   allows only the structured inspection set described above.
+- `agent_preset_id` — optional Work policy for a standard native Task. The
+  preset must support `hecate_task` (or `any`), and is unavailable for QA.
+  Hecate freezes the resolved posture at Task creation; a tools-disabled policy
+  cannot be combined with `mcp_servers`.
 - `prompt` — the user message; required
 - `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
@@ -931,10 +951,11 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent. Native Tasks require a tool-capable model when their effective catalog is non-empty; preset-backed model-only tasks send no tools.
 - **`browser inspection is unavailable`** or **`native browser interaction is
 unavailable`** — this is expected unless the local gateway has an explicit
-  `HECATE_TASK_BROWSER_EXECUTABLE`, the task came from an eligible native
-  project assignment, and the resolved Agent Preset independently granted the
+  `HECATE_TASK_BROWSER_EXECUTABLE`, the Task was created from an eligible Work
+  policy (directly or through a native project assignment), and that policy
+  independently granted the
   requested browser capability with exact origins. Neither tool is offered to
-  Hecate Chat, External Agent, QA, legacy/manual, or remote-runtime tasks.
+  Hecate Chat, External Agent, QA, non-preset Tasks, or remote-runtime Tasks.
 - **`workflow_mode=qa requires an ephemeral workspace`**, **`does not allow
 native network access`**, or **`does not allow mcp_servers`** — QA v0 deliberately
   refuses a caller-supplied posture that would widen its report-only contract.

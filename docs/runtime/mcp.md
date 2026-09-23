@@ -183,7 +183,7 @@ Expected output: two JSON-RPC responses on stdout (initialize result + tools lis
 
 > The other half of the MCP integration: external MCP servers as tool sources for `agent_loop` tasks. The section above (Hecate as MCP server) is independent — read either standalone.
 
-An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`, and optional `web_search`). A native project assignment whose launch snapshot has `agent_preset_tools_enabled=false` is the master exception: Hecate starts no MCP host, sends an empty tool catalog, and rejects unexpected namespaced calls before contacting a server.
+An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`, and optional `web_search`). A Work-policy-backed native Task whose launch snapshot has `agent_preset_tools_enabled=false` is the master exception: a standalone create rejects `mcp_servers`, and the runtime starts no MCP host, sends an empty tool catalog, and rejects unexpected namespaced calls before contacting a server. Existing project-assignment Tasks with a frozen tools-off snapshot retain the same runtime denial.
 
 A server vending tool `read_file` under the operator-chosen alias `filesystem` shows up to the LLM as `mcp__filesystem__read_file`. The double-underscore is the namespace separator; the LLM picks the namespaced name and Hecate routes the call back to the right upstream.
 
@@ -387,12 +387,12 @@ It is per-server, not per-tool.
 
 The pause-and-resume machinery is the same the gateway already uses for built-in `shell_exec` gating; MCP gating reuses it without changing the runner or resume path.
 
-These values are server-local baselines. A native project-assignment Task can
+These values are server-local baselines. A Work-policy-backed native Task can
 also carry a frozen, additive Agent Preset approval layer: preset `require`
 gates an otherwise-`auto` MCP call, while preset `block` denies a call whose
 server uses `require_approval`. Preset `inherit` and `allow` add no gate and do
 not weaken the server policy; server `block` always remains a hard refusal.
-Hecate Chat, External Agents, QA, and legacy/manual Tasks do not use that frozen
+Hecate Chat, External Agents, QA, and non-preset Tasks do not use that frozen
 layer. See [Work policy endpoints](runtime-api.md#work-policy-endpoints) for the
 complete composition and compatibility contract.
 
