@@ -237,10 +237,16 @@ export function NewTaskSlideOver({
   // the chosen provider.
   function handleProviderChange(next: string) {
     setTaskProvider(next);
-    if (next !== "auto" && taskModel) {
-      const stillValid = models.some((m) => m.id === taskModel && m.metadata?.provider === next);
-      if (!stillValid) setTaskModel("");
-    }
+    if (!taskModel) return;
+
+    // Returning to Auto can restore a selected policy's provider hint, so it
+    // needs the same validation as choosing an explicit provider.
+    const nextRoutingProvider = next === "auto" ? policyProvider : next;
+    if (!nextRoutingProvider) return;
+    const stillValid = models.some(
+      (model) => model.id === taskModel && model.metadata?.provider === nextRoutingProvider,
+    );
+    if (!stillValid) setTaskModel("");
   }
 
   // A model selected while routing was automatic becomes an explicit Task
