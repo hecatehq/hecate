@@ -728,6 +728,14 @@ func TestLocalRunner_ReadOnlyViewForcesCompleteStatChecks(t *testing.T) {
 	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
 		t.Fatal(err)
 	}
+	ensureStatCheckFixtureCTimeChanged(t, path)
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("stat-check fixture must preserve file size and modification time")
+	}
 
 	snapshot, err := runner.SnapshotReview(context.Background(), dir, 64*1024)
 	if err != nil {
