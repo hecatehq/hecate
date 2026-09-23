@@ -81,4 +81,31 @@ describe("WorkPoliciesSettings", () => {
     expect(deleteAgentPreset).toHaveBeenCalledWith("implementation");
     await waitFor(() => expect(screen.getByText("0 saved")).toBeTruthy());
   });
+
+  it("replaces the local row when create upserts an existing policy id", async () => {
+    vi.mocked(getAgentPresets).mockResolvedValue({
+      object: "agent_presets",
+      data: [policy({ name: "Original policy" })],
+    });
+    vi.mocked(createAgentPreset).mockResolvedValue({
+      object: "agent_preset",
+      data: policy({ name: "Replacement policy" }),
+    });
+    const user = userEvent.setup();
+    render(<WorkPoliciesSettings />);
+
+    expect(await screen.findByText("1 saved")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Manage policies/i }));
+    await user.click(screen.getByRole("button", { name: "New policy" }));
+    await user.type(screen.getByLabelText("Policy ID"), "implementation");
+    await user.type(screen.getByLabelText("Name"), "Replacement policy");
+    await user.click(screen.getByRole("button", { name: "Create policy" }));
+
+    expect(createAgentPreset).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "implementation", name: "Replacement policy" }),
+    );
+    await waitFor(() => expect(screen.getByText("1 saved")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Original policy" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Replacement policy" })).toHaveLength(1);
+  });
 });

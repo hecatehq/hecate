@@ -50,7 +50,13 @@ export function WorkPoliciesSettings({
     setError("");
     try {
       const response = await createAgentPreset(presetCreatePayloadFromForm(form));
-      setPresets((current) => [response.data, ...current]);
+      // Create is an upsert at the API boundary. Mirror that contract locally
+      // so reusing a custom id replaces its row instead of producing duplicate
+      // React keys and ambiguous edit/delete controls until the next reload.
+      setPresets((current) => [
+        response.data,
+        ...current.filter((preset) => preset.id !== response.data.id),
+      ]);
       return response.data;
     } catch (createError) {
       setError(errorMessage(createError, "Failed to create work policy."));

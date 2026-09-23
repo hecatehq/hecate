@@ -182,6 +182,41 @@ describe("NewTaskSlideOver work policies", () => {
     expect(payload.agent_preset_approval_policy).toBeUndefined();
   });
 
+  it("clears an incompatible explicit model when a policy changes the provider scope", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      agentPresets: [workPolicy()],
+      models: [
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+        {
+          id: "qwen2.5-coder:7b",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: false },
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.click(screen.getByRole("button", { name: /Model picker:/i }));
+    await user.click(screen.getByRole("option", { name: /qwen2.5-coder:7b/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /work policy/i }),
+      "implementation",
+    );
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "implement the change");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    const payload = onCreate.mock.calls[0][0];
+    expect(payload.agent_preset_id).toBe("implementation");
+    expect(payload.requested_provider).toBeUndefined();
+    expect(payload.requested_model).toBeUndefined();
+  });
+
   it("keeps the displayed UI default when a policy has no model hint", async () => {
     const onCreate = vi.fn();
     const { render, user } = setup({

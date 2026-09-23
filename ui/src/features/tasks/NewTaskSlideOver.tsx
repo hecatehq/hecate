@@ -243,6 +243,27 @@ export function NewTaskSlideOver({
     }
   }
 
+  // A model selected while routing was automatic becomes an explicit Task
+  // override. Revalidate that override when a policy introduces a provider
+  // scope; otherwise a stale model from another provider would be submitted
+  // alongside the new policy and fail only after the Task starts.
+  function handleAgentPresetChange(nextPresetID: string) {
+    setTaskAgentPresetID(nextPresetID);
+    if (!taskModel) return;
+
+    const nextPreset = compatibleAgentPresets.find((preset) => preset.id === nextPresetID);
+    const nextPolicyProvider = standardNativeAgentLoop
+      ? (nextPreset?.provider_hint?.trim() ?? "")
+      : "";
+    const nextRoutingProvider = explicitProvider || nextPolicyProvider;
+    if (!nextRoutingProvider) return;
+
+    const stillValid = models.some(
+      (model) => model.id === taskModel && model.metadata?.provider === nextRoutingProvider,
+    );
+    if (!stillValid) setTaskModel("");
+  }
+
   // Models known not to support tool-calling. Surfaced as
   // non-blocking warnings on the picker rows when the operator is
   // creating an agent_loop task (other execution kinds don't use
@@ -709,7 +730,7 @@ export function NewTaskSlideOver({
                       : "task-agent-preset-help"
                   }
                   value={taskAgentPresetID}
-                  onChange={(event) => setTaskAgentPresetID(event.target.value)}
+                  onChange={(event) => handleAgentPresetChange(event.target.value)}
                 >
                   <option value="">No work policy</option>
                   {compatibleAgentPresets.map((preset) => (
