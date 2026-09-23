@@ -3012,6 +3012,7 @@ func TestAgentLoop_AgentPresetBlockDeniesGatedCallWithoutPausingOrDispatching(t 
 	spec := newAgentLoopSpec(t)
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
 
 	res, err := loop.Execute(context.Background(), spec)
@@ -3056,6 +3057,7 @@ func TestAgentLoop_AgentPresetRequirePausesOtherwiseUngatedCall(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "implementation"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalRequire
 
 	res, err := loop.Execute(context.Background(), spec)
@@ -3089,6 +3091,7 @@ func TestAgentLoop_AgentPresetBlockDeniesApprovedRecoveredCall(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
 		SourceRunID:                          spec.Run.ID,

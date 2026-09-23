@@ -255,11 +255,15 @@ func TestTaskWorkflowModeFlowsThroughCreateAndRenderContracts(t *testing.T) {
 
 	command := taskCreateCommandFromRequest(CreateTaskRequest{
 		Prompt:        "Inspect the workspace",
+		AgentPresetID: "review_qa",
 		ExecutionKind: "agent_loop",
 		WorkflowMode:  "qa",
 	})
 	if command.WorkflowMode != "qa" {
 		t.Fatalf("create command workflow_mode = %q, want qa", command.WorkflowMode)
+	}
+	if command.AgentPresetID != "review_qa" {
+		t.Fatalf("create command agent_preset_id = %q, want review_qa", command.AgentPresetID)
 	}
 	taskItem := renderTaskItem(types.Task{
 		ID:              "task_qa",

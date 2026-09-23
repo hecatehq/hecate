@@ -9,6 +9,7 @@ import type { PluginRecord } from "../../types/plugin";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { DesktopCloudSettings } from "./DesktopCloudSettings";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
+import { WorkPoliciesSettings } from "./WorkPoliciesSettings";
 
 export function SettingsView() {
   const retention = useRetention();
@@ -74,6 +75,7 @@ export function SettingsView() {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div className="settings-view__scroll" style={{ flex: 1, overflowY: "auto", padding: 16 }}>
         <DesktopCloudSettings remoteRuntime={remoteRuntime} />
+        <WorkPoliciesSettings browserEvidenceReadiness={settings.state.config?.browser_evidence} />
         {remoteRuntime ? (
           <RemoteRuntimeSettings runtimeLabel={runtimeLabel} />
         ) : (

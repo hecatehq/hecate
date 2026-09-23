@@ -178,13 +178,27 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   the cleanup helper back to HTTP or claim success from partial fencing. A
   future quiescer must close admission, drain and generation-fence delayed
   writers, run cleanup, advance its epoch, and reopen.
+- **Resolve standalone Work policies in `taskapp`.** An explicit
+  `agent_preset_id` is valid only for a standard native `agent_loop` with a
+  `hecate_task` / `any` preset. Resolve and freeze it during Task creation:
+  preset execution profile is authoritative, explicit provider/model values
+  win over their respective hints, and a conflicting explicit provider
+  suppresses the preset model hint. Reject an effective provider without a
+  model during creation. Preset instructions precede optional
+  per-Task instructions, and tools-off rejects MCP servers. Snapshot tools,
+  approval, browser, write/read-only, and network posture. Do not activate
+  project memory, context sources, skills, roles, assignments, or Cairnline
+  state on this path. Start/Schedule/Retry/Resume/Continue/retry-from-model-call
+  must consume the stored Task without re-resolution. Keep project-assignment
+  resolution and coordinated context in `projectworkapp`.
 - **Browser interaction is a separate immutable grant.** Keep
   `browser_allowed` (script-disabled `browser_inspect`) independent from
   `browser_interactions_allowed` (`browser_flow`), with one shared normalized
-  `browser_allowed_origins` list. Only `projectworkapp` may snapshot these onto
-  an eligible native project-assignment Task; never infer either grant from
+  `browser_allowed_origins` list. `taskapp` may snapshot these for a standalone
+  native Task and `projectworkapp` may snapshot them for a native assignment;
+  never infer either grant from
   Cairnline intent, `sandbox_network`, Hecate Chat, External Agent/ACP, QA,
-  legacy/manual Tasks, or a later preset edit. A flow is one strict,
+  non-preset Tasks, or a later preset edit. A flow is one strict,
   approval-bound, query-free URL plus 1–6 exact accessibility click/wait
   actions. Preserve a fresh process/profile, one exact origin, `GET`/`HEAD`
   transport interception, private-IP policy, response/deadline bounds, and
@@ -731,10 +745,12 @@ Enforce both per-session and aggregate retained body quotas atomically across
 memory, SQLite, and Postgres; cross-session Postgres creates require a shared
 quota lock before the session lock. Provider hydration is transient and bounded:
 never place binary/base64 content in transcript JSON, SSE, traces, logs,
-metrics, or the UI's persisted busy-message queue. Image-bearing attachment
-turns on the direct-model path are Tools-off Hecate Chat only and must set an internal capability
-requirement that admits only a currently routable, explicitly supported initial
-route. Guard every turn that may hydrate current or historical image bodies with
+metrics, or the UI's persisted busy-message queue. Image-bearing Hecate Chat
+turns with tools on or off must set an internal capability requirement that
+admits only a currently routable, explicitly supported initial route. Tools-on
+turns persist an opaque run input reference and hydrate only at the final
+provider boundary; conversation artifacts contain omission markers, not image
+bodies. Guard every turn that may hydrate current or historical image bodies with
 the separate nonblocking, process-wide image-turn gate. Acquire its permit before
 attachment claim, historical `Get`, or base64 expansion; reject saturation with
 the stable typed 429 response before transcript mutation; and hold the permit

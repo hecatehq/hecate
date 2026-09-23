@@ -116,6 +116,18 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Do not add auth, tenant, or account-management UI unless the product model
   changes again.
 - Provider and model selection exposes local and cloud distinctions clearly.
+- Treat **Work policies** as global Hecate runtime configuration. Settings owns
+  their global management entry; Projects and roles may reference the same
+  records without owning or copying them. The standard native `agent_loop` New
+  Task form may select only `hecate_task` / `any` policies, must omit the id for
+  QA and non-agent execution kinds, and sends only `agent_preset_id` rather
+  than client-computed snapshot fields. Preview the effective route source,
+  instructions, tools, writes, network, approval, browser grants, and origins.
+  Preserve the precedence explicit form selection > preset hint > ordinary
+  default; never pair a policy model hint with an explicitly different
+  provider, and require a model for the resulting provider. Explain that
+  standalone Tasks freeze the policy at creation and do
+  not activate Project memory, context sources, skills, or Cairnline state.
 - Keep native browser permissions explicit and independent in Work policies:
   **static browser evidence** does not interact with pages, while **browser
   interaction** permits only an approval-gated flow of up to six click or wait
@@ -127,9 +139,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   change state in the allowed app; interaction does not grant typing, uploads,
   downloads, saved state, clipboard/device access, cross-origin navigation, or
   general task network access; and External Agents and Hecate Chat do not
-  receive these capabilities. Render the frozen interaction grant separately
-  in assignment launch posture and Task detail; do not infer it from an absent
-  legacy field. Retained `browser_flow_evidence` is untrusted text evidence
+  receive these capabilities. Eligible standalone Tasks and native project
+  assignments do receive the frozen grant. Render the interaction grant
+  separately in assignment launch posture and Task detail; do not infer it from
+  an absent legacy field. Retained `browser_flow_evidence` is untrusted text evidence
   with a dedicated collapsed panel, not a screenshot or retained browser
   profile.
 - In Chats, use the shared agent-picker shell. **Hecate** is the built-in

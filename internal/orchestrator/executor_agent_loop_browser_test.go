@@ -18,6 +18,11 @@ type fakeBrowserInspector struct {
 	err      error
 }
 
+func enabledAgentPresetToolsSnapshot() *bool {
+	enabled := true
+	return &enabled
+}
+
 func (f *fakeBrowserInspector) Inspect(_ context.Context, req browserrunner.InspectRequest) (browserrunner.InspectResult, error) {
 	f.requests = append(f.requests, req)
 	return f.result, f.err
@@ -27,6 +32,7 @@ func TestAgentLoopBrowserToolCatalogFailsClosedWithoutPresetSnapshot(t *testing.
 	t.Parallel()
 	allowed := true
 	disabled := false
+	toolsEnabled := true
 	opts := agentToolDefinitionOptions{IncludeBrowserInspection: true}
 
 	legacy := agentToolDefinitionsForTask(types.Task{}, opts)
@@ -48,22 +54,43 @@ func TestAgentLoopBrowserToolCatalogFailsClosedWithoutPresetSnapshot(t *testing.
 	if hasToolDefinition(manual, AgentToolBrowserInspect) {
 		t.Fatal("browser_inspect advertised for a manually constructed task without a resolved preset ID")
 	}
+	partial := agentToolDefinitionsForTask(types.Task{
+		AgentPresetID:                    "prof_partial",
+		OriginKind:                       "project_work_item",
+		AgentPresetBrowserAllowed:        &allowed,
+		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
+	}, opts)
+	if hasToolDefinition(partial, AgentToolBrowserInspect) {
+		t.Fatal("browser_inspect advertised for an incomplete project preset snapshot")
+	}
 	enabled := agentToolDefinitionsForTask(types.Task{
 		AgentPresetID:                    "prof_browser",
 		OriginKind:                       "project_work_item",
+		AgentPresetToolsEnabled:          enabledAgentPresetToolsSnapshot(),
 		AgentPresetBrowserAllowed:        &allowed,
 		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
 	}, opts)
 	if !hasToolDefinition(enabled, AgentToolBrowserInspect) {
 		t.Fatalf("browser_inspect missing from enabled catalog: %+v", enabled)
 	}
+	standalone := agentToolDefinitionsForTask(types.Task{
+		AgentPresetID:                    "prof_standalone_browser",
+		AgentPresetToolsEnabled:          &toolsEnabled,
+		AgentPresetBrowserAllowed:        &allowed,
+		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
+	}, opts)
+	if !hasToolDefinition(standalone, AgentToolBrowserInspect) {
+		t.Fatalf("browser_inspect missing from standalone enabled catalog: %+v", standalone)
+	}
 	chat := agentToolDefinitionsForTask(types.Task{
+		AgentPresetID:                    "prof_chat_browser",
 		OriginKind:                       "chat",
+		AgentPresetToolsEnabled:          &toolsEnabled,
 		AgentPresetBrowserAllowed:        &allowed,
 		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
 	}, opts)
 	if hasToolDefinition(chat, AgentToolBrowserInspect) {
-		t.Fatal("browser_inspect advertised for a non-project task")
+		t.Fatal("browser_inspect advertised for Hecate Chat with forged preset fields")
 	}
 }
 
@@ -73,6 +100,7 @@ func TestAgentLoopBrowserInspectionAlwaysRequiresSpecificApproval(t *testing.T) 
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 	gate := newAgentLoopApprovalGate(nil)
@@ -132,6 +160,7 @@ func TestAgentLoopBrowserInspectionPersistsSafeTextEvidence(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 
@@ -191,6 +220,7 @@ func TestAgentLoopBrowserInspectionSurfacesProfileCleanupAction(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 
@@ -216,6 +246,7 @@ func TestAgentLoopBrowserInspectionPreservesPolicyAndCleanupFailures(t *testing.
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 
@@ -240,6 +271,7 @@ func TestAgentLoopBrowserInspectionScopesEachCallToItsApprovedOrigin(t *testing.
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{
 		"https://app.example.test",
@@ -268,6 +300,7 @@ func TestAgentLoopBrowserInspectionRejectsInspectorFinalOriginOutsideCallScope(t
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{
 		"https://app.example.test",
@@ -294,6 +327,7 @@ func TestAgentLoopBrowserInspectionRejectsQueryBeforeDispatch(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 
@@ -318,6 +352,7 @@ func TestAgentLoopBrowserInspectionApprovalListsEveryRequestedPage(t *testing.T)
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test", "https://status.example.test"}
 	gate := newAgentLoopApprovalGate(nil)
@@ -345,6 +380,7 @@ func TestAgentLoopBrowserInspectionRejectsUnknownOrDuplicateArguments(t *testing
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 
@@ -378,6 +414,7 @@ func TestAgentLoopBrowserInspectionRejectsTargetTooLongForApproval(t *testing.T)
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 	url := "https://app.example.test/" + strings.Repeat("a", maxBrowserApprovalTargetBytes)
@@ -421,6 +458,7 @@ func TestAgentLoopBrowserInspectionRedactsRejectedArgumentsBeforePersistence(t *
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 	var artifacts []types.TaskArtifact
@@ -482,6 +520,7 @@ func TestAgentLoopBrowserInspectionPausesBeforeRuntimeDispatch(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.AgentPresetID = "prof_browser"
 	spec.Task.OriginKind = "project_work_item"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 

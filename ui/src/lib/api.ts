@@ -289,6 +289,9 @@ export type CreateTaskPayload = {
   file_content?: string;
   requested_model?: string;
   requested_provider?: string;
+  // Hecate resolves and snapshots this policy when a standard native
+  // agent-loop Task is created. Snapshot fields are response-only.
+  agent_preset_id?: string;
   // workspace_mode controls how the run's sandbox root is provisioned:
   //   * "persistent" / "ephemeral" / unset — provision an isolated
   //     clone or copy of the source directory (default). Writes don't

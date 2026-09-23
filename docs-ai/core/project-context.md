@@ -73,6 +73,19 @@ project-memory/context-source policy, skills, browser capabilities, MCP servers,
 approval-policy defaults, or External Agent options. This is Hecate execution
 state, not Cairnline coordination; it must not create or mutate portable
 Projects, roles, assignments, or handoffs.
+
+When a standard standalone native Task selects `agent_preset_id`, resolve it in
+`taskapp` at creation and accept only a `hecate_task` or `any` surface. Freeze
+the preset execution profile (falling back to its id), fill only omitted
+provider/model selections from its hints, and never pair its model hint with an
+explicitly different provider. Reject an effective provider without a model at
+creation. Prepend preset instructions to the
+optional per-Task instructions, and snapshot tools, write, network, approval,
+and browser posture. Reject QA, non-`agent_loop` execution kinds, and a
+tools-disabled preset combined with MCP servers. This path must not activate
+project memory, context-source bodies, skills, roles, assignments, or any other
+Cairnline state. Start, Schedule dispatch, Retry, Resume, Continue, and
+retry-from-model-call consume the frozen Task and never re-resolve the preset.
 Cairnline is the sole production authority for portable Projects coordination.
 The embedded Cairnline service stores project identity, roots, context-source
 and skill metadata, roles, work items, assignments, collaboration artifacts,
@@ -106,8 +119,8 @@ copied files instead. It writes a path/prompt-free
 final response exists. The report must keep `agent_reported` prose distinct
 from `hecate_observed` posture/evidence; never describe agent text as proof
 that tests or browser checks ran. Existing `browser_inspect` and `browser_flow`
-remain separately available only to eligible native project assignments with
-their independently snapshotted Agent Preset grants and per-call approval. QA
+remain separately available only to eligible Work-policy-backed native Tasks
+with their independently snapshotted grants and per-call approval. QA
 v0 blocks both entirely; a later QA contract needs an explicit Hecate-owned
 assignment-launch selection before it can claim a constrained browser
 capability.
@@ -116,8 +129,9 @@ Assignment launch and preflight therefore combine Cairnline coordination state
 with Hecate runtime policy. The shared launch-plan seam validates preset surface
 compatibility; native assignment tasks snapshot the preset id, tools posture,
 and approval posture and enforce write/network posture through task sandbox
-fields. The frozen approval posture is additive and applies only to mid-loop
-tool calls on native project-assignment Tasks. `require` gates every
+fields. The same frozen approval posture applies to standard standalone native
+Tasks resolved from a Work policy. It is additive and applies only to mid-loop
+tool calls. `require` gates every
 otherwise-permitted call selected from the exact advertised catalog; `block`
 denies only a call that runtime-wide policy, the mandatory browser gate, or the
 matching MCP server would otherwise send for approval. `inherit` and `allow`
@@ -125,7 +139,7 @@ add no gate and never weaken those stricter policies. Workflow, tools,
 read-only, network, browser availability/grant, and MCP hard denials take
 precedence and cannot be made approvable by a preset. The snapshot does not
 alter pre-execution approval and is never inferred for Hecate Chat, External
-Agents, QA, legacy/manual Tasks, or Tasks whose snapshot is absent. A tools-disabled
+Agents, QA, non-preset Tasks, or Tasks whose snapshot is absent. A tools-disabled
 snapshot runs as a supervised model-only task: it exposes no native, Project
 Assistant, or MCP tools, starts no MCP host, and rejects unexpected calls before
 dispatch. Preset-backed native HTTP/search tools fail closed when that snapshot
@@ -135,9 +149,9 @@ terminal surfaces while retaining structured inspection and proposal-only
 edits. Browser capability is separate from generic network: a native-task
 preset independently grants script-disabled `browser_inspect` and
 approval-bound `browser_flow`, and either grant requires their shared exact
-origin list. Assignment launch snapshots both booleans and the normalized
+origin list. Native Task creation snapshots both booleans and the normalized
 origins. Neither is inferred from `sandbox_network`, later preset edits, or a
-legacy/manual Task. Every call uses one query-free URL at one exact origin,
+non-preset Task. Every call uses one query-free URL at one exact origin,
 requires approval, starts a fresh local browser process/profile, and returns
 bounded plain-text evidence. A native preset that both grants a browser
 capability and sets `approval_policy=block` keeps the grant configured but makes
@@ -150,7 +164,7 @@ retained state, Hecate Chat, External Agent, QA, or remote-runtime surface. One
 timeout spans preflight, startup, and the call; Hecate cancels after observing
 4 MiB of aggregate response data, including unknown-length streams, though
 browser/socket buffering can overshoot before cancellation. Do not treat
-private-IP preflight as an OS/network sandbox. Legacy/manual tasks without a
+private-IP preflight as an OS/network sandbox. Non-preset Tasks without a
 tools snapshot keep their prior tool behavior, and tasks without the respective
 preset snapshots keep their prior native network-tool and approval behavior, so
 do not infer policy from an absent snapshot or a zero-valued sandbox flag.
@@ -163,16 +177,16 @@ Hecate Chat attachments are Hecate runtime state, not Projects
 coordination. Keep session-scoped binary bodies in `internal/chatattachments`
 and immutable metadata in `internal/chat`; never put bytes or base64 in
 transcript JSON, SSE, traces, logs, or the UI's persisted queued prompts.
-Tools-off Hecate turns accept supported raster images; External Agent turns
-accept files and resolve them into capability-gated ACP image/resource blocks
-or private per-turn resource links. External rich blocks share a cumulative
+Hecate turns accept supported raster images with tools on or off; External
+Agent turns accept files and resolve them into capability-gated ACP
+image/resource blocks or private per-turn resource links. External rich blocks share a cumulative
 768 KiB encoded wire budget so prompt text, JSON escaping, and base64 expansion
 cannot cross the supported adapters' 1 MiB message cap; stage overflow files as
 links, preflight allocations, and reject oversized text before dispatch. A
 separate two-slot process gate bounds file-bearing External turns through ACP
 return, and cancelled turns are rechecked immediately before disclosure.
-Direct-model attachment sends set an explicit internal request
-requirement and must fail closed unless the selected initial route has effective
+Hecate attachment sends set an explicit internal request requirement and must
+fail closed unless the selected initial route has effective
 image-input support. Hydrated image requests may retry on that provider but
 must not cross-provider fail over. Rehydrate
 historical bytes only for the same configured provider name and opaque
@@ -202,8 +216,10 @@ cross-provider disclosure fence (`NoProviderFailover`), not Hecate-native
 provider-instance revalidation before streaming and non-streaming dispatch; do
 not let same-name replacement retarget the request. Provider HTTP/SSE error
 messages and error-type fields must cross `internal/safetext` before clients,
-logs, traces, health, telemetry, or persistence. Do not extend attachment ids
-to task-backed or ACP execution by silently changing runtime ownership.
+logs, traces, health, telemetry, or persistence. Task-backed execution may
+retain only its opaque run input reference and must hydrate bodies at the final
+provider boundary; ACP execution keeps its separate capability-gated staging
+and cleanup ownership.
 
 `internal/cairnlinebridge` is the live mapping boundary between Cairnline's
 agent-neutral coordination model and Hecate's API/runtime views. Keep the bridge

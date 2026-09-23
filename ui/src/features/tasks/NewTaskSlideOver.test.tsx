@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import { NewTaskSlideOver } from "./NewTaskSlideOver";
 
 const agentLoopModelFixtures = [
@@ -11,6 +12,29 @@ const agentLoopModelFixtures = [
     metadata: { provider: "test", provider_kind: "local", default: false },
   },
 ];
+
+function workPolicy(overrides: Partial<AgentPresetRecord> = {}): AgentPresetRecord {
+  return {
+    id: "implementation",
+    name: "Implementation",
+    surface: "hecate_task",
+    instructions: "Implement and verify the requested change.",
+    provider_hint: "openai",
+    model_hint: "gpt-5.4-mini",
+    execution_profile: "implementation",
+    tools_enabled: true,
+    writes_allowed: true,
+    network_allowed: false,
+    browser_allowed: false,
+    browser_interactions_allowed: false,
+    browser_allowed_origins: [],
+    approval_policy: "require",
+    project_memory_policy: "include",
+    context_source_policy: "include_enabled",
+    skill_ids: ["backend"],
+    ...overrides,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -98,6 +122,207 @@ describe("NewTaskSlideOver kind switching", () => {
     render();
     await user.click(screen.getByRole("button", { name: "Agent loop" }));
     expect(screen.queryByPlaceholderText(/human-readable description/i)).toBeNull();
+  });
+});
+
+describe("NewTaskSlideOver work policies", () => {
+  it("offers compatible policies only for standard native agent-loop Tasks", async () => {
+    const { render, user } = setup({
+      agentPresets: [
+        workPolicy(),
+        workPolicy({ id: "chat", name: "Chat only", surface: "hecate_chat" }),
+        workPolicy({ id: "external", name: "External only", surface: "external_agent" }),
+      ],
+    });
+    render();
+
+    expect(screen.queryByRole("combobox", { name: /work policy/i })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    const policySelect = screen.getByRole("combobox", { name: /work policy/i });
+    expect(within(policySelect).getByRole("option", { name: "Implementation" })).toBeTruthy();
+    expect(within(policySelect).queryByRole("option", { name: "Chat only" })).toBeNull();
+    expect(within(policySelect).queryByRole("option", { name: "External only" })).toBeNull();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /workflow mode/i }), "qa");
+    expect(screen.queryByRole("combobox", { name: /work policy/i })).toBeNull();
+  });
+
+  it("sends only the policy id and lets its route hints beat UI defaults", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      agentPresets: [workPolicy()],
+      models: [
+        {
+          id: "runtime-default",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: false },
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /work policy/i }),
+      "implementation",
+    );
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "implement the change");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    const payload = onCreate.mock.calls[0][0];
+    expect(payload.agent_preset_id).toBe("implementation");
+    expect(payload.requested_provider).toBeUndefined();
+    expect(payload.requested_model).toBeUndefined();
+    expect(payload.agent_preset_tools_enabled).toBeUndefined();
+    expect(payload.agent_preset_approval_policy).toBeUndefined();
+  });
+
+  it("keeps the displayed UI default when a policy has no model hint", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      agentPresets: [workPolicy({ provider_hint: "", model_hint: "" })],
+      models: [
+        {
+          id: "runtime-default",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /work policy/i }),
+      "implementation",
+    );
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "implement the change");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent_preset_id: "implementation",
+        requested_model: "runtime-default",
+      }),
+    );
+  });
+
+  it("keeps explicit provider and model selections authoritative", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      agentPresets: [workPolicy()],
+      models: [
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
+        {
+          id: "qwen2.5-coder:7b",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: false },
+        },
+      ],
+      providers: [
+        { name: "openai", kind: "cloud", healthy: true, status: "ready" },
+        { name: "ollama", kind: "local", healthy: true, status: "ready" },
+      ],
+      providerPresets: [
+        {
+          id: "openai",
+          name: "OpenAI",
+          kind: "cloud",
+          protocol: "openai",
+          base_url: "https://api.openai.com/v1",
+        },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /work policy/i }),
+      "implementation",
+    );
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "implement the change");
+    await user.click(screen.getByRole("button", { name: /Policy.*OpenAI/i }));
+    await user.click(screen.getByRole("option", { name: /Ollama/i }));
+    await user.click(screen.getByRole("button", { name: /Model picker:/i }));
+    await user.click(screen.getByRole("option", { name: /qwen2.5-coder:7b/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent_preset_id: "implementation",
+        requested_provider: "ollama",
+        requested_model: "qwen2.5-coder:7b",
+      }),
+    );
+  });
+
+  it("previews the effective posture and suppresses MCP for a tools-off policy", async () => {
+    const { render, user } = setup({
+      agentPresets: [
+        workPolicy({
+          id: "restricted",
+          name: "Restricted",
+          tools_enabled: false,
+          writes_allowed: false,
+        }),
+        workPolicy({
+          id: "browser",
+          name: "Browser review",
+          browser_allowed: true,
+          browser_allowed_origins: ["https://app.example.com"],
+          approval_policy: "block",
+        }),
+      ],
+      browserEvidenceReadiness: {
+        available: false,
+        status: "not_configured",
+        message: "No compatible browser was found.",
+        operator_action: "Install a supported browser.",
+      },
+      models: [
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /work policy/i }), "restricted");
+
+    let preview = screen.getByRole("region", { name: /effective work policy/i });
+    expect(within(preview).getAllByText("Off")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /add mcp server/i })).toBeNull();
+    expect(screen.getByText(/external MCP servers cannot be attached/i)).toBeTruthy();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /work policy/i }), "browser");
+    preview = screen.getByRole("region", { name: /effective work policy/i });
+    expect(within(preview).getByText("https://app.example.com")).toBeTruthy();
+    expect(within(preview).getByText(/Browser runtime unavailable/i)).toBeTruthy();
+    expect(within(preview).getByText(/cannot run/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /add mcp server/i })).toBeTruthy();
   });
 });
 

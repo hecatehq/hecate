@@ -15,6 +15,7 @@ import { splitIDs } from "./projectUtils";
 
 type ProjectSkillPickerProps = {
   disabled?: boolean;
+  warnUnknownSkills?: boolean;
   skills: ProjectSkillRecord[];
   value: string;
   onChange: (value: string) => void;
@@ -22,6 +23,7 @@ type ProjectSkillPickerProps = {
 
 export function ProjectSkillPicker({
   disabled = false,
+  warnUnknownSkills = true,
   skills,
   value,
   onChange,
@@ -30,7 +32,9 @@ export function ProjectSkillPicker({
   const selectedSet = new Set(selectedIDs);
   const indexedSkills = new Map(skills.map((skill) => [skill.id, skill]));
   const sortedSkills = sortProjectSkillsForPicker(skills);
-  const warnings = selectedIDs.flatMap((id) => projectSkillSelectionWarnings(id, indexedSkills));
+  const warnings = warnUnknownSkills
+    ? selectedIDs.flatMap((id) => projectSkillSelectionWarnings(id, indexedSkills))
+    : [];
 
   function toggleSkill(skillID: string, checked: boolean) {
     const next = checked

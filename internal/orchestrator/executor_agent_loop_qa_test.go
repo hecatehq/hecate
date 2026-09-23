@@ -260,6 +260,7 @@ func TestAgentLoopQAWorkflowBlocksBrowserInspectionInV0(t *testing.T) {
 	spec.Run.WorkflowVersion = taskworkflow.QAVersion
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "preset-browser-evidence"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetBrowserAllowed = &allowed
 	spec.Task.AgentPresetBrowserAllowedOrigins = []string{"https://app.example.test"}
 

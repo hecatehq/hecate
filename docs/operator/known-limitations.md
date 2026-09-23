@@ -108,28 +108,30 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   and configured `web_search`, and `all_tools`). Unknown policy names are
   rejected at startup. The per-MCP-server `approval_policy` axis
   (`auto` / `require_approval` / `block`) is separate.
-- Native project-assignment launches enforce Work policy surface, tools, write,
-  network, and additive mid-loop approval posture. The stable stored/API field
-  remains `agent_preset`. The task snapshots the policy id, tools and approval
-  settings, and effective sandbox flags. `require` gates every
+- Work-policy-backed native Tasks enforce policy surface, tools, write,
+  network, and additive mid-loop approval posture. The stable Task reference is
+  `agent_preset_id`, and the API resource remains `agent_presets`. The Task
+  snapshots the policy id, tools and approval settings, and effective sandbox
+  flags. `require` gates every
   otherwise-permitted advertised tool call; `block` denies only calls that
   global runtime, mandatory browser, or per-MCP-server policy would otherwise
   gate. `inherit` and `allow` add no gate and cannot weaken a stricter policy.
   This snapshot does not change pre-execution gates and does not apply to
-  Hecate Chat, External Agents, QA, legacy/manual Tasks, or an absent snapshot.
-  Tools-disabled tasks run as supervised model-only
-  tasks: they expose no native or MCP tools, start no MCP host, and reject
-  unexpected tool calls before dispatch. Legacy tasks without the tools snapshot
-  retain their prior catalog behavior. Network-disabled preset tasks neither
+  Hecate Chat, External Agents, QA, or Tasks without the snapshot.
+  Tools-disabled Tasks run as supervised model-only Tasks: they expose no native
+  or MCP tools, start no MCP host, and reject unexpected tool calls before
+  dispatch. Tasks without the tools snapshot retain their prior catalog
+  behavior. Network-disabled preset Tasks neither
   advertise nor dispatch Hecate's native HTTP or web-search tools. Read-only
-  tasks omit broad shell, Git, file-write,
-  and interactive-terminal tools; structured inspection and proposal-only
-  patch creation remain available. Legacy/manual tasks without a preset snapshot
+  Tasks omit broad shell, Git, file-write, and interactive-terminal tools;
+  structured inspection and proposal-only patch creation remain available.
+  Tasks without a snapshot
   retain their prior native-network and approval behavior. Hard workflow,
   tools, sandbox, network, browser-capability/runtime, and MCP blocks remain
   non-approvable. A preset that combines `approval_policy=block` with browser
   grants keeps their configuration but cannot use those always-approval-gated
-  calls; launch readiness warns about that posture.
+  calls; project launch readiness and the standalone New Task preview warn
+  about that posture.
 - The built-in `workflow_mode="qa"` slice is report-only inspection, not a
   test runner or general workflow engine. It is available only to native
   `agent_loop` Tasks and forces an ephemeral read-only/native-network-tool-disabled posture. It
@@ -150,12 +152,12 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   conditional capability that operators cannot launch. It has no general
   URL-check endpoint or interactive browser controls.
 - Native browser capability remains a narrow alpha surface. It is available
-  only to a local native project-assignment Task whose Work policy snapshots an
+  only to a local Work-policy-backed native Task whose policy snapshots an
   exact-origin allowlist and only when the operator configured a local
   Chromium-compatible executable. `browser_allowed` independently grants
   script-disabled static evidence; `browser_interactions_allowed` grants one
   fully declared approval-bound accessibility flow. Enabling either does not
-  enable the other. Hecate Chat, External Agent sessions, QA, legacy/manual
+  enable the other. Hecate Chat, External Agent sessions, QA, non-preset
   Tasks, and remote runtime receive neither tool.
 - Every `browser_flow` contains 1–6 exact accessibility `click` / `wait_for`
   actions and stays on the query-free start URL's exact origin. It supports no
@@ -230,9 +232,11 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   capability repair hint. Ollama models can be enriched from their native
   capability metadata; generic OpenAI-compatible local models often remain
   `unknown` until the provider reports richer metadata.
-- File attachments are available for Hecate-owned Tools-off image turns and
-  External Agent turns, but not task-backed Tools-on turns. Direct-model inputs
+- File attachments are available for Hecate-owned image turns with tools on or
+  off, and for External Agent turns. Direct-model and task-backed Hecate inputs
   remain PNG/JPEG/WebP only and require confirmed model image capability;
+  task-backed turns retain only an opaque input reference plus omission markers
+  in conversation artifacts rather than persisting image bytes there.
   External Agents accept up to four non-empty files of any type within the same
   5 MiB per-file and 12 MiB combined limits. Two file-bearing External turns
   may run concurrently per Hecate process; later file turns receive a typed
@@ -250,16 +254,21 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   To avoid accumulating hidden drafts, delete the chat before uploading those
   files again, or remove them and wait until after 24 hours before a later
   upload triggers reclamation.
-- Workspace modes are available for task/project starts, and named Agent
-  Presets have a core API, preset-management UI, project/role default selection,
+- Workspace modes are available for task/project starts, and named Work
+  policies have a core API, global preset-management UI, standalone Task
+  selection, project/role default selection,
   project-skill pickers, and preset-driven assignment context-packet
   memory/source activation. Hecate Chat can now select a `hecate_chat` or `any`
   preset when the session is created and freezes its narrow runtime snapshot.
   That Chat slice applies provider/model hints, instructions, execution profile,
   and tool/write/network posture, but deliberately does not inherit project
   memory/source policy, skills, browser capabilities, MCP selection, approval
-  defaults, or External Agent options. Native project assignments can include
-  bounded project memory and portable `AGENTS.md` workspace-instruction bodies
+  defaults, or External Agent options. Standalone native Tasks freeze the
+  policy's execution, route-hint, instruction, tools, write, network, approval,
+  and browser posture at creation but deliberately do not activate Project
+  memory, context-source bodies, skills, or Cairnline coordination. Native
+  project assignments can include bounded project memory and portable
+  `AGENTS.md` workspace-instruction bodies
   when the resolved Work policy explicitly asks for inclusion. Broader
   prompt-content policy for chats, external-agent starts, host-specific guidance
   files, and arbitrary project source documents is still beta-hardening work.

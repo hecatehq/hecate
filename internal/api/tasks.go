@@ -8,6 +8,10 @@ type CreateTaskRequest struct {
 	// ProjectID links a manually-created task to the selected project.
 	// Empty / omitted creates an unprojected task.
 	ProjectID string `json:"project_id,omitempty"`
+	// AgentPresetID selects a Hecate-owned work policy for a standard native
+	// agent_loop Task. The application resolves and freezes its runtime posture;
+	// callers cannot submit the derived snapshot fields directly.
+	AgentPresetID string `json:"agent_preset_id,omitempty"`
 	// SystemPrompt is the per-task system prompt for agent_loop runs.
 	// It's the narrowest layer in the four-level composition (global
 	// → tenant → workspace CLAUDE.md/AGENTS.md → this).

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -23,27 +24,29 @@ const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-a
 Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
 
 var (
-	ErrStoreNotConfigured           = errors.New("task store is not configured")
-	ErrRunnerNotConfigured          = errors.New("task runner is not configured")
-	ErrProjectStoreNotConfigured    = errors.New("project store is not configured")
-	ErrProjectNotFound              = errors.New("project not found")
-	ErrTaskNotFound                 = errors.New("task not found")
-	ErrRunNotFound                  = errors.New("task run not found")
-	ErrApprovalNotFound             = errors.New("task approval not found")
-	ErrTaskIDRequired               = errors.New("task id is required")
-	ErrRunIDRequired                = errors.New("run id is required")
-	ErrApprovalIDRequired           = errors.New("approval id is required")
-	ErrScheduleIDRequired           = errors.New("task schedule id is required")
-	ErrScheduleOccurrenceIDRequired = errors.New("task schedule occurrence id is required")
-	ErrScheduleClaimOwnerRequired   = errors.New("task schedule claim owner is required")
-	ErrScheduledForRequired         = errors.New("scheduled_for is required")
-	ErrOriginKindRequired           = errors.New("task origin kind is required")
-	ErrOriginIDRequired             = errors.New("task origin id is required")
-	ErrOriginRunAdmissionClosed     = taskruncoord.ErrOriginRunAdmissionClosed
-	ErrOriginUnavailable            = taskruncoord.ErrOriginUnavailable
-	ErrOriginValidationFailed       = taskruncoord.ErrOriginValidationFailed
-	ErrModelCallIndexRequired       = errors.New("model_call_index must be >= 1")
-	ErrPromptRequired               = errors.New("prompt is required")
+	ErrStoreNotConfigured            = errors.New("task store is not configured")
+	ErrRunnerNotConfigured           = errors.New("task runner is not configured")
+	ErrProjectStoreNotConfigured     = errors.New("project store is not configured")
+	ErrProjectNotFound               = errors.New("project not found")
+	ErrAgentPresetStoreNotConfigured = errors.New("agent preset store is not configured")
+	ErrAgentPresetNotFound           = errors.New("agent preset not found")
+	ErrTaskNotFound                  = errors.New("task not found")
+	ErrRunNotFound                   = errors.New("task run not found")
+	ErrApprovalNotFound              = errors.New("task approval not found")
+	ErrTaskIDRequired                = errors.New("task id is required")
+	ErrRunIDRequired                 = errors.New("run id is required")
+	ErrApprovalIDRequired            = errors.New("approval id is required")
+	ErrScheduleIDRequired            = errors.New("task schedule id is required")
+	ErrScheduleOccurrenceIDRequired  = errors.New("task schedule occurrence id is required")
+	ErrScheduleClaimOwnerRequired    = errors.New("task schedule claim owner is required")
+	ErrScheduledForRequired          = errors.New("scheduled_for is required")
+	ErrOriginKindRequired            = errors.New("task origin kind is required")
+	ErrOriginIDRequired              = errors.New("task origin id is required")
+	ErrOriginRunAdmissionClosed      = taskruncoord.ErrOriginRunAdmissionClosed
+	ErrOriginUnavailable             = taskruncoord.ErrOriginUnavailable
+	ErrOriginValidationFailed        = taskruncoord.ErrOriginValidationFailed
+	ErrModelCallIndexRequired        = errors.New("model_call_index must be >= 1")
+	ErrPromptRequired                = errors.New("prompt is required")
 	// Keep application-facing error names for API callers while making the
 	// runtime and create boundary share one fail-closed workflow contract.
 	ErrQAWorkflowRequiresAgentLoop = taskworkflow.ErrQARequiresAgentLoop
@@ -87,10 +90,15 @@ type ProjectStore interface {
 	Get(context.Context, string) (projects.Project, bool, error)
 }
 
+type AgentPresetStore interface {
+	Get(context.Context, string) (agentprofiles.Profile, bool, error)
+}
+
 type Application struct {
 	store         taskstate.Store
 	runner        Runner
 	projects      ProjectStore
+	agentPresets  AgentPresetStore
 	secretCipher  secrets.Cipher
 	maxMCPServers int
 	idgen         func(string) string
@@ -102,6 +110,7 @@ type Options struct {
 	Store         taskstate.Store
 	Runner        Runner
 	Projects      ProjectStore
+	AgentPresets  AgentPresetStore
 	SecretCipher  secrets.Cipher
 	MaxMCPServers int
 	IDGenerator   func(string) string
@@ -113,6 +122,7 @@ type CreateCommand struct {
 	Title              string
 	Prompt             string
 	ProjectID          string
+	AgentPresetID      string
 	SystemPrompt       string
 	WorkflowMode       string
 	ExecutionProfile   string
@@ -206,6 +216,7 @@ func New(opts Options) *Application {
 		store:         opts.Store,
 		runner:        opts.Runner,
 		projects:      opts.Projects,
+		agentPresets:  opts.AgentPresets,
 		secretCipher:  opts.SecretCipher,
 		maxMCPServers: opts.MaxMCPServers,
 		idgen:         opts.IDGenerator,
@@ -229,6 +240,14 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		return types.Task{}, ErrStoreNotConfigured
 	}
 	requestedWorkspaceMode := strings.TrimSpace(cmd.WorkspaceMode)
+	workflowMode, err := taskworkflow.ParseMode(cmd.WorkflowMode)
+	if err != nil {
+		return types.Task{}, Validation(err)
+	}
+	resolvedPreset, err := app.applyStandaloneAgentPreset(ctx, &cmd, workflowMode)
+	if err != nil {
+		return types.Task{}, err
+	}
 	applyExecutionProfileDefaults(&cmd)
 
 	title := strings.TrimSpace(cmd.Title)
@@ -247,10 +266,6 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
 	if prompt == "" && isAgentLoop {
 		return types.Task{}, ErrPromptRequired
-	}
-	workflowMode, err := taskworkflow.ParseMode(cmd.WorkflowMode)
-	if err != nil {
-		return types.Task{}, Validation(err)
 	}
 	if taskworkflow.IsQA(workflowMode) {
 		if !isAgentLoop {
@@ -320,6 +335,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		Title:                       title,
 		Prompt:                      prompt,
 		ProjectID:                   projectID,
+		AgentPresetID:               strings.TrimSpace(cmd.AgentPresetID),
 		SystemPrompt:                strings.TrimSpace(cmd.SystemPrompt),
 		WorkspaceSystemPromptPolicy: workspaceSystemPromptPolicy,
 		WorkflowMode:                workflowMode,
@@ -348,7 +364,97 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		CreatedAt:                   now,
 		UpdatedAt:                   now,
 	}
+	if resolvedPreset != nil {
+		toolsEnabled := resolvedPreset.ToolsEnabled
+		browserAllowed := resolvedPreset.BrowserAllowed
+		browserInteractionsAllowed := resolvedPreset.BrowserInteractionsAllowed
+		approvalPolicy := strings.TrimSpace(resolvedPreset.ApprovalPolicy)
+		if approvalPolicy == "" {
+			approvalPolicy = agentprofiles.ApprovalInherit
+		}
+		task.AgentPresetToolsEnabled = &toolsEnabled
+		task.AgentPresetApprovalPolicy = approvalPolicy
+		task.AgentPresetBrowserAllowed = &browserAllowed
+		task.AgentPresetBrowserInteractionsAllowed = &browserInteractionsAllowed
+		task.AgentPresetBrowserAllowedOrigins = append([]string(nil), resolvedPreset.BrowserAllowedOrigins...)
+	}
 	return app.store.CreateTask(ctx, task)
+}
+
+func (app *Application) applyStandaloneAgentPreset(ctx context.Context, cmd *CreateCommand, workflowMode types.WorkflowMode) (*agentprofiles.Profile, error) {
+	if cmd == nil {
+		return nil, nil
+	}
+	presetID := strings.TrimSpace(cmd.AgentPresetID)
+	if presetID == "" {
+		return nil, nil
+	}
+	if taskworkflow.IsQA(workflowMode) {
+		return nil, Validation(errors.New("agent_preset_id is unavailable for workflow_mode=qa"))
+	}
+	executionKind := strings.TrimSpace(cmd.ExecutionKind)
+	if executionKind != "" && executionKind != "agent_loop" {
+		return nil, Validation(errors.New("agent_preset_id is only supported for execution_kind=agent_loop"))
+	}
+	if app.agentPresets == nil {
+		return nil, ErrAgentPresetStoreNotConfigured
+	}
+	preset, found, err := app.agentPresets.Get(ctx, presetID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("%w: %s", ErrAgentPresetNotFound, presetID)
+	}
+	if !agentprofiles.SupportsSurface(preset, agentprofiles.SurfaceHecateTask) {
+		return nil, Validation(fmt.Errorf("agent preset %q is not available for Hecate Tasks", presetID))
+	}
+	if !preset.ToolsEnabled && len(cmd.MCPServers) > 0 {
+		return nil, Validation(errors.New("mcp_servers require an Agent Preset with tools enabled"))
+	}
+
+	cmd.AgentPresetID = strings.TrimSpace(preset.ID)
+	cmd.ExecutionKind = "agent_loop"
+	cmd.ExecutionProfile = strings.TrimSpace(preset.ExecutionProfile)
+	if cmd.ExecutionProfile == "" {
+		cmd.ExecutionProfile = presetID
+	}
+	explicitProvider := strings.TrimSpace(cmd.RequestedProvider)
+	explicitModel := strings.TrimSpace(cmd.RequestedModel)
+	presetProvider := strings.TrimSpace(preset.ProviderHint)
+	presetModel := strings.TrimSpace(preset.ModelHint)
+	if explicitProvider == "" {
+		cmd.RequestedProvider = presetProvider
+	} else {
+		cmd.RequestedProvider = explicitProvider
+	}
+	if explicitModel != "" {
+		cmd.RequestedModel = explicitModel
+	} else if explicitProvider == "" || presetProvider == "" || explicitProvider == presetProvider {
+		cmd.RequestedModel = presetModel
+	} else {
+		// A model hint is meaningful only with the provider it was saved for.
+		// Do not silently pair it with a caller-selected conflicting provider.
+		cmd.RequestedModel = ""
+	}
+	if strings.TrimSpace(cmd.RequestedProvider) != "" && strings.TrimSpace(cmd.RequestedModel) == "" {
+		return nil, Validation(errors.New("agent preset route resolves a provider without a model; select a model or clear the provider hint"))
+	}
+	cmd.SystemPrompt = standaloneAgentPresetSystemPrompt(preset.Instructions, cmd.SystemPrompt)
+	cmd.SandboxReadOnly = !preset.WritesAllowed
+	cmd.SandboxNetwork = preset.NetworkAllowed
+	return &preset, nil
+}
+
+func standaloneAgentPresetSystemPrompt(presetInstructions, taskInstructions string) string {
+	var parts []string
+	if instructions := strings.TrimSpace(presetInstructions); instructions != "" {
+		parts = append(parts, "Work policy instructions:\n"+instructions)
+	}
+	if instructions := strings.TrimSpace(taskInstructions); instructions != "" {
+		parts = append(parts, "Task instructions:\n"+instructions)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func applyExecutionProfileDefaults(cmd *CreateCommand) {

@@ -37,6 +37,7 @@ func (h *Handler) taskApplication() *taskapp.Application {
 		Store:         h.taskStore,
 		Runner:        runner,
 		Projects:      h.taskProjectStore(),
+		AgentPresets:  h.agentProfiles,
 		SecretCipher:  h.secretCipher,
 		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
 		IDGenerator:   newOpaqueTaskResourceID,

@@ -87,6 +87,7 @@ func taskCreateCommandFromRequest(req CreateTaskRequest) taskapp.CreateCommand {
 		Title:              req.Title,
 		Prompt:             req.Prompt,
 		ProjectID:          req.ProjectID,
+		AgentPresetID:      req.AgentPresetID,
 		SystemPrompt:       req.SystemPrompt,
 		WorkflowMode:       req.WorkflowMode,
 		ExecutionProfile:   req.ExecutionProfile,

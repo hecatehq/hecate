@@ -246,6 +246,7 @@ func TestAgentLoop_MCPPresetBlockDoesNotCallToolOrExposeArguments(t *testing.T) 
 	spec := newAgentLoopSpec(t)
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
 	spec.Task.MCPServers = []types.MCPServerConfig{{
 		Name: "github", Command: "fake", ApprovalPolicy: types.MCPApprovalRequireApproval,
@@ -300,6 +301,7 @@ func TestAgentLoop_PresetBlockDeniesGatedCallButDispatchesAllowedSibling(t *test
 	spec := newAgentLoopSpec(t)
 	spec.Task.OriginKind = "project_work_item"
 	spec.Task.AgentPresetID = "review"
+	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
 	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalBlock
 	spec.Task.MCPServers = []types.MCPServerConfig{{
 		Name: "docs", Command: "fake", ApprovalPolicy: types.MCPApprovalAuto,

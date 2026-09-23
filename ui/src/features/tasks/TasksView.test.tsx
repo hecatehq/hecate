@@ -5,6 +5,7 @@ import {
   ApiError,
   createTask,
   deleteTask,
+  getAgentPresets,
   getModels,
   getProviders,
   getTask,
@@ -48,6 +49,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
     streamTaskRun: vi.fn(async () => {}),
     getModels: vi.fn(async () => ({ object: "list", data: [] })),
     getProviders: vi.fn(async () => ({ object: "list", data: [] })),
+    getAgentPresets: vi.fn(async () => ({ object: "agent_presets", data: [] })),
     createTask: vi.fn(),
     deleteTask: vi.fn(),
     startTask: vi.fn(),
@@ -119,6 +121,8 @@ afterEach(() => {
   vi.mocked(getModels).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(getProviders).mockReset();
   vi.mocked(getProviders).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getAgentPresets).mockReset();
+  vi.mocked(getAgentPresets).mockResolvedValue({ object: "agent_presets", data: [] });
   vi.mocked(createTask).mockReset();
   vi.mocked(deleteTask).mockReset();
   vi.mocked(deleteTask).mockResolvedValue();

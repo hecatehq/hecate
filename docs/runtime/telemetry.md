@@ -393,7 +393,7 @@ Preset-wide tool refusals use `policy=agent_preset_tools` and retain
 `kind=builtin` or `kind=mcp` so operators can distinguish the proposed surface;
 neither path contacts an executor or MCP server.
 
-A native project-assignment Task whose frozen Agent Preset uses
+A Work-policy-backed native Task whose frozen Agent Preset uses
 `approval_policy=block` records `policy=agent_preset_approval` when it refuses
 an otherwise-permitted call that runtime-wide, mandatory browser, or
 per-MCP-server policy would have gated. The policy Step completes with
@@ -405,8 +405,8 @@ metrics for every otherwise-permitted advertised call, while `inherit` and
 `allow` add no telemetry decision of their own. Hard workflow, tools, sandbox,
 network, browser-capability/runtime, and MCP-server denials take precedence and
 keep their existing policy discriminator. This layer applies only to mid-loop
-calls on native project-assignment Tasks; it does not change pre-execution,
-Hecate Chat, External Agent, QA, legacy, or manual telemetry.
+calls on standard Work-policy-backed native Tasks; it does not change
+pre-execution, Hecate Chat, External Agent, QA, or non-preset Task telemetry.
 
 Steps carry `hecate.step.duration_ms`. Shell/file tool steps also promote a
 closed allowlist of sandbox/tool attributes such as wrapper kind, timeout,

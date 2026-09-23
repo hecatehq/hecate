@@ -225,8 +225,18 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 
 	assignmentSpec := func(policy string) ExecutionSpec {
 		spec := newAgentLoopSpec(t)
+		toolsEnabled := true
 		spec.Task.OriginKind = "project_work_item"
 		spec.Task.AgentPresetID = "implementation"
+		spec.Task.AgentPresetToolsEnabled = &toolsEnabled
+		spec.Task.AgentPresetApprovalPolicy = policy
+		return spec
+	}
+	standaloneSpec := func(policy string) ExecutionSpec {
+		spec := newAgentLoopSpec(t)
+		toolsEnabled := true
+		spec.Task.AgentPresetID = "standalone-implementation"
+		spec.Task.AgentPresetToolsEnabled = &toolsEnabled
 		spec.Task.AgentPresetApprovalPolicy = policy
 		return spec
 	}
@@ -239,6 +249,17 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		})
 		if !ok || !strings.Contains(pause.Approval.Reason, "frozen Agent Preset") {
 			t.Fatalf("approval = %+v ok=%v, want preset-required pause", pause.Approval, ok)
+		}
+	})
+
+	t.Run("require activates for a standalone preset-backed task", func(t *testing.T) {
+		spec := standaloneSpec(types.AgentPresetApprovalRequire)
+		gate := newAgentLoopApprovalGate(nil)
+		pause, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+		})
+		if !ok || !strings.Contains(pause.Approval.Reason, "frozen Agent Preset") {
+			t.Fatalf("approval = %+v ok=%v, want standalone preset-required pause", pause.Approval, ok)
 		}
 	})
 
@@ -292,16 +313,20 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		}
 	})
 
-	t.Run("legacy non-assignment and QA tasks do not activate a stored value", func(t *testing.T) {
+	t.Run("legacy unrelated chat and QA tasks do not activate a stored value", func(t *testing.T) {
 		gate := newAgentLoopApprovalGate(nil)
 		call := agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`)
 		legacy := assignmentSpec("")
-		manual := assignmentSpec(types.AgentPresetApprovalRequire)
-		manual.Task.OriginKind = "manual"
+		partial := assignmentSpec(types.AgentPresetApprovalRequire)
+		partial.Task.AgentPresetToolsEnabled = nil
+		unrelated := standaloneSpec(types.AgentPresetApprovalRequire)
+		unrelated.Task.OriginKind = "manual"
+		chat := standaloneSpec(types.AgentPresetApprovalRequire)
+		chat.Task.OriginKind = "chat"
 		qa := assignmentSpec(types.AgentPresetApprovalRequire)
 		qa.Run.WorkflowMode = types.WorkflowModeQA
 		qa.Run.WorkflowVersion = "v0"
-		for name, spec := range map[string]ExecutionSpec{"legacy": legacy, "manual": manual, "qa": qa} {
+		for name, spec := range map[string]ExecutionSpec{"legacy": legacy, "partial": partial, "unrelated": unrelated, "chat": chat, "qa": qa} {
 			if gate.isGated(call, spec) || gate.isBlockedByAgentPreset(call, spec) {
 				t.Fatalf("%s task unexpectedly activated preset approval policy", name)
 			}

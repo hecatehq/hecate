@@ -35,6 +35,20 @@ func TestWriteTaskAppError(t *testing.T) {
 			message: "task id is required",
 		},
 		{
+			name:    "agent_preset_not_found",
+			err:     taskapp.ErrAgentPresetNotFound,
+			status:  http.StatusNotFound,
+			code:    errCodeNotFound,
+			message: "agent preset not found",
+		},
+		{
+			name:    "agent_preset_store_not_configured",
+			err:     taskapp.ErrAgentPresetStoreNotConfigured,
+			status:  http.StatusInternalServerError,
+			code:    errCodeGatewayError,
+			message: "agent preset store is not configured",
+		},
+		{
 			name:    "not_found",
 			err:     taskapp.ErrRunNotFound,
 			status:  http.StatusNotFound,

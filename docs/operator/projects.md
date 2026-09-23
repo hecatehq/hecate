@@ -26,8 +26,17 @@ It presents one primary action at a time; supporting setup choices remain
 available without competing with that action.
 
 The UI calls reusable launch posture **Work policies**. The stable stored and
-API field remains `agent_preset` while that alpha-era identifier is retired from
-operator-facing language.
+API names remain `agent_presets` for the resource and `agent_preset_id` for
+references while that alpha-era terminology is retired from operator-facing
+language.
+
+Work policies are global Hecate runtime configuration, not Project records.
+Manage them from Settings and select a `hecate_task` or `any` policy directly
+when creating a standard Task, or reference one from Project and role defaults.
+A standalone Task freezes the selected policy's runtime posture at creation but
+does not activate project memory, context sources, skills, roles, assignments,
+or any other Cairnline state. Project-assignment launch adds those coordinated
+context rules separately.
 
 | Guided state           | Primary action                       | Operator control                                                                        |
 | ---------------------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -379,12 +388,12 @@ change pre-execution approval.
 After launch, Task Detail shows the snapshotted preset id, effective tools,
 approval posture, file access, and network state in **Run overview**. Editing
 the preset later does not change an existing task's retries or resumes. An
-absent approval snapshot on an older or manually created Task is not inferred
-from its preset id. Read-only assignment tasks keep structured
+absent approval snapshot on a non-preset Task adds no Work policy gate.
+Read-only assignment tasks keep structured
 inspection and proposal-only patch tools, but Hecate omits and rejects broad
 shell, Git, direct-write, and interactive-terminal tools. A network-disabled
 preset snapshot similarly omits and rejects native HTTP/search without changing
-legacy or manually created task behavior. A tools-disabled snapshot exposes no
+non-preset Task behavior. A tools-disabled snapshot exposes no
 native or MCP catalog, starts no MCP host, and denies any unexpected tool call.
 A Work policy can retain browser grants while using `block`, but every browser
 call requires approval, so launch review warns that those configured browser
@@ -394,7 +403,7 @@ External Agent CLIs remain trusted local subprocesses. Their preset
 write/network fields are visible launch posture, not a Hecate sandbox around
 the vendor CLI; the preset approval field likewise does not replace ACP
 permission controls. Hecate Chat also keeps its existing Task-runtime approval
-configuration instead of inheriting this native project-assignment snapshot.
+configuration instead of inheriting this native project-assignment posture.
 Use the adapter's own controls and review the workspace diff.
 
 For a pristine work item, selected-work detail presents one kickoff action.

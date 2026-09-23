@@ -305,6 +305,10 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
   task; the only accepted value today is `"qa"`, which requires
   `execution_kind="agent_loop"`. `workflow_version` is output-only and assigned
   by Hecate, not a client input.
+- `agent_preset_id` — optional Hecate Work policy for a standard native
+  `agent_loop` Task. The preset must have `surface="hecate_task"` or `"any"`.
+  It is invalid for QA, non-`agent_loop` execution kinds, and External Agents.
+  Hecate resolves it and freezes its runtime posture when the Task is created.
 - `prompt` — the user-facing prompt; required for `agent_loop`, optional description for the others
 - `project_id` — optional owning project id. Empty / omitted creates an unprojected task; `GET /hecate/v1/tasks?project_id=` lists only unprojected tasks
 - `system_prompt` — per-task agent prompt (narrowest of the three-layer composition); `agent_loop` only
@@ -312,7 +316,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (clone behavior, default) or `"in_place"` (run directly in `working_directory`); see [`agent-runtime.md`](agent-runtime.md#workspace-modes)
 - `repo` / `base_branch` — alternate source for the workspace clone
-- `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file execution and native `agent_loop` workspace tools. Read-only agent loops omit broad process and direct-write tools. For preset-backed project assignments, the network snapshot also gates native HTTP/search; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
+- `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file execution and native `agent_loop` workspace tools. Read-only agent loops omit broad process and direct-write tools. For Work-policy-backed native Tasks, the network snapshot also gates native HTTP/search; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
 - `requested_provider` / `requested_model` — pin the LLM for an `agent_loop`
   task. Omit both to let Hecate auto-route by eligible provider defaults and
   retain normal failover. Supplying a provider without a model is invalid at
@@ -360,11 +364,11 @@ Task list/detail responses summarize the selected latest Run with
 Run-local; Task responses do not expose cumulative `step_count` or
 `artifact_count` aliases across the Task's complete Run history.
 
-Task responses also include `work_item_id`, `assignment_id`, and
-`agent_preset_id` when a project-work assignment created the task. These fields
-are inspection links and a launch-time preset reference; they do not replace
-the task's generic `origin_kind` / `origin_id` fields. The effective preset
-posture is snapshotted onto ordinary task fields (`sandbox_read_only`,
+Task responses include `agent_preset_id` when a standalone native Task or a
+project-work assignment selected a Work policy. Project-created Tasks also
+include `work_item_id` and `assignment_id`. The latter are inspection links and
+do not replace the task's generic `origin_kind` / `origin_id` fields. The
+effective preset posture is snapshotted onto ordinary task fields (`sandbox_read_only`,
 `sandbox_network`, provider/model hints, execution profile, and system prompt)
 plus output-only optional `agent_preset_tools_enabled`,
 `agent_preset_approval_policy`,
@@ -375,8 +379,8 @@ change when the preset is later edited or deleted. The two browser grants are
 independent and share the snapshotted exact-origin list. They are distinct from
 `sandbox_network`: one controls static `browser_inspect`, and the other
 controls approval-bound `browser_flow`. An omitted approval snapshot means that
-there is no frozen native-assignment approval layer; Hecate Chat, External
-Agent, QA, and legacy/manual Tasks all use that state. An omitted tools snapshot
+there is no frozen Work policy approval layer; Hecate Chat, External Agent,
+QA, and non-preset Tasks all use that state. An omitted tools snapshot
 preserves existing tool behavior, while explicit
 `agent_preset_tools_enabled=false` is an all-tools denial. Omitted browser
 snapshots grant no browser capability.
@@ -2263,9 +2267,9 @@ capabilities, and slash-command collisions. It does not call external services.
 
 ## Work policy endpoints
 
-Work policies are reusable Hecate launch postures for project work, Hecate
-Chat, Chat-origin Task Runs, and External Agent launches. The stable API uses
-the `agent_presets` resource name, but operators use a work policy to select
+Work policies are reusable Hecate launch postures for standalone native Tasks,
+project work, Hecate Chat, Chat-origin Task Runs, and External Agent launches.
+The stable API uses the `agent_presets` resource name, but operators use a work policy to select
 instructions, intended surface, provider/model hints, and the allowed tool,
 workspace-write, network, browser, approval, memory, context, skill,
 and External Agent posture. `skill_ids` resolve against the selected project's
@@ -2275,8 +2279,8 @@ skills, execute scripts, grant tools, or inject `SKILL.md` bodies from a work
 policy.
 
 Hecate also exposes an immutable built-in preset catalog. Built-ins are
-returned by list/get requests with `built_in: true`, can be selected by project
-or role defaults, and are resolved at assignment launch without being persisted
+returned by list/get requests with `built_in: true`, can be selected directly
+or by project and role defaults, and are resolved without being persisted
 as `agent_profiles` rows. `POST`, `PATCH`, and `DELETE` against built-in ids
 return `409 conflict`.
 If an older persisted row uses a now-reserved built-in id, list/get responses
@@ -2358,12 +2362,32 @@ Enums:
 
 Hecate Chat session creation accepts only presets whose `surface` is
 `hecate_chat` or `any`. This is a narrow Hecate-owned Chat contract, distinct
-from project-assignment launch resolution: `hecate_task` presets remain for
-native assignment Tasks, and `external_agent` presets remain for External
-Agent launch paths. Hecate Chat does not copy the preset's `approval_policy`
-into its backing Task, and External Agent permission requests continue through
-the ACP approval/grant path; the authoritative frozen behavior below is
-specific to native project-assignment Tasks.
+from native Task resolution: `hecate_task` presets are available to standalone
+and project-assignment Tasks, while `external_agent` presets remain for
+External Agent launch paths. Hecate Chat does not copy the preset's
+`approval_policy` into its backing Task, and External Agent permission requests
+continue through the ACP approval/grant path.
+
+`POST /hecate/v1/tasks` accepts `agent_preset_id` only for a standard native
+`agent_loop` Task with no `workflow_mode`. The selected preset must have
+`surface="hecate_task"` or `"any"`. Hecate resolves the preset during Task
+creation and freezes its effective execution posture: the preset execution
+profile is authoritative (falling back to the preset id when blank), explicit
+request provider/model values win over the corresponding hints, and preset
+model hints are not paired with an explicitly different provider. An effective
+provider without a model is rejected during creation. Preset instructions are
+prepended to an optional per-Task `system_prompt`. The Task
+also snapshots tools, write/read-only, network, approval, and both browser
+grants plus their exact origins. A tools-disabled preset rejects a create that
+also supplies `mcp_servers`; it never silently stores unreachable MCP config.
+
+This standalone path deliberately does not resolve a Project. It activates no
+Cairnline coordination state, project memory, context-source bodies, or project
+skills, even when the preset names policies or skill ids for those concepts.
+Start, Schedule dispatch, Retry, Resume, Continue, and retry-from-model-call use
+the stored Task snapshot and never re-resolve the mutable preset. A missing
+preset returns `404 not_found`; an incompatible surface or Task shape returns
+`400 invalid_request`.
 
 Project assignment starts resolve presets in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
@@ -2374,19 +2398,19 @@ surface does not match the assignment driver: native task assignments accept
 `hecate_task` or `any`, while External Agent assignments accept
 `external_agent` or `any`.
 
-For native project assignments, `writes_allowed=false` sets the backing task's
+For Work-policy-backed native Tasks, `writes_allowed=false` sets the Task's
 `sandbox_read_only=true`; `writes_allowed=true` leaves workspace writes
 available within the normal sandbox boundary. `network_allowed` becomes the
 task's `sandbox_network` value. When that preset snapshot disables network,
 Hecate omits native `http_request` and `web_search` definitions from the model
 request and rejects either call if an upstream still returns one. The preset id
 marks this native-network policy as present, preserving the prior behavior of
-legacy and manually created tasks whose zero-valued sandbox flag did not govern
+non-preset Tasks whose zero-valued sandbox flag did not govern
 native HTTP/search.
 
-For native project assignments, `tools_enabled` is snapshotted as the task's
+For Work-policy-backed native Tasks, `tools_enabled` is snapshotted as the Task's
 output-only `agent_preset_tools_enabled` field. Explicit `false` keeps the
-assignment as a supervised `agent_loop` Task/Run but sends an empty native/MCP
+execution as a supervised `agent_loop` Task/Run but sends an empty native/MCP
 catalog, starts no MCP host, and rejects every unexpected tool call before
 approval or dispatch. The runtime emits a denied policy step and
 `policy.tool_blocked` with `policy=agent_preset_tools`, then lets the model
@@ -2403,7 +2427,7 @@ are enabled, and `browser_allowed_origins` contains at least one exact HTTP(S)
 origin. Hecate normalizes and deduplicates the shared list; credentials, paths,
 query strings, and fragments are rejected rather than broadened.
 
-At native project-assignment launch, Hecate copies the grants and shared list
+At native Task creation, Hecate copies the grants and shared list
 to the output-only `agent_preset_browser_allowed`,
 `agent_preset_browser_interactions_allowed`, and
 `agent_preset_browser_allowed_origins` Task fields. Later preset edits cannot
@@ -2416,7 +2440,7 @@ strict and rejects either grant without valid exact origins.
 The snapshots expose only Hecate's local browser tools when a local executable
 is configured. They do not grant `http_request`, `web_search`, sandbox network,
 or any capability to an External Agent. Hecate Chat, External Agent, QA,
-legacy/manual, and remote-runtime tasks receive neither tool. A preset may list
+non-preset Tasks, and remote-runtime Tasks receive neither tool. A preset may list
 multiple origins, but each approved call passes only its selected exact origin
 to the browser. Another configured origin is not available as a cross-origin
 subresource destination.
@@ -2479,14 +2503,14 @@ read-only policy.
 External Agent CLIs remain trusted subprocesses, so their write/network posture
 is visible launch metadata rather than a Hecate sandbox guarantee.
 
-For native project assignments, Hecate also copies the resolved preset
+For Work-policy-backed native Tasks, Hecate also copies the resolved preset
 `approval_policy` to the output-only `agent_preset_approval_policy` Task field.
-The snapshot applies only to mid-loop tool calls on that native
-`origin_kind="project_work_item"` agent-loop Task; it does not change any
-pre-execution gate. Retries and resumes keep the snapshot instead of resolving
+The snapshot applies only to mid-loop tool calls on that standard native
+agent-loop Task; it does not change any pre-execution gate. Retries and resumes
+keep the snapshot instead of resolving
 the mutable preset again:
 
-| Value     | Native project-assignment behavior                                                                                                                                                                                                                                               |
+| Value     | Work-policy-backed native Task behavior                                                                                                                                                                                                                                          |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `inherit` | Adds no gate. `HECATE_TASK_APPROVAL_POLICIES`, mandatory browser approval, and each MCP server's approval policy remain authoritative.                                                                                                                                           |
 | `allow`   | Adds no gate and never auto-approves or bypasses a stricter runtime, browser, or MCP-server policy.                                                                                                                                                                              |
@@ -2496,16 +2520,17 @@ the mutable preset again:
 Workflow, tools, read-only, network, browser capability/runtime, and
 per-MCP-server `block` denials take precedence and cannot be converted into an
 approval by this snapshot. An empty snapshot is the compatibility state for
-legacy/manual Tasks and preserves their existing approval behavior; an invalid
+non-preset Tasks and preserves their existing approval behavior; an invalid
 non-empty stored value fails safely as `require`. Hecate does not accept this
-output-only field on ordinary Task creation, infer it from `agent_preset_id`, or
-apply it to Hecate Chat, External Agent, or QA Tasks.
+output-only field directly on Task creation. It is derived only while resolving
+the supplied `agent_preset_id` (or a project assignment's resolved preset), and
+does not apply to Hecate Chat, External Agent, or QA Tasks.
 
 Because every otherwise-permitted browser call requires approval, a native
 preset that combines `approval_policy=block` with either browser grant retains
 its configured grant and origins but cannot use that browser capability.
-Assignment launch readiness reports a warning, and the operator UI shows the
-configured capability as blocked rather than enabled. A missing local browser
+Project-assignment launch readiness reports a warning, and the standalone New
+Task preview shows the same ineffective combination. A missing local browser
 runtime remains an independent hard-unavailability condition.
 
 For native project assignments, `project_memory_policy=include`
