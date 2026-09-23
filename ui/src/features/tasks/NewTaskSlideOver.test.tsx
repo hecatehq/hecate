@@ -312,6 +312,65 @@ describe("NewTaskSlideOver work policies", () => {
     );
   });
 
+  it("clears an incompatible explicit model when returning to policy-routed Auto", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      agentPresets: [workPolicy()],
+      models: [
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+        {
+          id: "qwen2.5-coder:7b",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
+      ],
+      providers: [
+        { name: "openai", kind: "cloud", healthy: true, status: "ready" },
+        { name: "ollama", kind: "local", healthy: true, status: "ready" },
+      ],
+      providerPresets: [
+        {
+          id: "openai",
+          name: "OpenAI",
+          kind: "cloud",
+          protocol: "openai",
+          base_url: "https://api.openai.com/v1",
+        },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /work policy/i }),
+      "implementation",
+    );
+    await user.click(screen.getByRole("button", { name: /Policy.*OpenAI/i }));
+    await user.click(screen.getByRole("option", { name: /Ollama/i }));
+    await user.click(screen.getByRole("button", { name: /Model picker:/i }));
+    await user.click(screen.getByRole("option", { name: /qwen2.5-coder:7b/i }));
+    await user.click(screen.getByRole("button", { name: /Ollama/i }));
+    await user.click(screen.getByRole("option", { name: /Policy.*OpenAI/i }));
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "implement the change");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    const payload = onCreate.mock.calls[0][0];
+    expect(payload.agent_preset_id).toBe("implementation");
+    expect(payload.requested_provider).toBeUndefined();
+    expect(payload.requested_model).toBeUndefined();
+  });
+
   it("previews the effective posture and suppresses MCP for a tools-off policy", async () => {
     const { render, user } = setup({
       agentPresets: [
