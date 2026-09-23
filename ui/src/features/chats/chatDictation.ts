@@ -92,16 +92,14 @@ export function buildDictationRoutes(
 ): DictationRoute[] {
   const routes: DictationRoute[] = [];
   routes.push(
-    ...providerOptions.map(
-      (provider): DictationRoute => ({
-        id: providerRouteID(provider.provider),
-        kind: "provider",
-        label: `${provider.provider} · ${provider.provider_kind === "local" ? "local" : "cloud"}${provider.available ? "" : " · unavailable"}`,
-        disclosure: `Audio goes only to ${provider.provider}; Hecate does not retain it.`,
-        available: provider.available,
-        provider,
-      }),
-    ),
+    ...providerOptions.map((provider): DictationRoute => ({
+      id: providerRouteID(provider.provider),
+      kind: "provider",
+      label: `${provider.provider} · ${provider.provider_kind === "local" ? "local" : "cloud"}${provider.available ? "" : " · unavailable"}`,
+      disclosure: `Audio goes only to ${provider.provider}; Hecate does not retain it.`,
+      available: provider.available,
+      provider,
+    })),
   );
   if (browserSpeechAvailable) {
     routes.push({
