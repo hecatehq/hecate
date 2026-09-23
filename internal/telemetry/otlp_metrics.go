@@ -100,7 +100,7 @@ func newMetricExporter(ctx context.Context, opts OTelMetricOptions) (sdkmetric.E
 		otlpmetrichttp.WithTimeout(opts.Timeout),
 	}
 	if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
-		exporterOpts = append(exporterOpts, otlpmetrichttp.WithEndpointURL(endpoint))
+		exporterOpts = append(exporterOpts, otlpmetrichttp.WithEndpointURL(OTLPHTTPEndpoint(endpoint, "/v1/metrics")))
 	}
 	if strings.HasPrefix(strings.TrimSpace(opts.Endpoint), "http://") {
 		exporterOpts = append(exporterOpts, otlpmetrichttp.WithInsecure())
