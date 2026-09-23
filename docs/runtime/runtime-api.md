@@ -2381,13 +2381,14 @@ also snapshots tools, write/read-only, network, approval, and both browser
 grants plus their exact origins. A tools-disabled preset rejects a create that
 also supplies `mcp_servers`; it never silently stores unreachable MCP config.
 
-This standalone path deliberately does not resolve a Project. It activates no
-Cairnline coordination state, project memory, context-source bodies, or project
-skills, even when the preset names policies or skill ids for those concepts.
-Start, Schedule dispatch, Retry, Resume, Continue, and retry-from-model-call use
-the stored Task snapshot and never re-resolve the mutable preset. A missing
-preset returns `404 not_found`; an incompatible surface or Task shape returns
-`400 invalid_request`.
+When `project_id` is supplied, this standalone path resolves the Project only
+to validate that reference. It does not resolve or activate a Project
+assignment, Cairnline coordination state, project memory, context-source
+bodies, or project skills, even when the preset names policies or skill ids for
+those concepts. Start, Schedule dispatch, Retry, Resume, Continue, and
+retry-from-model-call use the stored Task snapshot and never re-resolve the
+mutable preset. A missing preset returns `404 not_found`; an incompatible
+surface or Task shape returns `400 invalid_request`.
 
 Project assignment starts resolve presets in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
