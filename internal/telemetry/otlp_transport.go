@@ -47,3 +47,15 @@ func OTLPGRPCEndpoint(endpoint string) string {
 	}
 	return strings.TrimRight(strings.TrimPrefix(endpoint, u.Scheme+"://"), "/")
 }
+
+// OTLPHTTPEndpoint preserves Hecate's default signal path for collector URLs
+// without a path. An explicit path (including "/") remains authoritative.
+func OTLPHTTPEndpoint(endpoint, defaultPath string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || u.Path != "" {
+		return endpoint
+	}
+	u.Path = defaultPath
+	return u.String()
+}

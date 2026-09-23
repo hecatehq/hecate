@@ -67,7 +67,7 @@ func newTraceExporter(ctx context.Context, opts TracerProviderOptions) (sdktrace
 
 	return otlptracehttp.New(
 		ctx,
-		otlptracehttp.WithEndpointURL(opts.Endpoint),
+		otlptracehttp.WithEndpointURL(telemetry.OTLPHTTPEndpoint(opts.Endpoint, "/v1/traces")),
 		otlptracehttp.WithHeaders(opts.Headers),
 		otlptracehttp.WithTimeout(opts.Timeout),
 	)

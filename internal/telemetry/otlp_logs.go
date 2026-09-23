@@ -193,9 +193,9 @@ func (h *otlpHandler) Handle(ctx context.Context, record slog.Record) error {
 	otelRecord.SetSeverity(severityFromLevel(record.Level))
 	otelRecord.SetSeverityText(strings.ToUpper(record.Level.String()))
 	otelRecord.SetEventName(record.Message)
-	otelRecord.SetBody(otellog.StringValue(record.Message))
+	otelRecord.SetBody(attribute.StringValue(record.Message))
 
-	attrs := make([]otellog.KeyValue, 0, len(h.attrs)+8)
+	attrs := make([]attribute.KeyValue, 0, len(h.attrs)+8)
 	for _, attr := range h.attrs {
 		appendAttr(&attrs, h.groups, attr)
 	}
@@ -234,7 +234,7 @@ func (h *otlpHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
-func appendAttr(out *[]otellog.KeyValue, groups []string, attr slog.Attr) {
+func appendAttr(out *[]attribute.KeyValue, groups []string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
 		return
@@ -256,99 +256,99 @@ func appendAttr(out *[]otellog.KeyValue, groups []string, attr slog.Attr) {
 	if len(groups) > 0 {
 		key = strings.Join(append(append([]string(nil), groups...), attr.Key), ".")
 	}
-	*out = append(*out, otellog.KeyValue{
-		Key:   key,
+	*out = append(*out, attribute.KeyValue{
+		Key:   attribute.Key(key),
 		Value: otelValue(attr.Value),
 	})
 }
 
-func otelValue(value slog.Value) otellog.Value {
+func otelValue(value slog.Value) attribute.Value {
 	switch value.Kind() {
 	case slog.KindString:
-		return otellog.StringValue(value.String())
+		return attribute.StringValue(value.String())
 	case slog.KindBool:
-		return otellog.BoolValue(value.Bool())
+		return attribute.BoolValue(value.Bool())
 	case slog.KindInt64:
-		return otellog.Int64Value(value.Int64())
+		return attribute.Int64Value(value.Int64())
 	case slog.KindUint64:
-		return otellog.Int64Value(int64(value.Uint64()))
+		return attribute.Int64Value(int64(value.Uint64()))
 	case slog.KindFloat64:
-		return otellog.Float64Value(value.Float64())
+		return attribute.Float64Value(value.Float64())
 	case slog.KindDuration:
-		return otellog.StringValue(value.Duration().String())
+		return attribute.StringValue(value.Duration().String())
 	case slog.KindTime:
-		return otellog.StringValue(value.Time().UTC().Format(time.RFC3339Nano))
+		return attribute.StringValue(value.Time().UTC().Format(time.RFC3339Nano))
 	case slog.KindGroup:
-		kvs := make([]otellog.KeyValue, 0, len(value.Group()))
+		kvs := make([]attribute.KeyValue, 0, len(value.Group()))
 		for _, attr := range value.Group() {
 			attr.Value = attr.Value.Resolve()
 			if attr.Key == "" {
 				continue
 			}
-			kvs = append(kvs, otellog.KeyValue{Key: attr.Key, Value: otelValue(attr.Value)})
+			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(attr.Key), Value: otelValue(attr.Value)})
 		}
-		return otellog.MapValue(kvs...)
+		return attribute.MapValue(kvs...)
 	case slog.KindAny:
 		return anyToOTelValue(value.Any())
 	default:
-		return otellog.StringValue(value.String())
+		return attribute.StringValue(value.String())
 	}
 }
 
-func anyToOTelValue(value any) otellog.Value {
+func anyToOTelValue(value any) attribute.Value {
 	switch v := value.(type) {
 	case nil:
-		return otellog.StringValue("")
+		return attribute.StringValue("")
 	case string:
-		return otellog.StringValue(v)
+		return attribute.StringValue(v)
 	case bool:
-		return otellog.BoolValue(v)
+		return attribute.BoolValue(v)
 	case int:
-		return otellog.IntValue(v)
+		return attribute.IntValue(v)
 	case int64:
-		return otellog.Int64Value(v)
+		return attribute.Int64Value(v)
 	case uint:
-		return otellog.Int64Value(int64(v))
+		return attribute.Int64Value(int64(v))
 	case uint64:
-		return otellog.Int64Value(int64(v))
+		return attribute.Int64Value(int64(v))
 	case float64:
-		return otellog.Float64Value(v)
+		return attribute.Float64Value(v)
 	case float32:
-		return otellog.Float64Value(float64(v))
+		return attribute.Float64Value(float64(v))
 	case time.Time:
-		return otellog.StringValue(v.UTC().Format(time.RFC3339Nano))
+		return attribute.StringValue(v.UTC().Format(time.RFC3339Nano))
 	case time.Duration:
-		return otellog.StringValue(v.String())
+		return attribute.StringValue(v.String())
 	case error:
-		return otellog.StringValue(v.Error())
+		return attribute.StringValue(v.Error())
 	case []string:
-		values := make([]otellog.Value, 0, len(v))
+		values := make([]attribute.Value, 0, len(v))
 		for _, item := range v {
-			values = append(values, otellog.StringValue(item))
+			values = append(values, attribute.StringValue(item))
 		}
-		return otellog.SliceValue(values...)
+		return attribute.SliceValue(values...)
 	case []any:
-		values := make([]otellog.Value, 0, len(v))
+		values := make([]attribute.Value, 0, len(v))
 		for _, item := range v {
 			values = append(values, anyToOTelValue(item))
 		}
-		return otellog.SliceValue(values...)
+		return attribute.SliceValue(values...)
 	case map[string]string:
-		kvs := make([]otellog.KeyValue, 0, len(v))
+		kvs := make([]attribute.KeyValue, 0, len(v))
 		for key, item := range v {
-			kvs = append(kvs, otellog.String(key, item))
+			kvs = append(kvs, attribute.String(key, item))
 		}
-		return otellog.MapValue(kvs...)
+		return attribute.MapValue(kvs...)
 	case map[string]any:
-		kvs := make([]otellog.KeyValue, 0, len(v))
+		kvs := make([]attribute.KeyValue, 0, len(v))
 		for key, item := range v {
-			kvs = append(kvs, otellog.KeyValue{Key: key, Value: anyToOTelValue(item)})
+			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(key), Value: anyToOTelValue(item)})
 		}
-		return otellog.MapValue(kvs...)
+		return attribute.MapValue(kvs...)
 	case attribute.KeyValue:
-		return otellog.ValueFromAttribute(v.Value)
+		return v.Value
 	default:
-		return otellog.StringValue(fmt.Sprintf("%v", v))
+		return attribute.StringValue(fmt.Sprintf("%v", v))
 	}
 }
 

@@ -163,6 +163,10 @@ Behavior to know:
 - metrics export only when `HECATE_OTEL_METRICS_ENABLED=true`
 - logs export only when `HECATE_OTEL_LOGS_ENABLED=true`
 - signal-specific endpoint, headers, timeout, and transport override shared settings
+- pathless HTTP trace and metric endpoint URLs retain the default `/v1/traces`
+  and `/v1/metrics` paths; explicit paths (including `/`) are used as supplied
+- a per-signal HTTP log endpoint is used as supplied; include `/v1/logs` when
+  targeting a standard collector, or use the shared `HECATE_OTEL_ENDPOINT`
 - if log endpoint, headers, timeout, or transport are omitted, log export falls back to the trace signal settings
 
 Trace body capture is configured separately from OTLP export:
