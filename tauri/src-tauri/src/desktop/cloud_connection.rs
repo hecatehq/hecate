@@ -4700,6 +4700,7 @@ mod tests {
             .expect("relay listener");
         let address = listener.local_addr().expect("relay address");
         let (cancel_tx, cancel_rx) = watch::channel(false);
+        let (relay_finished_tx, relay_finished_rx) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.expect("relay connection");
             let mut websocket = tokio_tungstenite::accept_async(stream)
@@ -4716,6 +4717,10 @@ mod tests {
                             .expect("relay pong");
                         if ping_count == 6 {
                             cancel_tx.send(true).expect("cancel relay");
+                            // Keep the peer alive through cancellation without reading a
+                            // closing socket, which Windows may reset before a Close frame.
+                            relay_finished_rx.await.expect("relay finished");
+                            break;
                         }
                     }
                     Message::Close(_) => break,
@@ -4746,6 +4751,7 @@ mod tests {
         .expect("responsive relay should finish promptly");
 
         assert_eq!(result, Ok(()));
+        relay_finished_tx.send(()).expect("relay server is waiting");
         assert_eq!(server.await.expect("relay server"), 6);
     }
 
