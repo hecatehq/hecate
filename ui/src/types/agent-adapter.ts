@@ -29,6 +29,49 @@ export type AgentAdapterRecord = {
   config_options?: ChatConfigOptionRecord[];
   capabilities?: AgentAdapterCapability[];
   claude_code_cli?: AgentAdapterSetupCommandStatus;
+  executable_trust?: AgentAdapterExecutableTrust;
+};
+
+export type AgentAdapterExecutableTrustState =
+  | "unavailable"
+  | "unapproved"
+  | "approved"
+  | "changed";
+
+export type AgentAdapterExecutablePublisherEvidence = {
+  status: string;
+  platform?: string;
+  identifier?: string;
+  team_id?: string;
+};
+
+export type AgentAdapterExecutableIdentity = {
+  schema_version: string;
+  identity_token: string;
+  invocation_path: string;
+  canonical_path: string;
+  sha256: string;
+  coverage: "binary" | "launcher_only" | string;
+  launcher_chain?: string[];
+  file_id?: string;
+  mode: number;
+  size_bytes: number;
+  publisher: AgentAdapterExecutablePublisherEvidence;
+};
+
+export type AgentAdapterExecutableTrust = {
+  schema_version: string;
+  state: AgentAdapterExecutableTrustState;
+  reason?: string;
+  current?: AgentAdapterExecutableIdentity;
+  approved?: AgentAdapterExecutableIdentity;
+  approved_by?: string;
+  approved_at?: string;
+};
+
+export type AgentAdapterExecutableTrustResponse = {
+  object: string;
+  data: AgentAdapterExecutableTrust;
 };
 
 export type AgentAdapterCapability = {
@@ -60,8 +103,8 @@ export type AgentAdapterSetupCommandStatus = {
 // AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Passive GET
 // health reads can return "unverified"; explicit POST probes return "ready",
 // "not_installed", "auth_required", or "error". These results annotate the UI
-// but never authorize or block a later chat launch; current passive discovery
-// and required remote credentials own that gate.
+// but never authorize or block a later chat launch; current passive discovery,
+// executable trust, and required remote credentials own that gate.
 export type AgentAdapterHealthRecord = {
   adapter_id: string;
   status: string;

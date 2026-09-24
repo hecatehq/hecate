@@ -80,7 +80,10 @@ the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
 workspace picker/open, reset-data, shutdown, MCP probe, plugin-registry
 management, agent-adapter authenticate, and local provider and MCP registry
-discovery. Hecate-native `/hecate/v1/*` routes are
+discovery. Executable-trust `PUT` and `DELETE` are remote-safe after trusted
+identity is established: they approve or revoke the measured app on the
+supervised runtime host, while `authenticate` remains local-only.
+Hecate-native `/hecate/v1/*` routes are
 explicitly classified for remote mode, and route coverage tests fail when a new
 registered route is not marked remote-safe or local-only.
 
@@ -219,36 +222,39 @@ Hecate-native JSON errors use one stable envelope:
 
 Common JSON error types:
 
-| Type                                     |      Status | Meaning                                                                              |
-| ---------------------------------------- | ----------: | ------------------------------------------------------------------------------------ |
-| `invalid_request`                        | 400/409/422 | Endpoint-specific request, precondition, or transition validation failed.            |
-| `request_body_timeout`                   |         408 | A provider-compatible inference body missed its 60-second read deadline.             |
-| `request_too_large`                      |         413 | A provider-compatible inference body exceeds the 32 MiB encoded limit.               |
-| `not_found`                              |         404 | The requested Hecate resource does not exist.                                        |
-| `conflict`                               |         409 | The resource changed state or the requested transition is not valid now.             |
-| `gateway_error`                          |         500 | Hecate failed before it could classify the failure more specifically.                |
-| `rate_limit_exceeded`                    |         429 | The local gateway rate limiter rejected the request.                                 |
-| `model_not_configured`                   |         422 | The selected model is stale or not currently reported by the selected provider.      |
-| `chat.agent_session_busy`                |         409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.             |
-| `chat.model_capability_required`         |         422 | A task-backed Hecate Chat turn was requested, but the model is not tool-capable.     |
-| `chat.image_capability_required`         |         422 | No matching routable provider/model route has effective image-input support.         |
-| `chat.attachment_invalid`                |         422 | The multipart upload is empty or malformed.                                          |
-| `chat.attachment_too_large`              |         413 | A file exceeds the per-file, multipart, or combined-message byte limit.              |
-| `chat.attachment_unsupported`            |         422 | The file format or requested chat runtime does not support attachments.              |
-| `chat.attachment_not_found`              |         404 | The attachment does not belong to the requested chat session.                        |
-| `chat.attachment_in_use`                 |         409 | A persisted message already references the attachment.                               |
-| `chat.attachment_draft_quota_exceeded`   |         409 | The chat has eight unlinked drafts or 40 MiB of staged file bodies.                  |
-| `chat.attachment_session_quota_exceeded` |         409 | The chat has reached 512 MiB of retained file bodies.                                |
-| `chat.attachment_total_quota_exceeded`   |         409 | The backend-wide retained-attachment limit was reached.                              |
-| `chat.attachment_upload_busy`            |         429 | Both attachment validation slots are occupied; retry after the advertised delay.     |
-| `chat.attachment_upload_timeout`         |         408 | The upload body could not be read within the route-local deadline.                   |
-| `chat.attachment_content_busy`           |         429 | All four bounded file download slots are occupied; retry after the advertised delay. |
-| `chat.image_turn_busy`                   |         429 | Both image-turn slots are occupied; retry after the advertised delay.                |
-| `chat.external_file_turn_busy`           |         429 | Both External file-turn slots are occupied; retry after the advertised delay.        |
-| `chat.workspace_required`                |         400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.               |
-| `chat.session_limit_exceeded`            |         422 | The chat turn limit was reached.                                                     |
-| `chat.session_duration_limit_exceeded`   |         422 | The chat wall-clock limit was reached.                                               |
-| `chat.session_idle_timeout`              |         422 | The chat was idle beyond the configured timeout.                                     |
+| Type                                            |      Status | Meaning                                                                              |
+| ----------------------------------------------- | ----------: | ------------------------------------------------------------------------------------ |
+| `invalid_request`                               | 400/409/422 | Endpoint-specific request, precondition, or transition validation failed.            |
+| `request_body_timeout`                          |         408 | A provider-compatible inference body missed its 60-second read deadline.             |
+| `request_too_large`                             |         413 | A provider-compatible inference body exceeds the 32 MiB encoded limit.               |
+| `not_found`                                     |         404 | The requested Hecate resource does not exist.                                        |
+| `conflict`                                      |         409 | The resource changed state or the requested transition is not valid now.             |
+| `gateway_error`                                 |         500 | Hecate failed before it could classify the failure more specifically.                |
+| `rate_limit_exceeded`                           |         429 | The local gateway rate limiter rejected the request.                                 |
+| `model_not_configured`                          |         422 | The selected model is stale or not currently reported by the selected provider.      |
+| `chat.agent_session_busy`                       |         409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.             |
+| `chat.model_capability_required`                |         422 | A task-backed Hecate Chat turn was requested, but the model is not tool-capable.     |
+| `chat.image_capability_required`                |         422 | No matching routable provider/model route has effective image-input support.         |
+| `chat.attachment_invalid`                       |         422 | The multipart upload is empty or malformed.                                          |
+| `chat.attachment_too_large`                     |         413 | A file exceeds the per-file, multipart, or combined-message byte limit.              |
+| `chat.attachment_unsupported`                   |         422 | The file format or requested chat runtime does not support attachments.              |
+| `chat.attachment_not_found`                     |         404 | The attachment does not belong to the requested chat session.                        |
+| `chat.attachment_in_use`                        |         409 | A persisted message already references the attachment.                               |
+| `chat.attachment_draft_quota_exceeded`          |         409 | The chat has eight unlinked drafts or 40 MiB of staged file bodies.                  |
+| `chat.attachment_session_quota_exceeded`        |         409 | The chat has reached 512 MiB of retained file bodies.                                |
+| `chat.attachment_total_quota_exceeded`          |         409 | The backend-wide retained-attachment limit was reached.                              |
+| `chat.attachment_upload_busy`                   |         429 | Both attachment validation slots are occupied; retry after the advertised delay.     |
+| `chat.attachment_upload_timeout`                |         408 | The upload body could not be read within the route-local deadline.                   |
+| `chat.attachment_content_busy`                  |         429 | All four bounded file download slots are occupied; retry after the advertised delay. |
+| `chat.image_turn_busy`                          |         429 | Both image-turn slots are occupied; retry after the advertised delay.                |
+| `chat.external_file_turn_busy`                  |         429 | Both External file-turn slots are occupied; retry after the advertised delay.        |
+| `chat.workspace_required`                       |         400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.               |
+| `agent_adapter.executable_trust_required`       |         409 | The current External Agent app identity has not been approved.                       |
+| `agent_adapter.executable_identity_changed`     |         409 | The app no longer matches its approved identity or approval used a stale token.      |
+| `agent_adapter.executable_identity_unavailable` |         503 | Hecate could not measure or persist executable identity at the required boundary.    |
+| `chat.session_limit_exceeded`                   |         422 | The chat turn limit was reached.                                                     |
+| `chat.session_duration_limit_exceeded`          |         422 | The chat wall-clock limit was reached.                                               |
+| `chat.session_idle_timeout`                     |         422 | The chat was idle beyond the configured timeout.                                     |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same
@@ -1670,12 +1676,13 @@ are `inconclusive` and leave it `unknown`.
 External coding-agent catalog. This is the first discovery surface for
 External Agent chats: it reports the agent runtimes Hecate knows how to
 supervise and whether their command can be found. This endpoint is deliberately
-cheap so the app can render startup state without spawning coding-agent CLIs.
-An eligible discovered command is available for an explicit chat launch; this
-does not claim that auth or ACP initialization will succeed. Connections then
-runs one bounded `POST /hecate/v1/agent-adapters/{id}/probe` check for each
-available adapter; **Check again** repeats it. That check may execute the
-selected app to refresh live version, auth, capability, and launch-control
+passive so the app can render startup state without spawning coding-agent CLIs.
+It also measures the current executable identity without executing it. An
+eligible discovered command is **Available**, but cannot run until the operator
+approves that exact identity. The catalog does not claim that auth, ACP
+initialization, publisher identity, or the app's behavior is trustworthy.
+Connections does not probe on open; an explicit **Check** may execute an
+approved app to refresh live version, auth, capability, and launch-control
 details, but it does not create a durable chat or authorize a later launch.
 
 Discovery checks the Hecate process's `PATH` followed by allowlisted standard
@@ -1683,9 +1690,12 @@ vendor, Homebrew, Volta, npm, pnpm, and WinGet locations for the selected
 adapter. Environment-derived roots must be absolute. The returned `path` is the
 absolute invocation path Hecate selected. If it is a symlink, Hecate validates
 the canonical target but preserves the invocation path for version-manager
-`argv[0]` dispatch. Discovery performs path and regular-file checks but does not
-run the launcher. An unavailable row means the command was absent from both
-`PATH` and the recognized locations, or its launcher form was rejected.
+`argv[0]` dispatch. Discovery performs path and regular-file checks, opens and
+hashes the canonical target, then rechecks its file identity and selected path.
+It does not run the launcher. An unavailable adapter row means the command was
+absent from both `PATH` and the recognized locations or its launcher form was
+rejected. A measurement failure instead appears as
+`executable_trust.state="unavailable"` on an otherwise discovered row.
 
 On Windows, every external-agent provider selects only native `.exe` files.
 Hecate rejects `.cmd`, `.bat`, `.ps1`, and other launchers instead of invoking a
@@ -1710,6 +1720,26 @@ GET /hecate/v1/agent-adapters
       "available": true,
       "status": "available",
       "path": "/Users/alice/.local/bin/codex",
+      "executable_trust": {
+        "schema_version": "hecate.external-agent-executable.v1",
+        "state": "unapproved",
+        "reason": "approval_required",
+        "current": {
+          "schema_version": "hecate.external-agent-executable.v1",
+          "identity_token": "sha256:7df96b45fd44c69ebcd96d93f34c92aa5c978b21dc1e7ca1b5cc3775d09ed843",
+          "invocation_path": "/Users/alice/.local/bin/codex",
+          "canonical_path": "/Users/alice/.local/bin/codex",
+          "sha256": "5c68f775eb44c4ff87caeea1b0409b850ef3cae109b161083225f352f11796e1",
+          "coverage": "binary",
+          "file_id": "unix:16777233:88021719",
+          "mode": 493,
+          "size_bytes": 42177312,
+          "publisher": {
+            "status": "unavailable",
+            "platform": "darwin"
+          }
+        }
+      },
       "cost_mode": "external",
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
@@ -1820,6 +1850,10 @@ GET /hecate/v1/agent-adapters
 }
 ```
 
+For readability, the example expands `executable_trust` only on the first row.
+The shipped runtime returns that object for every registered adapter row,
+including `state="unavailable"` when no current identity can be measured.
+
 `adapter_version` and `agent_version` are omitted from the catalog response.
 They are populated by the Connections check after Hecate starts the ACP adapter.
 `version_outside_range` remains `false` until a checked version is known to fall
@@ -1830,13 +1864,35 @@ outside `supported_range`.
 When `embedded=false`, `command`, `args`, and `path` identify the direct ACP
 process Hecate supervises.
 
-`auth_status` is `unknown` on the cheap catalog path unless a dev or remote
+`executable_trust.state` is `unavailable`, `unapproved`, `approved`, or
+`changed`. `current` is the identity Hecate just measured; `approved` is the
+stored identity and remains present when the current app is unavailable or has
+changed. An identity includes the invocation path, canonical path, bytes'
+SHA-256, file id, file mode and size, coverage, launcher chain when present, and publisher
+evidence. V1 always reports publisher evidence as `status="unavailable"`.
+`mode` is the unsigned Go `os.FileMode` bitset captured at measurement time;
+its low nine bits are the familiar Unix permission bits, while special mode
+bits also participate in the opaque identity token.
+`coverage="binary"` covers the selected native executable bytes;
+`launcher_only` covers only the measured wrapper, not every interpreter or
+downstream program it can dispatch. Neither state nor approval is a malware or
+safety claim.
+
+Approvals are keyed by runtime host plus adapter. They use the configured chat
+storage backend: memory approvals end with the process, while SQLite and
+Postgres approvals persist. Every process-start path remeasures and compares
+the identity, including probe/version/auth/help/model diagnostics, direct ACP
+session startup, and provider commands spawned later by embedded adapters.
+Revocation blocks future launches but does not terminate an already-running
+direct ACP process.
+
+`auth_status` is `unknown` on the passive catalog path unless a dev or remote
 runtime override can classify it without spawning a CLI. **New chat** prepares
 the fresh ACP session. An embedded bridge may run bounded provider discovery
 during setup; the first message checks prompt-time auth when the bridge defers
-its prompt-serving vendor invocation. Connections automatically calls `POST
-/hecate/v1/agent-adapters/{id}/probe` for each available agent; **Check again**
-repeats that standalone login / billing check. Do not infer verified vendor auth
+its prompt-serving vendor invocation. An explicit Connections **Check** calls
+`POST /hecate/v1/agent-adapters/{id}/probe`; **Check again** repeats that
+standalone login / billing check. Do not infer verified vendor auth
 from `health.status=ready` alone.
 
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
@@ -1898,9 +1954,9 @@ before failing closed. This is not hard sandboxing of arbitrary wrappers,
 generated code, custom binaries, or external supervisors.
 
 `config_options` are omitted from the passive catalog response. Hecate returns
-Hecate-managed launch controls on automatic Connections check projections and returns
-agent-owned controls on prepared chat sessions, where it is acceptable to run
-the adapter's help/model discovery or consume the ACP session's own controls.
+Hecate-managed launch controls on explicit Connections check projections and
+returns agent-owned controls on prepared chat sessions, where it is acceptable
+to run the adapter's help/model discovery or consume the ACP session's own controls.
 Values prefixed with `__hecate_no_` are explicit "not selected" sentinels. No
 current built-in requires a pre-session launch control. The request validator
 can return `400 chat.model_required` for a registered required launch option,
@@ -1909,16 +1965,108 @@ passive endpoint; a completed Connections check cannot be a prerequisite for use
 Agent-owned ACP model state appears on the prepared chat session and is updated
 with ACP `session/set_model`.
 
+### `PUT /hecate/v1/agent-adapters/{id}/executable-trust`
+
+Approves the exact executable identity the operator reviewed in the passive
+catalog. The client sends only the opaque current identity token:
+
+```json
+PUT /hecate/v1/agent-adapters/codex/executable-trust
+{
+  "expected_identity": "sha256:7df96b45fd44c69ebcd96d93f34c92aa5c978b21dc1e7ca1b5cc3775d09ed843"
+}
+→ 200
+{
+  "object": "agent_adapter_executable_trust",
+  "data": {
+    "schema_version": "hecate.external-agent-executable.v1",
+    "state": "approved",
+    "reason": "identity_approved",
+    "current": {
+      "schema_version": "hecate.external-agent-executable.v1",
+      "identity_token": "sha256:7df96b45fd44c69ebcd96d93f34c92aa5c978b21dc1e7ca1b5cc3775d09ed843",
+      "invocation_path": "/Users/alice/.local/bin/codex",
+      "canonical_path": "/Users/alice/.local/bin/codex",
+      "sha256": "5c68f775eb44c4ff87caeea1b0409b850ef3cae109b161083225f352f11796e1",
+      "coverage": "binary",
+      "file_id": "unix:16777233:88021719",
+      "mode": 493,
+      "size_bytes": 42177312,
+      "publisher": {
+        "status": "unavailable",
+        "platform": "darwin"
+      }
+    },
+    "approved": {
+      "schema_version": "hecate.external-agent-executable.v1",
+      "identity_token": "sha256:7df96b45fd44c69ebcd96d93f34c92aa5c978b21dc1e7ca1b5cc3775d09ed843",
+      "invocation_path": "/Users/alice/.local/bin/codex",
+      "canonical_path": "/Users/alice/.local/bin/codex",
+      "sha256": "5c68f775eb44c4ff87caeea1b0409b850ef3cae109b161083225f352f11796e1",
+      "coverage": "binary",
+      "file_id": "unix:16777233:88021719",
+      "mode": 493,
+      "size_bytes": 42177312,
+      "publisher": {
+        "status": "unavailable",
+        "platform": "darwin"
+      }
+    },
+    "approved_by": "operator",
+    "approved_at": "2026-09-24T10:00:00Z"
+  }
+}
+```
+
+`current` and `approved` use the complete identity shape returned by the
+catalog. Hecate never accepts a client-supplied path or digest as observed fact.
+It resolves and measures the adapter again while serializing approval against
+launches and revocation in the current Hecate process. `expected_identity` is a
+compare-and-swap token; if the app changed after the catalog read, approval
+fails rather than approving unreviewed bytes. The route is remote-safe after
+trusted runtime identity has been established, so it approves the executable on
+that supervised runtime host, not on the browser device.
+
+Status codes:
+
+- `200 OK` after persistence, with a freshly re-read trust status. If the
+  filesystem changes again immediately afterward, the response can already be
+  `changed` or `unavailable`; clients must render the returned state rather than
+  assuming `approved`.
+- `400 invalid_request` when `expected_identity` is missing or the request JSON
+  is invalid.
+- `404 not_found` when the adapter id is not registered.
+- `409 agent_adapter.executable_identity_changed` when the expected token is
+  stale.
+- `503 agent_adapter.executable_identity_unavailable` when Hecate cannot
+  resolve, measure, or persist the identity.
+
+### `DELETE /hecate/v1/agent-adapters/{id}/executable-trust`
+
+Revokes the runtime-host-and-adapter approval. The operation is idempotent and
+returns `204 No Content`. It blocks future process starts, including deferred
+provider launches from embedded adapters, but does not terminate an already
+running direct ACP peer. Stop or close that session separately when needed.
+This route is also remote-safe after trusted runtime identity is established.
+
+Status codes:
+
+- `204 No Content` after the approval is absent.
+- `404 not_found` when the adapter id is not registered.
+- `503 agent_adapter.executable_identity_unavailable` when the trust store
+  cannot revoke the record.
+
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
-Runs a disposable ACP session check. Connections calls it once for each
-available adapter and **Check again** calls it after a repair or sign-in. It
-re-runs discovery for one adapter, starts a direct peer or embedded bridge,
+Runs a disposable ACP session check after the app identity has been approved.
+Connections calls it only when the operator chooses **Check** or **Check again**.
+It re-runs discovery for one adapter, starts a direct peer or embedded bridge,
 performs ACP `Initialize`, and creates a temporary session without sending a
 prompt. Provider-specific version or auth-status classification may also
 execute the discovered app, but an embedded bridge may still defer its
-prompt-serving vendor invocation beyond this check. `data.health` is evidence
-from the disposable ACP attempt;
+prompt-serving vendor invocation beyond this check. Hecate revalidates the
+approved identity immediately before each process start. `data.health` is
+evidence from the disposable ACP attempt;
 `health.path` is the path that attempt used. `data.adapter` is a separately
 re-resolved diagnostic projection that combines full status, versions, launch
 controls, and the probe's auth/capability classification. Its `path`, `status`,
@@ -1937,9 +2085,8 @@ authority. Starting an External Agent chat independently resolves the current
 executable, performs a fresh `Initialize`, and creates the real session. Direct
 ACP peers start during setup. An embedded bridge may run bounded provider
 discovery, while the first message remains authoritative for a prompt-serving
-vendor invocation or auth result deferred by that bridge. Connections invokes
-the check automatically for available adapters; clients may expose **Check
-again** after a repair and should show the catalog `path` before execution.
+vendor invocation or auth result deferred by that bridge. Clients may expose
+**Check again** after a repair and should show the catalog identity before execution.
 Treat that path as last-discovered evidence rather than a pinned launch target:
 chat creation resolves the executable again.
 
@@ -1988,6 +2135,11 @@ Status codes:
 - `200 OK` when the adapter id is registered; `health.status` carries
   `ready`, `not_installed`, `auth_required`, or `error`.
 - `404 not_found` when the adapter id is not registered.
+- `409 agent_adapter.executable_trust_required` when no identity is approved.
+- `409 agent_adapter.executable_identity_changed` when the current identity no
+  longer matches the approval.
+- `503 agent_adapter.executable_identity_unavailable` when Hecate cannot
+  measure the identity at the launch boundary.
 
 When ACP `Initialize` succeeds, `health.capabilities_known` is true and the
 diagnostic response uses the live capabilities advertised by that session to
@@ -2025,7 +2177,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "status": "unverified",
     "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "hint": "App found. Connections checks available agents automatically. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication.",
+    "hint": "App found. Review its current executable approval status in Connections before Hecate runs a check or starts a chat.",
     "supports_authenticate": false,
     "supports_logout": false,
     "supports_load_session": false,
@@ -2084,6 +2236,11 @@ Status codes:
 
 - `200 OK` when the adapter accepted ACP `authenticate`.
 - `404 not_found` when the adapter id is not registered.
+- `409 agent_adapter.executable_trust_required` when no identity is approved.
+- `409 agent_adapter.executable_identity_changed` when the current identity no
+  longer matches the approval.
+- `503 agent_adapter.executable_identity_unavailable` when Hecate cannot
+  measure the identity at the launch boundary.
 - `502 chat.adapter_unavailable` when the adapter runtime cannot start,
   initialize, does not advertise ACP `agent-login`, or cannot complete ACP
   `authenticate`.
@@ -2114,6 +2271,11 @@ Status codes:
 
 - `200 OK` when the adapter accepted ACP `logout`.
 - `404 not_found` when the adapter id is not registered.
+- `409 agent_adapter.executable_trust_required` when no identity is approved.
+- `409 agent_adapter.executable_identity_changed` when the current identity no
+  longer matches the approval.
+- `503 agent_adapter.executable_identity_unavailable` when Hecate cannot
+  measure the identity at the launch boundary.
 - `502 chat.adapter_unavailable` when the adapter runtime cannot start,
   initialize, does not advertise ACP `auth.logout`, or cannot complete ACP
   `logout`.
@@ -4278,7 +4440,7 @@ update. Hecate verifies the same launch shape used by preflight/start: project,
 work item, assignment, and role identity; queued/startable status; stored driver
 support; active execution; workspace/root resolution; Agent Preset and skill
 resolution; native provider/model readiness; and External Agent adapter/options
-resolution.
+resolution, passive app availability, and exact executable identity approval.
 
 In strict embedded mode, the endpoint reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
@@ -4345,7 +4507,11 @@ The response envelope is:
 Native Hecate Task assignments may include `model_readiness`, using the same
 reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
 Agent assignments include `external_agent_id`, `external_agent`, and
-`session_title` when the adapter/options resolve. Assignments with a resolved
+`session_title` when the adapter/options resolve. They are blocked when a
+required remote-runtime credential is missing, the app is missing, its identity
+cannot be measured, approval is absent, or its current identity no longer
+matches the approved identity; readiness inspection never executes the app.
+Assignments with a resolved
 Agent Preset include `profile_posture`, a read-only summary of the selected
 preset's tools, writes, network, browser, approval, memory, and context-source
 posture. Native Hecate tasks report `browser_evidence_status` and
@@ -6111,21 +6277,24 @@ envelope.
 
 Chat execution errors:
 
-| Status | `error.type`                     | Meaning                                                                                                                                                                                     |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
-| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns, or an External Agent adapter requires a launch model before session start.                           |
-| `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
-| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `hecate_task` or `external_agent`.                                                                                                          |
-| `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
-| `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
-| `409`  | `conflict`                       | An External Agent turn cannot acquire workspace-writer admission because an overlapping destructive workspace operation currently owns the process-local closure.                           |
-| `409`  | `chat.agent_session_busy`        | The backing Task Run is queued, running, or awaiting approval. Resolve or cancel that Run before sending another prompt, even for tools-off Turns in the same Chat.                         |
-| `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                         |
-| `409`  | `chat.session_not_running`       | A stop request was issued when no Chat Turn was active.                                                                                                                                     |
-| `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                         |
-| `422`  | `provider_ambiguous`             | The supplied provider alias matches multiple configured providers. Choose the provider by its canonical runtime name or remove the conflicting alias.                                       |
-| `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but the selected model is not known to support tools. Continue with direct model chat or choose a model that reports tool support. |
+| Status | `error.type`                                    | Meaning                                                                                                                                                                                     |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `chat.workspace_required`                       | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
+| `400`  | `chat.model_required`                           | Hecate Chat needs an explicit selected model before direct model or task-backed turns, or an External Agent adapter requires a launch model before session start.                           |
+| `400`  | `chat.agent_id_invalid`                         | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
+| `400`  | `chat.execution_mode_invalid`                   | The requested turn execution mode is not one of `hecate_task` or `external_agent`.                                                                                                          |
+| `400`  | `chat.runtime_mismatch`                         | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
+| `400`  | `chat.adapter_not_found`                        | The selected external-agent adapter is not registered.                                                                                                                                      |
+| `409`  | `agent_adapter.executable_trust_required`       | The selected External Agent app has a measured identity but no matching approval for this runtime host.                                                                                     |
+| `409`  | `agent_adapter.executable_identity_changed`     | The selected app changed after approval and must be reviewed and approved again.                                                                                                            |
+| `503`  | `agent_adapter.executable_identity_unavailable` | Hecate could not measure the app identity at the process-start boundary.                                                                                                                    |
+| `409`  | `conflict`                                      | An External Agent turn cannot acquire workspace-writer admission because an overlapping destructive workspace operation currently owns the process-local closure.                           |
+| `409`  | `chat.agent_session_busy`                       | The backing Task Run is queued, running, or awaiting approval. Resolve or cancel that Run before sending another prompt, even for tools-off Turns in the same Chat.                         |
+| `409`  | `chat.session_stopping`                         | The session is still cancelling or closing; retry after it settles.                                                                                                                         |
+| `409`  | `chat.session_not_running`                      | A stop request was issued when no Chat Turn was active.                                                                                                                                     |
+| `422`  | `model_not_configured`                          | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                         |
+| `422`  | `provider_ambiguous`                            | The supplied provider alias matches multiple configured providers. Choose the provider by its canonical runtime name or remove the conflicting alias.                                       |
+| `422`  | `chat.model_capability_required`                | A task-backed Hecate Chat turn was explicitly requested, but the selected model is not known to support tools. Continue with direct model chat or choose a model that reports tool support. |
 
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `chat.agent_session_busy`, but the server still

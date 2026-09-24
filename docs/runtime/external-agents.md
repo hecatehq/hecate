@@ -275,27 +275,80 @@ Windows executable.
 
 `GET /hecate/v1/agent-adapters` and the compatibility `GET
 /hecate/v1/agent-adapters/{id}/health` only resolve and inspect these paths.
-They do not run `--version`, auth commands, or ACP. When an eligible path is
-found, the app is **Available** to launch; that passive result does not claim
-that its account, version, or ACP implementation will succeed. **New chat** is
-the real-session boundary: Hecate resolves the executable again, performs ACP
-`Initialize`, and creates the session. Direct ACP peers start during that setup;
-embedded bridges may run bounded provider discovery without sending a prompt.
-In particular, the Claude bridge can start a short-lived `--bare` command-catalog
-process during session setup. The prompt-serving vendor invocation and
-prompt-time auth result can remain deferred until the first message. Opening
-Connections automatically starts each available agent once through `POST
-/hecate/v1/agent-adapters/{id}/probe`, which opens a disposable session without
-sending a prompt. **Check again**, authentication, and logout also execute the
-selected app. Opening Chats alone does not start newly discovered executables.
+Both are passive; the catalog also measures the selected executable identity,
+while the compatibility health response reports path lookup state only. Neither
+runs `--version`, auth commands, help/model discovery, or ACP. Opening Chats or
+Connections therefore does not execute a newly discovered app. When an eligible
+path is found, the app is **Available** but requires explicit identity approval
+before Hecate may run it. This passive result does not claim that its account,
+version, ACP implementation, publisher, or behavior is trustworthy.
+
+**New chat** is the real-session boundary after approval: Hecate resolves and
+revalidates the executable, performs ACP `Initialize`, and creates the session.
+Direct ACP peers start during that setup; embedded bridges may run bounded
+provider discovery without sending a prompt. In particular, the Claude bridge
+can start a short-lived `--bare` command-catalog process during session setup.
+The prompt-serving vendor invocation and prompt-time auth result can remain
+deferred until the first message. **Check**, authentication, and logout also
+execute the selected app and require the same approval.
+
+### Executable identity approval
+
+The catalog's `executable_trust` object has four states:
+
+| State         | Meaning                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| `unavailable` | Hecate could not find or measure the app, or its trust store is unavailable.                  |
+| `unapproved`  | A current identity was measured, but this runtime host and adapter have no matching approval. |
+| `approved`    | The current identity matches the stored approval.                                             |
+| `changed`     | The installed app no longer matches the approved identity.                                    |
+
+Connections shows the canonical path, shortened SHA-256 fingerprint, file
+identity, mode and size, coverage, launcher chain when present, and publisher evidence. Publisher verification is
+not implemented in V1, so the publisher status is `unavailable`. Approval means
+only “allow this measured identity to run”; it does not certify that the app is
+safe, malware-free, or from the expected vendor.
+
+`coverage="binary"` measures the selected native executable bytes.
+`coverage="launcher_only"` means the selected script, Volta shim, or other
+launcher can dispatch another mutable interpreter or program. Hecate records
+the observed launcher chain, but approval covers the measured launcher bytes,
+not the complete downstream chain. Keep provider CLIs and their launcher trees
+in directories writable only by the trusted runtime user.
+
+Approval is an explicit compare-and-swap operation. Connections sends the
+reviewed `identity_token` to
+`PUT /hecate/v1/agent-adapters/{id}/executable-trust`; Hecate ignores client
+paths and digests, re-resolves and re-measures server-side, and rejects a stale
+token. The decision is scoped to the runtime host plus adapter and is stored in
+the configured Hecate backend: memory is process-local, while SQLite and
+Postgres survive restart. `DELETE` on the same route revokes it. Authenticated
+remote operators may approve or revoke the app on the supervised runtime host;
+the managed `authenticate` action remains local-only.
+
+Hecate revalidates the approved identity at every process-start boundary:
+explicit checks, version/auth/help/model diagnostics, authenticate/logout,
+direct ACP peers, and every provider CLI process started by an embedded adapter,
+including launches deferred until a prompt. `unapproved` and `changed` fail
+with stable `409` errors; an unavailable measurement fails with `503`.
+Revocation blocks future launches but does not promise to kill a direct ACP peer
+that is already running—close or stop that session separately.
+
+The final check holds a process-local lease across child start, preventing a
+concurrent Hecate approval or revocation from crossing it. V1 still executes a
+path rather than a pinned open file handle, so another process running as the
+same OS user can replace the path in the small interval between final
+measurement and OS exec. Executable approval narrows accidental or unexpected
+replacement; it is not a complete same-user TOCTOU defense.
 
 ## Hecate ACP Capability Contract
 
 `GET /hecate/v1/agent-adapters` includes a `capabilities` array for each
 adapter. This is Hecate's contract for the surfaces it knows how to supervise;
 each real chat session's fresh ACP `Initialize` decides which live features are
-available to that session. The automatic Connections check reports what its own
-disposable session advertised, but it is not launch authority for a later chat.
+available to that session. An operator-triggered Connections check reports what
+its own disposable session advertised, but it is not launch authority for a
+later chat.
 
 | Capability          | Catalog status                                                       | What Hecate does                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -381,14 +434,16 @@ agent runtime, while authentication and billing stay with the provider.
 
 ## Quick start from the operator UI
 
-1. Start Hecate and open **Chats**.
-2. Pick **Codex**, **Claude Code**, **Cursor Agent**, or **Grok Build** from the
+1. Start Hecate and open **Connections**. Refresh passive discovery if needed,
+   review the app's canonical path and fingerprint, and click **Approve app**.
+2. Open **Chats** and pick **Codex**, **Claude Code**, **Cursor Agent**, or **Grok Build** from the
    agent picker.
 3. Choose the workspace directory the external agent is allowed to work in.
 4. If model, reasoning, or mode controls appear above the message composer,
    choose the values you want. Some controls are launch-time choices and some
    appear after the ACP session is prepared.
-5. Click **New chat**. Hecate resolves the executable and prepares the real ACP
+5. Click **New chat**. Hecate resolves and revalidates the approved executable
+   and prepares the real ACP
    session immediately. Direct ACP peers start during this setup. Embedded
    bridges may run bounded provider discovery; the Claude bridge uses a
    short-lived `--bare` process to discover commands. No user prompt is sent
@@ -441,9 +496,9 @@ agent runtime, while authentication and billing stay with the provider.
    after initial session and model/config setup succeeds, that buffer is zeroed
    and later stderr is discarded before a prompt can carry file data.
 7. If chat creation or the first message fails, or the agent row shows a
-   previous check issue, open **Connections**. It runs one automatic bounded
-   check for each available agent; use **Check again** after fixing setup. A
-   check opens a temporary ACP session and may execute the selected app to
+   previous check issue, open **Connections**. Review and approve the current
+   executable identity, then use **Check** after fixing setup. A check opens a
+   temporary ACP session and may execute the selected app to
    classify common auth, billing/subscription, version, and launch failures. It
    is a troubleshooting tool, not a prerequisite for **New chat** or the first
    message, and not a security verification of the executable.
@@ -461,7 +516,7 @@ guardrails, and Git diff review.
 External Agent controls have two sources:
 
 - **Launch controls** are owned by Hecate's adapter integration and can appear
-  in the separately resolved projection returned by the automatic Connections check before
+  in the separately resolved projection returned by an explicit Connections check before
   a concrete chat session exists. Generating them may execute bounded
   help/model discovery, so the passive catalog omits them. Hecate passes
   selected values as process arguments when it starts or restarts the external
@@ -530,7 +585,7 @@ chat** re-resolves that executable and prepares the real ACP session. Direct
 peers launch during setup. Embedded bridges may run bounded provider discovery
 during setup without sending a prompt; their prompt-serving vendor invocation
 and prompt-time auth result can remain deferred until the first message. The
-automatic check response adds live ACP capabilities from its disposable
+explicit check response adds live ACP capabilities from its disposable
 session and separate auth/version classification when provider-specific checks
 can classify them. A ready ACP check alone does not mean vendor auth
 succeeded. For built-in adapters, that response can report `adapter_version`
@@ -547,21 +602,22 @@ Manual setup stays in the upstream CLIs:
 | Cursor Agent   | `cursor-agent login` |
 | Grok Build     | `grok login`         |
 
-If chat creation, the first message, or the automatic Connections check reports
+If chat creation, the first message, or an explicit Connections check reports
 an auth failure, run the matching command in Terminal, then use **Check again**
 or retry the message in a fresh session if needed. If a check reports a timeout
 or `context deadline exceeded`, the adapter did not finish ACP session creation
 inside the bounded check window. Hecate did not send a prompt; close any stuck
 browser or login prompt, fix the CLI if needed, then retry the chat.
 
-Connections first labels newly discovered eligible apps **Available** without
-executing them, then automatically opens a temporary ACP runtime plus a
-no-prompt session for each available app. Provider-specific version or auth
-checks may execute the installed app. **Check again** repeats that bounded
-session check after an operator repairs an install or signs in. The same check
-is available through the API:
+Connections labels newly discovered eligible apps **Available** without
+executing them, shows their measured identity, and requires explicit approval.
+It does not probe on open. **Check** opens a temporary ACP runtime plus a
+no-prompt session only when the operator asks; provider-specific version or auth
+diagnostics may also execute the installed app. **Check again** repeats that
+bounded session check after an operator repairs an install or signs in. The
+same check is available through the API:
 
-![Connections — external agent checks and durable approval grants](../screenshots/connections-external-agents.png)
+![Connections — external app identity approval, explicit checks, and action grants](../screenshots/connections-external-agents.png)
 
 ```sh
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
@@ -573,7 +629,7 @@ check tells the UI what the disposable inspected session
 advertised (`supports_authenticate`, `supports_logout`,
 `supports_load_session`, and non-secret `auth_methods`). They do not authorize
 or block a later chat, whose fresh initialization remains authoritative. Before
-the automatic check completes, Connections may offer **Sign in** or **Sign out**
+any check completes, Connections may offer **Sign in** or **Sign out**
 from the built-in catalog's expected capabilities. A check with known live
 capabilities overrides that fallback for its row. The action itself always
 opens a fresh ACP session and enforces the live capability before invoking ACP
@@ -629,15 +685,18 @@ Use this order when launching or troubleshooting:
    real launch blocker; an eligible discovered app is **Available**. Use
    **Refresh** in Connections after installing or moving an agent; it repeats
    only this passive discovery and does not start the app.
-2. **New chat** — Hecate resolves the current executable again, performs ACP
+2. **Approve** — review the current canonical path, SHA-256, coverage, and any
+   launcher chain in Connections, then approve that exact identity. A changed
+   identity must be reviewed and approved again.
+3. **New chat** — Hecate resolves and revalidates the current executable, performs ACP
    `Initialize`, and opens the real session. Direct ACP peers start during this
    setup. Embedded bridges may run bounded provider discovery while deferring
    their prompt-serving vendor invocation and prompt-time auth result until the
    first message. No earlier check result is required, and a cached
    check failure must not prevent this fresh session attempt after the
    operator fixes the underlying issue.
-3. **Connections check / explicit retry** — Connections automatically calls
-   `POST /hecate/v1/agent-adapters/{id}/probe` once for each available adapter;
+4. **Connections check / explicit retry** — after executable approval, an
+   operator can call `POST /hecate/v1/agent-adapters/{id}/probe` with **Check**;
    **Check again** repeats it. The endpoint starts the adapter and opens a
    disposable ACP session to refresh version, auth/capability, and
    launch-control troubleshooting details. It may consume a no-op session and
@@ -648,7 +707,7 @@ Use this order when launching or troubleshooting:
    cached check details, but availability, status, error, path, and
    remote-credential gates always come from the latest passive catalog
    response.
-4. **Chat turn** — after the real session exists, send a prompt. The first
+5. **Chat turn** — after the real session exists, send a prompt. The first
    message is authoritative for any vendor CLI launch or auth check deferred by
    an embedded bridge. If a turn fails, open the message's raw diagnostics
    disclosure; the normalized transcript is for reading, raw ACP output is for

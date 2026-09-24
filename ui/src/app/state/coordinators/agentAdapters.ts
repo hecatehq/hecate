@@ -5,10 +5,15 @@ import { useContext } from "react";
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { useProvidersAndModels } from "../providersAndModels";
 import {
+  approveAgentAdapterExecutable as approveAgentAdapterExecutableRequest,
   authenticateAgentAdapter as authenticateAgentAdapterRequest,
   logoutAgentAdapter as logoutAgentAdapterRequest,
+  revokeAgentAdapterExecutable as revokeAgentAdapterExecutableRequest,
 } from "../../../lib/api";
-import type { AgentAdapterHealthRecord } from "../../../types/agent-adapter";
+import type {
+  AgentAdapterExecutableTrust,
+  AgentAdapterHealthRecord,
+} from "../../../types/agent-adapter";
 import type { SettingsActions } from "./settings";
 
 export type UseAgentAdapterActionsParams = {
@@ -40,10 +45,8 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     return true;
   }
 
-  // probeAgentAdapter opens a short-lived ACP session and caches the typed
-  // result by adapter id. Connections runs it automatically without a global
-  // error notice; an operator retry keeps the same session check explicit.
-  // It annotates status but never gates a later chat.
+  // probeAgentAdapter opens a short-lived ACP session only after an explicit
+  // operator action. It annotates status but never grants executable trust.
   async function probeAgentAdapter(
     adapterID: string,
     options: AgentAdapterCheckOptions = {},
@@ -95,9 +98,135 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
   }
 
+  async function approveAgentAdapterExecutable(
+    adapterID: string,
+    expectedIdentity: string,
+  ): Promise<boolean> {
+    if (!adapterID || !expectedIdentity) {
+      params.setNoticeMessage("error", "Review the current app identity before approving it.");
+      return false;
+    }
+    try {
+      const response = await approveAgentAdapterExecutableRequest(adapterID, expectedIdentity);
+      providersAndModels.actions.applyAgentAdapterExecutableTrust(adapterID, response.data);
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const finalTrust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : refresh.ok
+            ? undefined
+            : response.data;
+      if (!executableApprovalMatches(finalTrust, expectedIdentity)) {
+        params.setNoticeMessage("error", executableApprovalNotConfirmedMessage(finalTrust));
+        return false;
+      }
+      params.setNoticeMessage("success", "External agent app approved.");
+      return true;
+    } catch (error) {
+      // The reviewed token can become stale between catalog read and approval.
+      // Refresh passively so the operator sees the newly measured identity
+      // instead of repeatedly submitting the obsolete one. A fresh matching
+      // approval also resolves the ambiguous case where the write committed
+      // but its HTTP response was lost.
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const trust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : undefined;
+      if (executableApprovalMatches(trust, expectedIdentity)) {
+        params.setNoticeMessage("success", "External agent app approved.");
+        return true;
+      }
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to approve external agent app.",
+      );
+      return false;
+    }
+  }
+
+  async function revokeAgentAdapterExecutable(adapterID: string): Promise<boolean> {
+    if (!adapterID) {
+      params.setNoticeMessage("error", "Adapter id required to revoke app approval.");
+      return false;
+    }
+    try {
+      await revokeAgentAdapterExecutableRequest(adapterID);
+      const adapter = providersAndModels.state.agentAdapters.find((item) => item.id === adapterID);
+      const current = adapter?.executable_trust?.current;
+      const revoked: AgentAdapterExecutableTrust = {
+        schema_version:
+          adapter?.executable_trust?.schema_version ?? "hecate.external-agent-executable.v1",
+        state: current ? "unapproved" : "unavailable",
+        reason: current ? "approval_required" : "executable_not_found",
+        current,
+      };
+      providersAndModels.actions.applyAgentAdapterExecutableTrust(adapterID, revoked);
+      await refreshAgentAdapters({ notify: false });
+      params.setNoticeMessage("success", "External agent app approval revoked.");
+      return true;
+    } catch (error) {
+      // DELETE may have committed even when its response was lost. Reconcile
+      // passively so the UI cannot keep offering an approval the backend has
+      // already revoked.
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const trust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : undefined;
+      if (executableRevocationConfirmed(trust)) {
+        params.setNoticeMessage("success", "External agent app approval revoked.");
+        return true;
+      }
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to revoke external agent app approval.",
+      );
+      return false;
+    }
+  }
+
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(
-    { refreshAgentAdapters, probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
+    {
+      refreshAgentAdapters,
+      probeAgentAdapter,
+      authenticateAgentAdapter,
+      logoutAgentAdapter,
+      approveAgentAdapterExecutable,
+      revokeAgentAdapterExecutable,
+    },
     overrides?.agentAdapters,
   );
+}
+
+function executableApprovalMatches(
+  trust: AgentAdapterExecutableTrust | undefined,
+  expectedIdentity: string,
+): boolean {
+  return (
+    trust?.state === "approved" &&
+    trust.current?.identity_token === expectedIdentity &&
+    trust.approved?.identity_token === expectedIdentity
+  );
+}
+
+function executableRevocationConfirmed(trust: AgentAdapterExecutableTrust | undefined): boolean {
+  // Unavailable is not durable proof of deletion: it can also mean the trust
+  // store could not be read. Only an explicit store-backed unapproved state
+  // can reconcile a lost DELETE response without weakening launch safety.
+  return trust?.state === "unapproved";
+}
+
+function executableApprovalNotConfirmedMessage(
+  trust: AgentAdapterExecutableTrust | undefined,
+): string {
+  switch (trust?.state) {
+    case "changed":
+      return "The external agent app changed before approval could be confirmed. Review and approve its current identity.";
+    case "unavailable":
+      return "The external agent app became unavailable before approval could be confirmed. Refresh discovery and try again.";
+    default:
+      return "The external agent app approval could not be confirmed. Review its current identity and try again.";
+  }
 }

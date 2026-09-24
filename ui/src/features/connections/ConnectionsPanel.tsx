@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -16,6 +16,7 @@ import { useSettings } from "../../app/state/settings";
 import { formatLocaleDateTime } from "../../lib/format";
 import { agentApprovalToolKindLabel } from "../../lib/agent-approval-labels";
 import {
+  externalAgentExecutableTrustApproved,
   humanizeProbeError,
   resolveExternalAgentReadiness,
   shouldShowProbeError,
@@ -29,6 +30,9 @@ import {
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type {
   AgentAdapterCapability,
+  AgentAdapterExecutableIdentity,
+  AgentAdapterExecutablePublisherEvidence,
+  AgentAdapterExecutableTrustState,
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
 } from "../../types/agent-adapter";
@@ -39,7 +43,7 @@ import type {
   ConfiguredStateResponse,
   ProviderRecord,
 } from "../../types/provider";
-import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
+import { BrandAvatar, CopyableID, Icon, Icons, InlineError } from "../shared/ui";
 import { DictationReadinessSection } from "./DictationReadinessSection";
 import "./connections-mobile.css";
 
@@ -107,8 +111,8 @@ function SectionHeader({
 // on retention and other non-connection configuration.
 //
 // Grants are lazy-loaded on panel mount — operators rarely visit this surface,
-// so we don't fetch them on every dashboard load. Discovery stays passive;
-// available external agents then receive one bounded, no-prompt session check.
+// so we don't fetch them on every dashboard load. Agent discovery stays
+// passive: merely opening Connections never executes an external app.
 export function ConnectionsPanel({
   onNavigate,
   onAddProvider,
@@ -140,11 +144,12 @@ export function ConnectionsPanel({
     Map<string, true>
   >(() => new Map());
   const [agentAdapterCatalogRefreshing, setAgentAdapterCatalogRefreshing] = useState(false);
-  const [agentAdapterAutomaticCheckErrorByID, setAgentAdapterAutomaticCheckErrorByID] = useState<
-    Map<string, string>
+  const [agentAdapterCheckErrorByID, setAgentAdapterCheckErrorByID] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [agentAdapterTrustLoadingByID, setAgentAdapterTrustLoadingByID] = useState<
+    Map<string, "approve" | "revoke">
   >(() => new Map());
-  const completedAgentAdapterCheckIDsRef = useRef(new Set<string>());
-  const agentAdapterCheckAttemptsRef = useRef(new Map<string, Promise<boolean>>());
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -155,7 +160,10 @@ export function ConnectionsPanel({
     () =>
       new Set([
         "connections-dictation",
-        ...agentAdapters.map((adapter) => externalAgentSetupFocusTarget(adapter.id)),
+        ...agentAdapters.flatMap((adapter) => [
+          `external-agents-adapter-${adapter.id}`,
+          externalAgentSetupFocusTarget(adapter.id),
+        ]),
       ]),
     [agentAdapters],
   );
@@ -165,61 +173,8 @@ export function ConnectionsPanel({
   const refreshAgentAdapters = agentAdapterActions.refreshAgentAdapters;
   const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
   const logoutAgentAdapter = agentAdapterActions.logoutAgentAdapter;
-
-  useEffect(() => {
-    const adapterIDs = agentAdapters
-      .filter(
-        (adapter) =>
-          adapter.available &&
-          Boolean(adapter.id) &&
-          !agentAdapterHealthByID.has(adapter.id) &&
-          !completedAgentAdapterCheckIDsRef.current.has(adapter.id),
-      )
-      .map((adapter) => adapter.id);
-    if (adapterIDs.length === 0) return;
-
-    const attempts = adapterIDs.map((adapterID) => {
-      const existingAttempt = agentAdapterCheckAttemptsRef.current.get(adapterID);
-      if (existingAttempt) return { adapterID, attempt: existingAttempt };
-
-      // StrictMode restarts effects during development. Keep the bounded
-      // session attempt in a ref so the restarted effect observes the same
-      // result rather than launching another adapter process or losing it.
-      const attempt = Promise.resolve()
-        .then(() => probeAgentAdapter(adapterID, { notify: false, refreshCatalog: false }))
-        .then((result) => result?.ok !== false)
-        .catch(() => false);
-      agentAdapterCheckAttemptsRef.current.set(adapterID, attempt);
-      return { adapterID, attempt };
-    });
-    let active = true;
-    void Promise.all(
-      attempts.map(async ({ adapterID, attempt }) => ({ adapterID, succeeded: await attempt })),
-    ).then((outcomes) => {
-      if (!active) return;
-      outcomes.forEach(({ adapterID }) => completedAgentAdapterCheckIDsRef.current.add(adapterID));
-      setAgentAdapterAutomaticCheckErrorByID((current) => {
-        const next = new Map(current);
-        outcomes.forEach(({ adapterID, succeeded }) => {
-          if (succeeded) {
-            next.delete(adapterID);
-            return;
-          }
-          // Automatic checks deliberately avoid global notices. Keep their
-          // generic failure local to the row, rather than exposing a transport
-          // or adapter error that may be unsuitable for an operator surface.
-          next.set(adapterID, "Automatic check could not complete. Use Check again.");
-        });
-        return next;
-      });
-      // Individual checks update their own health rows. One silent catalog
-      // refresh afterwards picks up repaired paths without multiplying GETs.
-      void refreshAgentAdapters({ notify: false });
-    });
-    return () => {
-      active = false;
-    };
-  }, [agentAdapters, agentAdapterHealthByID, probeAgentAdapter, refreshAgentAdapters]);
+  const approveAgentAdapterExecutable = agentAdapterActions.approveAgentAdapterExecutable;
+  const revokeAgentAdapterExecutable = agentAdapterActions.revokeAgentAdapterExecutable;
 
   useEffect(() => {
     if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
@@ -236,7 +191,8 @@ export function ConnectionsPanel({
     if (agentAdapterCatalogRefreshing) return;
     setAgentAdapterCatalogRefreshing(true);
     try {
-      await refreshAgentAdapters();
+      const refreshed = await refreshAgentAdapters();
+      if (refreshed) setAgentAdapterCheckErrorByID(new Map());
     } finally {
       setAgentAdapterCatalogRefreshing(false);
     }
@@ -313,6 +269,7 @@ export function ConnectionsPanel({
   const copyCommand = runtime.actions.copyCommand;
 
   async function handleLogoutAdapter(adapterID: string) {
+    const actionTrigger = activeHTMLElement();
     setAgentAdapterLogoutLoadingByID((current) => {
       const next = new Map(current);
       next.set(adapterID, true);
@@ -320,6 +277,7 @@ export function ConnectionsPanel({
     });
     try {
       await logoutAgentAdapter(adapterID);
+      restoreAgentAdapterMutationFocus(adapterID, actionTrigger);
     } finally {
       setAgentAdapterLogoutLoadingByID((current) => {
         if (!current.has(adapterID)) return current;
@@ -331,6 +289,7 @@ export function ConnectionsPanel({
   }
 
   async function handleAuthenticateAdapter(adapterID: string) {
+    const actionTrigger = activeHTMLElement();
     setAgentAdapterAuthenticateLoadingByID((current) => {
       const next = new Map(current);
       next.set(adapterID, true);
@@ -338,6 +297,7 @@ export function ConnectionsPanel({
     });
     try {
       await authenticateAgentAdapter(adapterID);
+      restoreAgentAdapterMutationFocus(adapterID, actionTrigger);
     } finally {
       setAgentAdapterAuthenticateLoadingByID((current) => {
         if (!current.has(adapterID)) return current;
@@ -351,13 +311,67 @@ export function ConnectionsPanel({
   async function handleProbeAdapter(adapterID: string) {
     const result = await probeAgentAdapter(adapterID);
     const succeeded = result?.ok !== false;
-    setAgentAdapterAutomaticCheckErrorByID((current) => {
+    setAgentAdapterCheckErrorByID((current) => {
       if (!current.has(adapterID) && succeeded) return current;
       const next = new Map(current);
       if (succeeded) next.delete(adapterID);
       else next.set(adapterID, "Check could not complete. Try again after fixing the setup.");
       return next;
     });
+  }
+
+  async function handleApproveAdapter(adapterID: string, expectedIdentity: string) {
+    const approvalTrigger = activeHTMLElement();
+    setAgentAdapterTrustLoadingByID((current) => {
+      const next = new Map(current);
+      next.set(adapterID, "approve");
+      return next;
+    });
+    try {
+      const approved = await approveAgentAdapterExecutable(adapterID, expectedIdentity);
+      if (approved) {
+        setAgentAdapterCheckErrorByID((current) => {
+          if (!current.has(adapterID)) return current;
+          const next = new Map(current);
+          next.delete(adapterID);
+          return next;
+        });
+      }
+      restoreAgentAdapterMutationFocus(adapterID, approvalTrigger);
+    } finally {
+      setAgentAdapterTrustLoadingByID((current) => {
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+    }
+  }
+
+  async function handleRevokeAdapter(adapterID: string) {
+    const revokeTrigger = activeHTMLElement();
+    setAgentAdapterTrustLoadingByID((current) => {
+      const next = new Map(current);
+      next.set(adapterID, "revoke");
+      return next;
+    });
+    try {
+      const revoked = await revokeAgentAdapterExecutable(adapterID);
+      if (revoked) {
+        setAgentAdapterCheckErrorByID((current) => {
+          if (!current.has(adapterID)) return current;
+          const next = new Map(current);
+          next.delete(adapterID);
+          return next;
+        });
+      }
+      restoreAgentAdapterMutationFocus(adapterID, revokeTrigger);
+    } finally {
+      setAgentAdapterTrustLoadingByID((current) => {
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+    }
   }
 
   return (
@@ -389,7 +403,8 @@ export function ConnectionsPanel({
         agentAdapters={agentAdapters}
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
-        agentAdapterAutomaticCheckErrorByID={agentAdapterAutomaticCheckErrorByID}
+        agentAdapterCheckErrorByID={agentAdapterCheckErrorByID}
+        agentAdapterTrustLoadingByID={agentAdapterTrustLoadingByID}
         agentAdapterAuthenticateLoadingByID={agentAdapterAuthenticateLoadingByID}
         agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
         remoteRuntime={remoteRuntime}
@@ -399,6 +414,10 @@ export function ConnectionsPanel({
         onProbeAdapter={(adapterID) => void handleProbeAdapter(adapterID)}
         onAuthenticateAdapter={(adapterID) => void handleAuthenticateAdapter(adapterID)}
         onLogoutAdapter={(adapterID) => void handleLogoutAdapter(adapterID)}
+        onApproveAdapter={(adapterID, expectedIdentity) =>
+          void handleApproveAdapter(adapterID, expectedIdentity)
+        }
+        onRevokeAdapter={(adapterID) => void handleRevokeAdapter(adapterID)}
       />
 
       <SectionHeader
@@ -790,15 +809,15 @@ function AnthropicProviderKeyCard({
   );
 }
 
-// AdapterStatusSection lists configured external agents. Connections checks
-// each available agent once with a disposable ACP session, without sending a
-// prompt. The result annotates this view but never gates a later chat.
-// Passive discovery remains independently refreshable from the catalog.
+// AdapterStatusSection lists configured external agents. Catalog refresh is
+// passive. Session checks are always explicit because they execute the approved
+// external app; their results annotate this view but never grant trust.
 function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
-  agentAdapterAutomaticCheckErrorByID,
+  agentAdapterCheckErrorByID,
+  agentAdapterTrustLoadingByID,
   agentAdapterAuthenticateLoadingByID,
   agentAdapterLogoutLoadingByID,
   remoteRuntime,
@@ -808,11 +827,14 @@ function AdapterStatusSection({
   onProbeAdapter,
   onAuthenticateAdapter,
   onLogoutAdapter,
+  onApproveAdapter,
+  onRevokeAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
-  agentAdapterAutomaticCheckErrorByID: Map<string, string>;
+  agentAdapterCheckErrorByID: Map<string, string>;
+  agentAdapterTrustLoadingByID: Map<string, "approve" | "revoke">;
   agentAdapterAuthenticateLoadingByID: Map<string, true>;
   agentAdapterLogoutLoadingByID: Map<string, true>;
   remoteRuntime: boolean;
@@ -822,6 +844,8 @@ function AdapterStatusSection({
   onProbeAdapter: (adapterID: string) => void;
   onAuthenticateAdapter: (adapterID: string) => void;
   onLogoutAdapter: (adapterID: string) => void;
+  onApproveAdapter: (adapterID: string, expectedIdentity: string) => void;
+  onRevokeAdapter: (adapterID: string) => void;
 }) {
   if (!agentAdapters || agentAdapters.length === 0) {
     return null;
@@ -830,7 +854,7 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Hecate discovers installed agents, then checks each available agent here with a short-lived ACP session and no prompt. Refresh repeats passive discovery. New chat always prepares a fresh real session."
+        description="Hecate passively discovers installed agents without running them. Review and approve an exact executable identity before Hecate may start it. Check runs an approved app in a short-lived ACP session without sending a prompt."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
         actions={
           <button
@@ -844,7 +868,7 @@ function AdapterStatusSection({
                 : "Refresh external-agent discovery"
             }
             aria-live="polite"
-            title="Refresh installed-agent paths; available agents are checked automatically"
+            title="Refresh installed-agent paths without running external apps"
           >
             <Icon d={Icons.refresh} size={13} />
             {catalogRefreshing ? "Refreshing…" : "Refresh"}
@@ -860,13 +884,18 @@ function AdapterStatusSection({
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
-            automaticCheckError={agentAdapterAutomaticCheckErrorByID.get(adapter.id) ?? ""}
+            checkError={agentAdapterCheckErrorByID.get(adapter.id) ?? ""}
+            trustLoading={agentAdapterTrustLoadingByID.get(adapter.id)}
             authenticateLoading={Boolean(agentAdapterAuthenticateLoadingByID.get(adapter.id))}
             logoutLoading={Boolean(agentAdapterLogoutLoadingByID.get(adapter.id))}
             onCopyCommand={(command) => void copyCommand(command)}
             onProbeAdapter={(item) => onProbeAdapter(item.id)}
             onAuthenticateAdapter={(item) => onAuthenticateAdapter(item.id)}
             onLogoutAdapter={(item) => onLogoutAdapter(item.id)}
+            onApproveAdapter={(item, expectedIdentity) =>
+              onApproveAdapter(item.id, expectedIdentity)
+            }
+            onRevokeAdapter={(item) => onRevokeAdapter(item.id)}
           />
         ))}
       </div>
@@ -880,29 +909,41 @@ function AdapterStatusRow({
   divider,
   health,
   loading,
-  automaticCheckError,
+  checkError,
+  trustLoading,
   authenticateLoading,
   logoutLoading,
   onCopyCommand,
   onProbeAdapter,
   onAuthenticateAdapter,
   onLogoutAdapter,
+  onApproveAdapter,
+  onRevokeAdapter,
 }: {
   adapter: AgentAdapterRecord;
   remoteRuntime: boolean;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
-  automaticCheckError: string;
+  checkError: string;
+  trustLoading?: "approve" | "revoke";
   authenticateLoading: boolean;
   logoutLoading: boolean;
   onCopyCommand: (command: string) => void;
   onProbeAdapter: (adapter: AgentAdapterRecord) => void;
   onAuthenticateAdapter: (adapter: AgentAdapterRecord) => void;
   onLogoutAdapter: (adapter: AgentAdapterRecord) => void;
+  onApproveAdapter: (adapter: AgentAdapterRecord, expectedIdentity: string) => void;
+  onRevokeAdapter: (adapter: AgentAdapterRecord) => void;
 }) {
   const readiness = resolveExternalAgentReadiness(adapter, health);
-  const visibleAutomaticCheckError = adapter.available ? automaticCheckError : "";
+  const visibleCheckError = adapter.available ? checkError : "";
+  const trustApproved = externalAgentExecutableTrustApproved(adapter);
+  const trust = adapter.executable_trust;
+  const currentIdentity = trust?.current;
+  const approvedIdentity = trust?.approved;
+  const developmentOverride =
+    trust?.state === "approved" && trust.reason === "development_override";
   const loginCommand = readiness.loginCommand;
   const showLocalAuthSetup =
     !remoteRuntime && Boolean(loginCommand) && readiness.kind === "sign_in";
@@ -943,7 +984,7 @@ function AdapterStatusRow({
     !remoteRuntime &&
     adapter.available &&
     adapterAuthenticateSupportedByHecate(adapter, health) &&
-    readiness.kind === "sign_in";
+    (readiness.kind === "sign_in" || (!trustApproved && adapter.auth_status === "unauthenticated"));
   const showLogoutAction =
     !remoteRuntime &&
     adapter.available &&
@@ -954,16 +995,34 @@ function AdapterStatusRow({
     adapter.available &&
     !showLocalAuthSetup &&
     !showRemoteCredentialSetup &&
-    !showAuthenticateAction;
+    (!showAuthenticateAction || !trustApproved);
   const showRemoteAuthPolicy =
     remoteRuntime &&
     adapter.available &&
     (adapterAuthenticateSupportedByHecate(adapter, health) ||
       adapterLogoutSupportedByHecate(adapter, health));
+  const adapterName = adapter.name || adapter.id;
+  const checkActionLabel = loading ? "Checking…" : health ? "Check again" : "Check";
+  const approveLabel =
+    trustLoading === "approve"
+      ? "Approving…"
+      : trust?.state === "changed"
+        ? "Approve update"
+        : "Approve app";
+  const revokeLabel =
+    trustLoading === "revoke"
+      ? "Revoking…"
+      : trustApproved
+        ? "Revoke approval"
+        : "Revoke previous approval";
 
   return (
     <div
+      id={agentAdapterRowElementID(adapter.id)}
       data-testid={`external-agents-adapter-${adapter.id}`}
+      role="group"
+      aria-labelledby={agentAdapterRowNameElementID(adapter.id)}
+      tabIndex={-1}
       style={{
         display: "flex",
         alignItems: "flex-start",
@@ -985,13 +1044,14 @@ function AdapterStatusRow({
             marginBottom: 4,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", lineHeight: 1.25 }}>
+          <span
+            id={agentAdapterRowNameElementID(adapter.id)}
+            style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", lineHeight: 1.25 }}
+          >
             {adapter.name}
           </span>
           <span className={`badge ${badgeClassForTone(readiness.tone)}`}>{readiness.label}</span>
-          {visibleAutomaticCheckError && (
-            <span className="badge badge-amber">check unavailable</span>
-          )}
+          {visibleCheckError && <span className="badge badge-amber">check unavailable</span>}
           {adapter.embedded && (
             <span
               className="badge badge-neutral"
@@ -1075,6 +1135,7 @@ function AdapterStatusRow({
           health={health}
           remoteRuntime={remoteRuntime}
         />
+        <AdapterExecutableTrustSummary adapter={adapter} />
         {showHealthDetail && health && detail && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-detail`}
@@ -1114,13 +1175,13 @@ function AdapterStatusRow({
             {detail.message}
           </div>
         )}
-        {visibleAutomaticCheckError && (
+        {visibleCheckError && (
           <div
-            data-testid={`external-agents-adapter-${adapter.id}-automatic-check-error`}
+            data-testid={`external-agents-adapter-${adapter.id}-check-error`}
             role="status"
             style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}
           >
-            {visibleAutomaticCheckError}
+            {visibleCheckError}
           </div>
         )}
         {showLocalAuthSetup && loginCommand && (
@@ -1131,6 +1192,8 @@ function AdapterStatusRow({
             onCopyCommand={onCopyCommand}
             onCheckAgain={() => onProbeAdapter(adapter)}
             testing={loading}
+            checkDisabled={Boolean(trustLoading)}
+            checkLabel={checkActionLabel}
           />
         )}
         {showRemoteCredentialSetup && (
@@ -1139,6 +1202,8 @@ function AdapterStatusRow({
             onCopyCommand={onCopyCommand}
             onCheckAgain={() => onProbeAdapter(adapter)}
             testing={loading}
+            checkDisabled={!trustApproved || Boolean(trustLoading)}
+            checkLabel={checkActionLabel}
           />
         )}
         {showRemoteAuthPolicy && (
@@ -1186,12 +1251,44 @@ function AdapterStatusRow({
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => onProbeAdapter(adapter)}
-            disabled={loading}
-            aria-label={`Check ${adapter.name || adapter.id} again; opens a temporary ACP session and may execute the agent app`}
-            title={`Runs a short-lived ${adapter.name || adapter.id} session check without sending a prompt`}
+            disabled={loading || !trustApproved || Boolean(trustLoading)}
+            aria-label={`${checkActionLabel} for ${adapterName}; opens a temporary ACP session and may execute the agent app`}
+            title={
+              trustApproved
+                ? `Runs a short-lived ${adapter.name || adapter.id} session check without sending a prompt`
+                : `Approve the ${adapter.name || adapter.id} app identity before running a check`
+            }
             data-testid={`external-agents-check-${adapter.id}`}
           >
-            <Icon d={Icons.refresh} size={12} /> {loading ? "Checking…" : "Check again"}
+            <Icon d={Icons.refresh} size={12} /> {checkActionLabel}
+          </button>
+        )}
+        {currentIdentity?.identity_token && (!trustApproved || trustLoading === "approve") && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => onApproveAdapter(adapter, currentIdentity.identity_token)}
+            disabled={Boolean(trustLoading)}
+            aria-label={`${approveLabel} for ${adapterName}`}
+            title="Approve this exact executable identity for future launches"
+            data-testid={`external-agents-trust-approve-${adapter.id}`}
+          >
+            <Icon d={Icons.check} size={12} />
+            {approveLabel}
+          </button>
+        )}
+        {(approvedIdentity || trustLoading === "revoke") && !developmentOverride && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onRevokeAdapter(adapter)}
+            disabled={Boolean(trustLoading)}
+            aria-label={`${revokeLabel} for ${adapterName}`}
+            title="Block future launches until an executable identity is approved again"
+            data-testid={`external-agents-trust-revoke-${adapter.id}`}
+          >
+            <Icon d={Icons.x} size={12} />
+            {revokeLabel}
           </button>
         )}
         {showAuthenticateAction && (
@@ -1199,9 +1296,13 @@ function AdapterStatusRow({
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => onAuthenticateAdapter(adapter)}
-            disabled={authenticateLoading}
-            aria-label={`Sign in ${adapter.name || adapter.id}; opens a temporary ACP session`}
-            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-in`}
+            disabled={authenticateLoading || !trustApproved || Boolean(trustLoading)}
+            aria-label={`${authenticateLoading ? "Signing in..." : "Sign in"} ${adapterName}; opens a temporary ACP session`}
+            title={
+              trustApproved
+                ? `Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-in`
+                : `Approve the ${adapter.name || adapter.id} app identity before signing in`
+            }
           >
             <Icon d={Icons.keys} size={12} /> {authenticateLoading ? "Signing in..." : "Sign in"}
           </button>
@@ -1211,9 +1312,13 @@ function AdapterStatusRow({
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => onLogoutAdapter(adapter)}
-            disabled={logoutLoading}
-            aria-label={`Sign out ${adapter.name || adapter.id}; opens a temporary ACP session`}
-            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-out`}
+            disabled={logoutLoading || !trustApproved || Boolean(trustLoading)}
+            aria-label={`${logoutLoading ? "Signing out..." : "Sign out"} ${adapterName}; opens a temporary ACP session`}
+            title={
+              trustApproved
+                ? `Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-out`
+                : `Approve the ${adapter.name || adapter.id} app identity before signing out`
+            }
           >
             <Icon d={Icons.x} size={12} /> {logoutLoading ? "Signing out..." : "Sign out"}
           </button>
@@ -1221,6 +1326,249 @@ function AdapterStatusRow({
       </div>
     </div>
   );
+}
+
+function AdapterExecutableTrustSummary({ adapter }: { adapter: AgentAdapterRecord }) {
+  const trust = adapter.executable_trust;
+  const current = trust?.current;
+  const approved = trust?.approved;
+  const developmentOverride =
+    trust?.state === "approved" && trust.reason === "development_override";
+  const path = current?.canonical_path || current?.invocation_path || "";
+  const publisher = current?.publisher;
+  const changedEvidence =
+    trust?.state === "changed" && current && approved
+      ? describeChangedExecutableEvidence(current, approved)
+      : [];
+
+  if (developmentOverride) {
+    return (
+      <div
+        data-testid={`external-agents-trust-${adapter.id}`}
+        style={{ marginTop: 8, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
+      >
+        Development override enabled. Persistent executable identity approval is bypassed for this
+        local development configuration.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`external-agents-trust-${adapter.id}`}
+      style={{
+        marginTop: 8,
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg2)",
+        padding: "9px 10px",
+        fontSize: 11,
+        color: "var(--t2)",
+        lineHeight: 1.45,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "4px 10px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+        }}
+      >
+        <span>
+          executable{" "}
+          <span style={{ color: trustStateColor(trust?.state) }}>
+            {trustStateLabel(trust?.state)}
+          </span>
+        </span>
+        {current?.sha256 && (
+          <span>
+            fingerprint <CopyableID text={current.sha256} compact />
+          </span>
+        )}
+        {current?.coverage && (
+          <span>
+            coverage{" "}
+            <span style={{ color: "var(--t1)" }}>{executableCoverageLabel(current.coverage)}</span>
+          </span>
+        )}
+        {current?.file_id && (
+          <span title={current.file_id}>
+            file <span style={{ color: "var(--t1)" }}>{current.file_id}</span>
+          </span>
+        )}
+        {current?.size_bytes !== undefined && (
+          <span>
+            size{" "}
+            <span style={{ color: "var(--t1)" }}>{formatExecutableSize(current.size_bytes)}</span>
+          </span>
+        )}
+        {current && current.mode > 0 && (
+          <span>
+            permissions{" "}
+            <span style={{ color: "var(--t1)" }}>{formatExecutablePermissions(current.mode)}</span>
+          </span>
+        )}
+        {publisher && (
+          <span>
+            publisher{" "}
+            <span style={{ color: "var(--t1)" }}>{publisherEvidenceLabel(publisher)}</span>
+          </span>
+        )}
+      </div>
+      {path && !isDevOverridePath(path) && (
+        <div
+          style={{
+            marginTop: 5,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            overflowWrap: "anywhere",
+          }}
+        >
+          canonical path <span style={{ color: "var(--t1)" }}>{path}</span>
+        </div>
+      )}
+      {current?.invocation_path &&
+        current.invocation_path !== path &&
+        !isDevOverridePath(current.invocation_path) && (
+          <div
+            style={{
+              marginTop: 4,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              overflowWrap: "anywhere",
+            }}
+          >
+            invoked via <span style={{ color: "var(--t1)" }}>{current.invocation_path}</span>
+          </div>
+        )}
+      {current?.launcher_chain && current.launcher_chain.length > 0 && (
+        <div style={{ marginTop: 4, fontSize: 10, overflowWrap: "anywhere" }}>
+          Launcher chain: {current.launcher_chain.join(" → ")}
+        </div>
+      )}
+      {current?.coverage === "launcher_only" && (
+        <div role="note" style={{ marginTop: 4, color: "var(--amber)", fontSize: 10 }}>
+          Only this launcher was measured. Interpreters and programs it dispatches are not covered
+          by this approval.
+        </div>
+      )}
+      {trust?.state === "changed" && approved?.sha256 && (
+        <div style={{ marginTop: 4, fontSize: 10 }}>
+          Previously approved fingerprint <CopyableID text={approved.sha256} compact />
+        </div>
+      )}
+      {trust?.state === "changed" && changedEvidence.length > 0 && (
+        <div
+          data-testid={`external-agents-trust-changes-${adapter.id}`}
+          style={{ marginTop: 4, fontSize: 10, overflowWrap: "anywhere" }}
+        >
+          Changed evidence: {changedEvidence.join("; ")}.
+        </div>
+      )}
+      {trust?.state === "approved" && trust.approved_at && (
+        <div style={{ marginTop: 4, fontSize: 10 }}>
+          Approved {formatLocaleDateTime(trust.approved_at)}
+          {trust.approved_by ? ` by ${trust.approved_by}` : ""}.
+        </div>
+      )}
+      <div role="note" style={{ marginTop: 6, color: "var(--t3)", fontSize: 10, lineHeight: 1.4 }}>
+        Approval allows this exact executable identity to run. It does not certify that the app is
+        safe, trustworthy, or free from harmful behavior.
+      </div>
+    </div>
+  );
+}
+
+function trustStateLabel(state: AgentAdapterExecutableTrustState | undefined): string {
+  switch (state) {
+    case "approved":
+      return "approved";
+    case "changed":
+      return "changed — approval required";
+    case "unavailable":
+      return "identity unavailable";
+    default:
+      return "approval required";
+  }
+}
+
+function trustStateColor(state: AgentAdapterExecutableTrustState | undefined): string {
+  if (state === "approved") return "var(--green)";
+  if (state === "changed") return "var(--red)";
+  return "var(--amber)";
+}
+
+function executableCoverageLabel(value: string): string {
+  return value === "binary"
+    ? "binary measured"
+    : value === "launcher_only"
+      ? "launcher only"
+      : value;
+}
+
+function formatExecutableSize(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function publisherEvidenceLabel(publisher: AgentAdapterExecutablePublisherEvidence): string {
+  const subject = publisher.identifier || publisher.team_id;
+  const status = (publisher.status || "unavailable").replaceAll("_", " ");
+  return [status, publisher.platform, subject].filter(Boolean).join(" · ");
+}
+
+function describeChangedExecutableEvidence(
+  current: AgentAdapterExecutableIdentity,
+  approved: AgentAdapterExecutableIdentity,
+): string[] {
+  const changes: string[] = [];
+  const currentPath = current.canonical_path || current.invocation_path;
+  const approvedPath = approved.canonical_path || approved.invocation_path;
+  if (current.sha256 !== approved.sha256) changes.push("contents");
+  if (currentPath !== approvedPath) {
+    changes.push(`path ${approvedPath || "unavailable"} → ${currentPath || "unavailable"}`);
+  } else if (current.invocation_path !== approved.invocation_path) {
+    changes.push(
+      `launch path ${approved.invocation_path || "unavailable"} → ${current.invocation_path || "unavailable"}`,
+    );
+  }
+  if (current.file_id !== approved.file_id) {
+    changes.push(
+      `file identity ${approved.file_id || "unavailable"} → ${current.file_id || "unavailable"}`,
+    );
+  }
+  if ((current.mode & 0o777) !== (approved.mode & 0o777)) {
+    changes.push(
+      `permissions ${formatExecutablePermissions(approved.mode)} → ${formatExecutablePermissions(current.mode)}`,
+    );
+  } else if (current.mode !== approved.mode) {
+    changes.push("special permission flags");
+  }
+  if (current.size_bytes !== approved.size_bytes) {
+    changes.push(
+      `size ${formatExecutableSize(approved.size_bytes)} → ${formatExecutableSize(current.size_bytes)}`,
+    );
+  }
+  if (current.coverage !== approved.coverage) changes.push("measurement coverage");
+  if (
+    (current.launcher_chain ?? []).join("\u0000") !== (approved.launcher_chain ?? []).join("\u0000")
+  ) {
+    changes.push("launcher chain");
+  }
+  if (publisherEvidenceLabel(current.publisher) !== publisherEvidenceLabel(approved.publisher)) {
+    changes.push("publisher evidence");
+  }
+  if (changes.length === 0 && current.identity_token !== approved.identity_token) {
+    changes.push("recorded identity metadata");
+  }
+  return changes;
+}
+
+function formatExecutablePermissions(mode: number): string {
+  return `0${(mode & 0o777).toString(8).padStart(3, "0")}`;
 }
 
 function AdapterCapabilitiesSummary({
@@ -1352,11 +1700,15 @@ function AdapterRemoteCredentialSetup({
   onCopyCommand,
   onCheckAgain,
   testing,
+  checkDisabled,
+  checkLabel,
 }: {
   adapter: AgentAdapterRecord;
   onCopyCommand: (command: string) => void;
   onCheckAgain: () => void;
   testing: boolean;
+  checkDisabled: boolean;
+  checkLabel: string;
 }) {
   const keys = remoteCredentialKeys(adapter);
   const detail =
@@ -1424,11 +1776,15 @@ function AdapterRemoteCredentialSetup({
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={onCheckAgain}
-                disabled={testing}
-                aria-label={`Check ${adapter.name || adapter.id} again; opens a temporary ACP session and may execute the agent app`}
-                title={`Runs a short-lived ${adapter.name || adapter.id} session check without sending a prompt`}
+                disabled={testing || checkDisabled}
+                aria-label={`${checkLabel} for ${adapter.name || adapter.id}; opens a temporary ACP session and may execute the agent app`}
+                title={
+                  checkDisabled
+                    ? `Approve the ${adapter.name || adapter.id} app identity before running a check`
+                    : `Runs a short-lived ${adapter.name || adapter.id} session check without sending a prompt`
+                }
               >
-                {testing ? "Checking…" : "Check again"}
+                {checkLabel}
               </button>
             </div>
           )}
@@ -1445,6 +1801,8 @@ function AdapterLocalAuthSetup({
   onCopyCommand,
   onCheckAgain,
   testing,
+  checkDisabled,
+  checkLabel,
 }: {
   adapterID: string;
   adapterName: string;
@@ -1452,6 +1810,8 @@ function AdapterLocalAuthSetup({
   onCopyCommand: (command: string) => void;
   onCheckAgain: () => void;
   testing: boolean;
+  checkDisabled: boolean;
+  checkLabel: string;
 }) {
   const accent = chipColor("amber");
 
@@ -1489,9 +1849,8 @@ function AdapterLocalAuthSetup({
             Local sign-in
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
-            Hecate checks this agent automatically. Run this in Terminal if it needs sign-in, then
-            use Check again or start a new chat. Hecate uses local CLI auth as your OS user and does
-            not store credentials.
+            Run this in Terminal if the agent needs sign-in, then run a check or start a new chat.
+            Hecate uses local CLI auth as your OS user and does not store credentials.
           </div>
           <div
             style={{
@@ -1527,11 +1886,15 @@ function AdapterLocalAuthSetup({
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={onCheckAgain}
-              disabled={testing}
-              aria-label={`Check ${adapterName} again; opens a temporary ACP session and may execute the agent app`}
-              title={`Runs a short-lived ${adapterName} session check without sending a prompt`}
+              disabled={testing || checkDisabled}
+              aria-label={`${checkLabel} for ${adapterName}; opens a temporary ACP session and may execute the agent app`}
+              title={
+                checkDisabled
+                  ? `Wait for the ${adapterName} app approval change to finish`
+                  : `Runs a short-lived ${adapterName} session check without sending a prompt`
+              }
             >
-              {testing ? "Checking…" : "Check again"}
+              {checkLabel}
             </button>
           </div>
         </div>
@@ -1617,6 +1980,32 @@ function badgeClassForTone(tone: ChipTone): string {
 
 function externalAgentSetupFocusTarget(adapterID: string): string {
   return `external-agent-auth-setup-${adapterID}`;
+}
+
+function agentAdapterRowElementID(adapterID: string): string {
+  return `external-agent-row-${encodeURIComponent(adapterID)}`;
+}
+
+function agentAdapterRowNameElementID(adapterID: string): string {
+  return `${agentAdapterRowElementID(adapterID)}-name`;
+}
+
+function activeHTMLElement(): HTMLElement | null {
+  return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+function restoreAgentAdapterMutationFocus(adapterID: string, control: HTMLElement | null): void {
+  // Trust and auth mutations can replace the initiating control. Restore
+  // focus only when that control disappeared and focus fell back to body;
+  // never override a deliberate focus move while the request was pending.
+  window.setTimeout(() => {
+    const activeElement = document.activeElement;
+    if (control?.isConnected || (activeElement && activeElement !== document.body)) {
+      return;
+    }
+    const row = document.getElementById(agentAdapterRowElementID(adapterID));
+    if (row instanceof HTMLElement) row.focus({ preventScroll: true });
+  }, 0);
 }
 
 function GrantRow({

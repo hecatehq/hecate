@@ -157,7 +157,7 @@ export type RuntimeConsoleFixtureState = {
 export function createRuntimeConsoleFixture(
   overrides: Partial<RuntimeConsoleFixtureState> = {},
 ): RuntimeConsoleFixtureState {
-  return {
+  const fixture: RuntimeConsoleFixtureState = {
     usageSummary: null,
     activeChatSession: null,
     activeChatSessionID: "",
@@ -248,6 +248,25 @@ export function createRuntimeConsoleFixture(
     chatToolsEnabledBySessionID: new Map(),
     ...overrides,
   };
+  return {
+    ...fixture,
+    // Most legacy view fixtures describe agents that were launchable before
+    // executable trust existed. Preserve that intent without weakening
+    // production's fail-closed behavior; trust-specific tests provide their
+    // own explicit status.
+    agentAdapters: fixture.agentAdapters.map((adapter) =>
+      adapter.executable_trust
+        ? adapter
+        : {
+            ...adapter,
+            executable_trust: {
+              schema_version: "hecate.external-agent-executable.v1",
+              state: "approved",
+              reason: "test_fixture_approved",
+            },
+          },
+    ),
+  };
 }
 
 export type RuntimeConsoleFixtureActions = {
@@ -337,6 +356,8 @@ export type RuntimeConsoleFixtureActions = {
   verifyModelToolSupport: (provider: string, model: string) => Promise<unknown>;
   authenticateAgentAdapter: (adapterID: string) => Promise<boolean>;
   logoutAgentAdapter: (adapterID: string) => Promise<boolean>;
+  approveAgentAdapterExecutable: (adapterID: string, expectedIdentity: string) => Promise<boolean>;
+  revokeAgentAdapterExecutable: (adapterID: string) => Promise<boolean>;
   dismissNotice: () => void;
 };
 
@@ -442,6 +463,8 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     verifyModelToolSupport: async () => null,
     authenticateAgentAdapter: async () => true,
     logoutAgentAdapter: async () => true,
+    approveAgentAdapterExecutable: async () => true,
+    revokeAgentAdapterExecutable: async () => true,
     dismissNotice: () => undefined,
   };
 }

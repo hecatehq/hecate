@@ -162,6 +162,123 @@ describe("useEnsureProviderPresetsLoaded", () => {
 });
 
 describe("probeAgentAdapter", () => {
+  it("keeps catalog executable trust authoritative over a stale probe payload", async () => {
+    const unapprovedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "unapproved" as const,
+      reason: "approval_required",
+    };
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      supports_authenticate: false,
+      supports_logout: false,
+      executable_trust: unapprovedTrust,
+    };
+    probeAgentAdapterMock.mockResolvedValueOnce({
+      object: "agent_adapter_probe",
+      data: {
+        adapter: {
+          ...adapter,
+          executable_trust: {
+            schema_version: "hecate.external-agent-executable.v1",
+            state: "approved",
+            reason: "stale_probe_payload",
+          },
+        },
+        health: {
+          adapter_id: "codex",
+          status: "ready",
+          stage: "ready",
+          duration_ms: 12,
+        },
+      },
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+
+    await act(async () => {
+      await result.current.actions.probeAgentAdapter("codex", { refreshCatalog: false });
+    });
+
+    expect(result.current.state.agentAdapters[0]?.executable_trust).toEqual(unapprovedTrust);
+  });
+
+  it("fences an in-flight probe when executable trust is revoked", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const approvedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+    };
+    const revokedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "unapproved" as const,
+      reason: "approval_required",
+    };
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      supports_authenticate: false,
+      supports_logout: false,
+      executable_trust: approvedTrust,
+    };
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let probe!: Promise<unknown>;
+
+    act(() => {
+      probe = result.current.actions.probeAgentAdapter("codex", { refreshCatalog: false });
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterExecutableTrust("codex", revokedTrust);
+    });
+    await act(async () => {
+      resolveProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 12,
+          },
+        },
+      });
+      await probe;
+    });
+
+    expect(result.current.state.agentAdapters[0]?.executable_trust).toEqual(revokedTrust);
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+  });
+
   it("dedupes concurrent probes for the same adapter", async () => {
     let resolveProbe: (value: unknown) => void = () => {};
     probeAgentAdapterMock.mockReturnValueOnce(
@@ -387,7 +504,7 @@ describe("probeAgentAdapter", () => {
     });
   });
 
-  it("leaves catalog refresh to a grouped automatic check", async () => {
+  it("lets an explicit batched workflow own its catalog refresh", async () => {
     const adapter = {
       id: "codex",
       name: "Codex",
@@ -588,6 +705,93 @@ describe("probeAgentAdapter", () => {
 });
 
 describe("refreshAgentAdapters", () => {
+  it("invalidates ready evidence and an in-flight probe when catalog identity changes", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const approvedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+    };
+    const changedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "changed" as const,
+      reason: "identity_changed",
+    };
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      supports_authenticate: false,
+      supports_logout: false,
+      executable_trust: approvedTrust,
+    };
+    getAgentAdaptersMock.mockResolvedValueOnce({
+      object: "agent_adapters",
+      data: [{ ...adapter, executable_trust: changedTrust }],
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider
+          initialState={{
+            agentAdapters: [adapter],
+            agentAdapterHealthByID: new Map([
+              [
+                "codex",
+                {
+                  adapter_id: "codex",
+                  status: "ready",
+                  stage: "ready",
+                  duration_ms: 42,
+                },
+              ],
+            ]),
+          }}
+        >
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let probe!: Promise<unknown>;
+
+    act(() => {
+      probe = result.current.actions.probeAgentAdapter("codex", { refreshCatalog: false });
+    });
+    await act(async () => {
+      await result.current.actions.refreshAgentAdapters();
+    });
+    expect(result.current.state.agentAdapters[0]?.executable_trust).toEqual(changedTrust);
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+
+    await act(async () => {
+      resolveProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 12,
+          },
+        },
+      });
+      await probe;
+    });
+
+    expect(result.current.state.agentAdapters[0]?.executable_trust).toEqual(changedTrust);
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+  });
+
   it("keeps the newest passive discovery response when refreshes finish out of order", async () => {
     let resolveFirst: (value: unknown) => void = () => {};
     let resolveSecond: (value: unknown) => void = () => {};
@@ -621,6 +825,8 @@ describe("refreshAgentAdapters", () => {
     const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
     let first: Promise<unknown> | undefined;
     let second: Promise<unknown> | undefined;
+    let firstResult: unknown;
+    let secondResult: unknown;
 
     act(() => {
       first = result.current.actions.refreshAgentAdapters();
@@ -628,9 +834,9 @@ describe("refreshAgentAdapters", () => {
     });
     await act(async () => {
       resolveSecond({ object: "agent_adapters", data: [available] });
-      await second;
+      secondResult = await second;
       resolveFirst({ object: "agent_adapters", data: [missing] });
-      await first;
+      firstResult = await first;
     });
 
     expect(result.current.state.agentAdapters[0]).toMatchObject({
@@ -638,15 +844,22 @@ describe("refreshAgentAdapters", () => {
       status: "available",
       path: "/Applications/Codex.app/Contents/Resources/codex",
     });
+    expect(secondResult).toMatchObject({
+      ok: true,
+      applied: true,
+      authoritative: true,
+      adapters: [available],
+    });
+    expect(firstResult).toMatchObject({
+      ok: true,
+      applied: false,
+      authoritative: true,
+      adapters: [available],
+    });
   });
 
   it("does not let an in-flight catalog overwrite an explicit local projection", async () => {
     let resolveCatalog: (value: unknown) => void = () => {};
-    getAgentAdaptersMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveCatalog = resolve;
-      }),
-    );
     const missing = {
       id: "codex",
       name: "Codex",
@@ -663,8 +876,20 @@ describe("refreshAgentAdapters", () => {
       status: "available",
       path: "/Applications/Codex.app/Contents/Resources/codex",
     };
+    getAgentAdaptersMock
+      .mockResolvedValueOnce({ object: "agent_adapters", data: [missing] })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCatalog = resolve;
+        }),
+      );
     const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
     let refresh: Promise<unknown> | undefined;
+    let refreshResult: unknown;
+
+    await act(async () => {
+      await result.current.actions.refreshAgentAdapters();
+    });
 
     act(() => {
       refresh = result.current.actions.refreshAgentAdapters();
@@ -674,10 +899,11 @@ describe("refreshAgentAdapters", () => {
     });
     await act(async () => {
       resolveCatalog({ object: "agent_adapters", data: [missing] });
-      await refresh;
+      refreshResult = await refresh;
     });
 
     expect(result.current.state.agentAdapters[0]).toMatchObject(available);
+    expect(refreshResult).toMatchObject({ ok: true, applied: false, authoritative: false });
   });
 
   it("does not let an older passive read overwrite a completed auth action", async () => {

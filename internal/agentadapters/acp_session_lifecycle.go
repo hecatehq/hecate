@@ -172,6 +172,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			Terminal: terminalSupport,
 		},
 	})
+	err = embeddedACPExecutableTrustError(adapter, err)
 	if err != nil {
 		if sessionLogger != nil {
 			sessionLogger.Warn("ACP adapter initialize failed", slog.Any("error", err))
@@ -212,6 +213,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 				Cwd:        workspace,
 				McpServers: acpMCPServers(mcpServers),
 			})
+			loadErr = embeddedACPExecutableTrustError(adapter, loadErr)
 			if loadErr != nil {
 				cancel()
 				if adapter.NativeSessionScope != NativeSessionScopeProcess {
@@ -256,6 +258,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			Cwd:        workspace,
 			McpServers: acpMCPServers(mcpServers),
 		})
+		err = embeddedACPExecutableTrustError(adapter, err)
 		if err != nil {
 			cancel()
 			if sessionLogger != nil {
@@ -407,6 +410,7 @@ func (s *acpSession) runTurnLocked(ctx context.Context, req RunRequest) (RunResu
 		SessionId: acp.SessionId(s.nativeID),
 		Prompt:    blocks,
 	})
+	runErr = embeddedACPExecutableTrustError(s.adapter, runErr)
 	turn.clearPromptFiles()
 	cleanupErr := s.cleanupPromptStage(stage, promptStageAdmission)
 	stopReason := turn.redactor().redact(string(resp.StopReason))

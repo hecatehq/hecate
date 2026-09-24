@@ -263,6 +263,7 @@ func runServe() {
 	// (process-local waiters are lost), so they're marked timed_out with
 	// path=startup_reconcile up front.
 	approvalStore := buildApprovalStore(cfg, logger, sqliteClient, postgresClient)
+	executableTrustStore := buildExecutableTrustStore(cfg, logger, sqliteClient, postgresClient)
 	if rec, ok := approvalStore.(agentadapters.ApprovalRetentionStore); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		reconciled, err := rec.ReconcilePending(ctx, time.Now().UTC())
@@ -329,6 +330,7 @@ func runServe() {
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetModelToolProbeStore(modelToolProbeStore)
 	handler.SetAgentApprovalStore(approvalStore)
+	handler.SetExecutableTrustStore(executableTrustStore)
 	if postgresClient != nil {
 		handler.SetStateCleaner(postgresClient)
 	} else {
@@ -998,6 +1000,27 @@ func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *st
 		return store
 	default:
 		return agentadapters.NewMemoryApprovalStore()
+	}
+}
+
+func buildExecutableTrustStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) agentadapters.ExecutableTrustStore {
+	switch cfg.Chat.SessionsBackend {
+	case "sqlite":
+		store, err := agentadapters.NewSQLiteExecutableTrustStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("external agent executable trust store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := agentadapters.NewPostgresExecutableTrustStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("external agent executable trust store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return agentadapters.NewMemoryExecutableTrustStore()
 	}
 }
 

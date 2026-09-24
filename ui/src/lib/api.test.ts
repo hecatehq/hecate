@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   acceptProjectHandoffWithFollowUp,
+  approveAgentAdapterExecutable,
   buildRequestOptions,
   cancelChatApproval,
   chatCompletions,
@@ -70,6 +71,7 @@ import {
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
   retryTaskRunFromModelCall,
+  revokeAgentAdapterExecutable,
   revertChatWorkspaceFiles,
   resolveChatApproval,
   setChatSettings,
@@ -1917,6 +1919,53 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/authenticate");
+    });
+  });
+
+  describe("agent adapter executable trust", () => {
+    it("approves only the exact reviewed identity", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_executable_trust",
+          data: {
+            schema_version: "hecate.external-agent-executable.v1",
+            state: "approved",
+            reason: "identity_approved",
+            current: {
+              identity_token: "sha256:identity",
+              invocation_path: "/usr/local/bin/codex",
+              canonical_path: "/opt/codex/bin/codex",
+              sha256: "abc123",
+              coverage: "binary",
+              size_bytes: 42,
+              publisher: { status: "unavailable" },
+            },
+          },
+        }),
+      );
+
+      const result = await approveAgentAdapterExecutable("weird id", "sha256:identity");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-adapters/weird%20id/executable-trust",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ expected_identity: "sha256:identity" }),
+        }),
+      );
+      expect(result.data.state).toBe("approved");
+      expect(result.data.current?.canonical_path).toBe("/opt/codex/bin/codex");
+    });
+
+    it("revokes executable approval with a no-content response", async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+      await expect(revokeAgentAdapterExecutable("claude code")).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-adapters/claude%20code/executable-trust",
+        expect.objectContaining({ method: "DELETE" }),
+      );
     });
   });
 

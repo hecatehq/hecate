@@ -36,6 +36,15 @@ func runAgentDiagnostic(ctx context.Context, command string, args, env []string)
 	if strings.TrimSpace(command) == "" {
 		return agentDiagnosticOutput{}, fmt.Errorf("diagnostic command is required")
 	}
+	var permit *ExecutablePermit
+	if trustManager, adapterID := executableTrustFromContext(ctx); trustManager != nil {
+		var err error
+		permit, err = trustManager.AuthorizePath(ctx, adapterID, command)
+		if err != nil {
+			return agentDiagnosticOutput{}, err
+		}
+		defer permit.Close()
+	}
 	cmd := exec.CommandContext(ctx, command, append([]string(nil), args...)...)
 	cmd.Env = append([]string(nil), env...)
 	cmd.WaitDelay = agentDiagnosticWaitDelay
@@ -51,6 +60,9 @@ func runAgentDiagnostic(ctx context.Context, command string, args, env []string)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return snapshotAgentDiagnosticOutput(stdout, stderr), err
+	}
+	if permit != nil {
+		permit.Close()
 	}
 	if err := attachProcessTree(); err != nil {
 		terminateProcess(cmd)

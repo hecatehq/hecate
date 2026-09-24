@@ -35,6 +35,15 @@ func NormalizeError(adapterName string, err error) string {
 	if errors.Is(err, ErrRemoteCredentialRequired) {
 		return raw
 	}
+	if errors.Is(err, ErrExecutableTrustRequired) {
+		return "External Agent app approval is required. Open Connections, review the measured executable identity, and approve it before retrying."
+	}
+	if errors.Is(err, ErrExecutableIdentityChanged) || errors.Is(err, ErrExecutableTrustConflict) {
+		return "The External Agent app changed after approval. Open Connections, review the new executable identity, and approve it again if expected."
+	}
+	if errors.Is(err, ErrExecutableIdentityUnavailable) || errors.Is(err, ErrExecutableIdentityRaced) {
+		return "Hecate could not verify the External Agent app identity. Check the installation and refresh Connections before retrying."
+	}
 	if adapterName == "Claude Code" && isAuthErrorText(raw) {
 		return claudeCodeAuthErrorMessage()
 	}

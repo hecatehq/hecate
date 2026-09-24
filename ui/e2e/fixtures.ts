@@ -196,6 +196,44 @@ export const MOCK_AGENT_ADAPTERS = [
   },
 ];
 
+export function mockExecutableTrust(
+  adapterID: string,
+  path: string,
+  state: "approved" | "unapproved" = "approved",
+) {
+  const schemaVersion = "hecate.external-agent-executable.v1";
+  const sha256 = createHash("sha256").update(`binary:${adapterID}:${path}`).digest("hex");
+  const identityToken = `sha256:${createHash("sha256")
+    .update(`identity:${adapterID}:${path}`)
+    .digest("hex")}`;
+  const identity = {
+    schema_version: schemaVersion,
+    identity_token: identityToken,
+    invocation_path: path,
+    canonical_path: path,
+    sha256,
+    coverage: "binary",
+    file_id: `fixture:${adapterID}`,
+    mode: 493,
+    size_bytes: 4096,
+    publisher: { status: "unavailable", platform: "linux" },
+  };
+
+  return {
+    schema_version: schemaVersion,
+    state,
+    reason: state === "approved" ? "identity_approved" : "approval_required",
+    current: identity,
+    ...(state === "approved"
+      ? {
+          approved: identity,
+          approved_by: "operator",
+          approved_at: "2026-05-14T12:00:00Z",
+        }
+      : {}),
+  };
+}
+
 // New model: providers are explicit. The list starts empty and stays empty
 // until the operator adds at least one via POST /hecate/v1/settings/providers.
 // Tests that need an existing provider opt into MOCK_SETTINGS_CONFIG_WITH_PROVIDERS.

@@ -14,6 +14,11 @@ function adapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterRecor
     cost_mode: "external",
     supports_authenticate: false,
     supports_logout: false,
+    executable_trust: {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved",
+      reason: "operator_approved",
+    },
     ...overrides,
   };
 }
@@ -189,8 +194,8 @@ describe("resolveExternalAgentReadiness", () => {
       launchBlocked: false,
       checkedByProbe: false,
     });
-    expect(readiness.detail).toContain("Hecate checks available agents automatically");
-    expect(readiness.detail).toContain("New chat still re-resolves the executable");
+    expect(readiness.detail).toContain("Use Check in Connections");
+    expect(readiness.detail).toContain("New chat still re-resolves the approved executable");
   });
 
   it("does not let a stale ready diagnostic override current passive discovery", () => {
@@ -260,5 +265,88 @@ describe("resolveExternalAgentReadiness", () => {
     });
     expect(readiness.setupHint).toContain("Grok CLI");
     expect(readiness.setupHint).toContain("model selected");
+  });
+
+  it("blocks an unapproved executable even when a stale check says ready", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "unapproved",
+          reason: "approval_required",
+        },
+      }),
+      {
+        adapter_id: "cursor_agent",
+        status: "ready",
+        stage: "session",
+        duration_ms: 25,
+      },
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "approval",
+      label: "approve app",
+      launchBlocked: true,
+      checkedByProbe: false,
+    });
+  });
+
+  it("requires review when the discovered executable identity changed", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "changed",
+          reason: "identity_changed",
+        },
+      }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "changed",
+      label: "app changed",
+      launchBlocked: true,
+      checkedByProbe: false,
+    });
+  });
+
+  it("preserves a catalog-approved development override without an identity payload", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        path: "dev-override://cursor-agent",
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "approved",
+          reason: "development_override",
+        },
+      }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "unverified",
+      launchBlocked: false,
+    });
+  });
+
+  it("does not let a development override path authorize itself", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        path: "dev-override://cursor-agent",
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "unapproved",
+          reason: "approval_required",
+        },
+      }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "approval",
+      launchBlocked: true,
+    });
   });
 });
