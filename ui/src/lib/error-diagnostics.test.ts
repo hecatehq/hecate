@@ -18,6 +18,20 @@ describe("describeGatewayError", () => {
     );
   });
 
+  it("turns launch-time executable trust failures into Connections repair guidance", () => {
+    expect(describeGatewayError("agent_adapter.executable_trust_required")).toMatchObject({
+      title: "External agent app needs approval",
+      action: expect.stringContaining("review the exact executable identity"),
+    });
+    expect(describeGatewayError("agent_adapter.executable_identity_changed")).toMatchObject({
+      title: "External agent app changed",
+      action: expect.stringContaining("review the new executable identity"),
+    });
+    expect(describeGatewayError("agent_adapter.executable_identity_unavailable")?.action).toContain(
+      "refresh discovery",
+    );
+  });
+
   it("keeps HTTP status fallbacks for non-Hecate errors", () => {
     expect(describeGatewayError(undefined, 429)?.title).toBe("Gateway rate limit exceeded");
     expect(describeGatewayError(undefined, 502)?.title).toBe("Gateway or upstream failed");

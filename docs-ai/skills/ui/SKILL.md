@@ -513,20 +513,36 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Distinguish missing binaries, required remote credentials, auth/billing
   problems, unsupported versions, and managed-launcher issues without sending
   users to raw logs first. Catalog discovery means only that an eligible app
-  path was found: render it as **Available**, never **Ready**. Missing/rejected
-  executables and absent required remote credentials are launch blockers.
+  path was found: render it as **Available**, never **Ready**. Missing/rejected,
+  unapproved, changed, or unmeasurable executables and absent required remote
+  credentials are launch blockers.
   Cached auth, billing, version, or probe failures are advisory and must not
   disable agent selection, **New chat**, attachments, or Send; the operator may
   have repaired the app since that diagnostic ran.
+- Connections is the executable-identity review surface. Render
+  `unavailable`, `unapproved`, `approved`, and `changed` distinctly; show the
+  canonical path, shortened SHA-256, coverage, launcher chain when present,
+  publisher status, and prior approved fingerprint for a changed app. V1
+  publisher evidence is unavailable. Explain that `launcher_only` covers the
+  wrapper rather than the complete dispatched chain, and that approval permits
+  exact measured identity—it does not certify safety, publisher, or absence of
+  malware. Use `current.identity_token` only as the approval compare-and-swap
+  value. A stale approval response should refresh evidence and require review,
+  never retry silently. Revoke copy must promise to block future launches, not
+  kill an already-running direct ACP process.
 - Opening Chats or Connections must not probe, start, authenticate, or otherwise
-  execute a discovered app. **New chat** re-resolves the current executable and
-  prepares a fresh ACP session for the real chat. Direct ACP peers start during
+  execute a discovered app. **New chat** is disabled until executable trust is
+  approved, then re-resolves the current identity and prepares a fresh ACP
+  session for the real chat. Direct ACP peers start during
   that setup. Embedded bridges may run bounded provider discovery during setup
   while deferring their prompt-serving vendor invocation and prompt-time auth
   result until the first message, which is authoritative for that deferred work.
   `POST /agent-adapters/{id}/probe` is an optional disposable diagnostic, not a
   prerequisite or launch authority. Its accessible name/help text must say that
   it starts a temporary ACP session and may execute the app for diagnostics.
+  Disable Check, Sign in, and Sign out until the current identity is approved.
+  Authenticated remote operators may approve or revoke the supervised host's
+  identity, but managed Sign in remains local-only.
 - Route every passive External Agent catalog read—dashboard hydration, manual
   Refresh, and the post-diagnostic re-read—through
   `loadAgentAdapterCatalog`. That provider/model slice owns request ordering

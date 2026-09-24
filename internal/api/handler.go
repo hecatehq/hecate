@@ -136,6 +136,7 @@ type Handler struct {
 	agentAdapterProbe        AgentAdapterProbe
 	agentAdapterLogout       AgentAdapterLogout
 	agentAdapterAuthenticate AgentAdapterAuthenticate
+	executableTrust          *agentadapters.ExecutableTrustManager
 	stateCleaner             StateCleaner
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
@@ -322,6 +323,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// silently doing nothing.
 	runner.SetAgentLLMClient(gatewayAgentLLMClient{service: service})
 	agentChatRunner := agentadapters.NewSessionManager()
+	executableTrust := agentadapters.NewExecutableTrustManager(runtimeHost.ID, agentadapters.NewMemoryExecutableTrustStore())
+	agentChatRunner.SetExecutableTrustManager(executableTrust)
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
 	agentChatRunner.SetTerminalSupportEnabled(cfg.Server.AgentAdapterTerminals)
@@ -418,6 +421,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		modelToolProbeCoordinator:         modelprobe.NewCoordinator(modelToolProbeStore),
 		browserEvidenceReadiness:          browserEvidenceReadiness,
 		agentChatRunner:                   agentChatRunner,
+		executableTrust:                   executableTrust,
 		agentChatLive:                     agentChatLive,
 		operatorTerminals: terminalapp.New(terminalapp.Options{
 			Enabled:              cfg.Server.OperatorTerminals,
@@ -528,6 +532,20 @@ func (h *Handler) SetAgentApprovalStore(store agentadapters.ApprovalStore) {
 				slog.Any("error", err),
 			)
 		}
+	}
+}
+
+// SetExecutableTrustStore swaps the executable approval persistence backend
+// while retaining this runtime host's stable identity. Shipped composition
+// calls it before serving requests; NewHandler keeps a safe in-memory default.
+func (h *Handler) SetExecutableTrustStore(store agentadapters.ExecutableTrustStore) {
+	if h == nil || store == nil {
+		return
+	}
+	manager := agentadapters.NewExecutableTrustManager(h.runtimeHost.ID, store)
+	h.executableTrust = manager
+	if sessionManager, ok := h.agentChatRunner.(*agentadapters.SessionManager); ok {
+		sessionManager.SetExecutableTrustManager(manager)
 	}
 }
 
@@ -658,6 +676,7 @@ func (h *Handler) wireAgentChatRunnerHooks(runner agentadapters.Runner) {
 	if !ok {
 		return
 	}
+	mgr.SetExecutableTrustManager(h.executableTrust)
 	mgr.SetAvailableCommandsUpdateHook(h.handleAgentChatAvailableCommandsUpdate)
 }
 

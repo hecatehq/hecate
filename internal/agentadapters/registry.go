@@ -920,7 +920,7 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 		status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, diagnosticItem, path, lookup)
 		status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
 		if !remoteRuntime {
-			status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+			status.AuthStatus, status.AuthError = DetectAuthStatusWithContext(ctx, item)
 		}
 	}
 	return status

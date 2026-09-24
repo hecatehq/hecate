@@ -46,6 +46,7 @@ import {
 } from "../../lib/api";
 import { warn } from "../../lib/log";
 import type {
+  AgentAdapterExecutableTrust,
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
   AgentAdapterResponse,
@@ -78,9 +79,8 @@ export type ProbeAdapterResult =
   | { ok: false; error: string };
 
 export type ProbeAgentAdapterOptions = {
-  // Connections checks several adapters together. Their individual probe
-  // results still update the local projection, while one follow-up catalog
-  // refresh updates passive discovery for the whole set.
+  // Callers can suppress the normal follow-up passive catalog refresh when a
+  // larger explicit workflow already owns that refresh.
   refreshCatalog?: boolean;
 };
 
@@ -105,6 +105,7 @@ export type ProvidersAndModelsActions = {
   setAgentAdapterApprovalMode: (value: string) => void;
   setAgentAdapterHealth: (adapterID: string, record: AgentAdapterHealthRecord) => void;
   applyAgentAdapterAuthResult: (adapterID: string, authStatus: "ok" | "unauthenticated") => void;
+  applyAgentAdapterExecutableTrust: (adapterID: string, trust: AgentAdapterExecutableTrust) => void;
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   loadModelCatalog: () => Promise<ModelResponse>;
   loadAgentAdapterCatalog: () => Promise<AgentAdapterResponse>;
@@ -138,6 +139,11 @@ type Action =
       type: "agentAdapterAuth/apply";
       adapterID: string;
       authStatus: "ok" | "unauthenticated";
+    }
+  | {
+      type: "agentAdapterExecutableTrust/apply";
+      adapterID: string;
+      trust: AgentAdapterExecutableTrust;
     }
   | { type: "agentAdapterHealthLoading/set"; adapterID: string; loading: boolean }
   | { type: "modelToolSupportLoading/set"; key: string; loading: boolean };
@@ -175,6 +181,9 @@ function applyAgentAdapterDiagnostic(
     remote_credential_mode: current.remote_credential_mode,
     remote_credential_ok: current.remote_credential_ok,
     remote_credential_hint: current.remote_credential_hint,
+    // Trust is measured by passive catalog discovery and gates execution. A
+    // disposable probe response can never authorize, revoke, or replace it.
+    executable_trust: current.executable_trust,
   };
 }
 
@@ -205,6 +214,17 @@ function applyAgentAdapterCatalog(
   });
 }
 
+function executableTrustSignature(adapter: AgentAdapterRecord | undefined): string {
+  const trust = adapter?.executable_trust;
+  return [
+    trust?.schema_version ?? "",
+    trust?.state ?? "",
+    trust?.reason ?? "",
+    trust?.current?.identity_token ?? "",
+    trust?.approved?.identity_token ?? "",
+  ].join("\u0000");
+}
+
 function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndModelsState {
   switch (action.type) {
     case "providers/set":
@@ -217,15 +237,23 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       return { ...state, models: resolve(state.models, action.next) };
     case "agentAdapters/set":
       return { ...state, agentAdapters: resolve(state.agentAdapters, action.next) };
-    case "agentAdapters/catalogSet":
+    case "agentAdapters/catalogSet": {
+      const currentByID = new Map(state.agentAdapters.map((item) => [item.id, item]));
+      const nextHealth = new Map(state.agentAdapterHealthByID);
+      const nextLoading = new Map(state.agentAdapterHealthLoadingByID);
+      action.next.forEach((item) => {
+        if (executableTrustSignature(currentByID.get(item.id)) !== executableTrustSignature(item)) {
+          nextHealth.delete(item.id);
+          nextLoading.delete(item.id);
+        }
+      });
       return {
         ...state,
-        agentAdapters: applyAgentAdapterCatalog(
-          state.agentAdapters,
-          action.next,
-          state.agentAdapterHealthByID,
-        ),
+        agentAdapters: applyAgentAdapterCatalog(state.agentAdapters, action.next, nextHealth),
+        agentAdapterHealthByID: nextHealth,
+        agentAdapterHealthLoadingByID: nextLoading,
       };
+    }
     case "agentAdapterApprovalMode/set":
       return { ...state, agentAdapterApprovalMode: action.value };
     case "agentAdapterHealth/set": {
@@ -248,6 +276,20 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
         // one reducer transition so the UI cannot render a contradictory
         // intermediate state.
         agentAdapterHealthByID: nextHealth,
+      };
+    }
+    case "agentAdapterExecutableTrust/apply": {
+      const nextHealth = new Map(state.agentAdapterHealthByID);
+      nextHealth.delete(action.adapterID);
+      const nextLoading = new Map(state.agentAdapterHealthLoadingByID);
+      nextLoading.delete(action.adapterID);
+      return {
+        ...state,
+        agentAdapters: state.agentAdapters.map((item) =>
+          item.id === action.adapterID ? { ...item, executable_trust: action.trust } : item,
+        ),
+        agentAdapterHealthByID: nextHealth,
+        agentAdapterHealthLoadingByID: nextLoading,
       };
     }
     case "agentAdapterHealthLoading/set": {
@@ -290,6 +332,8 @@ export function ProvidersAndModelsProvider({
     reducer,
     seededState ? { ...initialState, ...seededState } : initialState,
   );
+  const agentAdaptersRef = useRef(state.agentAdapters);
+  agentAdaptersRef.current = state.agentAdapters;
   const probeAgentAdapterInFlightRef = useRef(new Map<string, Promise<ProbeAdapterResult>>());
   const agentAdapterEvidenceRevisionByIDRef = useRef(new Map<string, number>());
   const verifyModelToolSupportInFlightRef = useRef(
@@ -371,6 +415,21 @@ export function ProvidersAndModelsProvider({
     },
     [],
   );
+  const applyAgentAdapterExecutableTrust = useCallback(
+    (adapterID: string, trust: AgentAdapterExecutableTrust) => {
+      // Approve/revoke changes whether the process may run at all. It is newer
+      // than every in-flight passive read and probe, so fence both projections
+      // and discard cached process evidence in one reducer transition.
+      latestAgentAdaptersRefreshRef.current += 1;
+      agentAdapterEvidenceRevisionByIDRef.current.set(
+        adapterID,
+        (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) + 1,
+      );
+      probeAgentAdapterInFlightRef.current.delete(adapterID);
+      dispatch({ type: "agentAdapterExecutableTrust/apply", adapterID, trust });
+    },
+    [],
+  );
   const setAgentAdapterHealthLoading = useCallback(
     (adapterID: string, loading: boolean) =>
       dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading }),
@@ -410,8 +469,19 @@ export function ProvidersAndModelsProvider({
 
   const loadAgentAdapterCatalog = useCallback(async (): Promise<AgentAdapterResponse> => {
     const refreshID = ++latestAgentAdaptersRefreshRef.current;
+    const trustAtStart = new Map(
+      agentAdaptersRef.current.map((item) => [item.id, executableTrustSignature(item)]),
+    );
     const response = await getAgentAdapters();
     if (latestAgentAdaptersRefreshRef.current === refreshID) {
+      (response.data ?? []).forEach((item) => {
+        if (trustAtStart.get(item.id) === executableTrustSignature(item)) return;
+        agentAdapterEvidenceRevisionByIDRef.current.set(
+          item.id,
+          (agentAdapterEvidenceRevisionByIDRef.current.get(item.id) ?? 0) + 1,
+        );
+        probeAgentAdapterInFlightRef.current.delete(item.id);
+      });
       dispatch({ type: "agentAdapters/catalogSet", next: response.data ?? [] });
     }
     return response;
@@ -578,6 +648,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
       applyAgentAdapterAuthResult,
+      applyAgentAdapterExecutableTrust,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       loadAgentAdapterCatalog,
@@ -595,6 +666,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
       applyAgentAdapterAuthResult,
+      applyAgentAdapterExecutableTrust,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       loadAgentAdapterCatalog,

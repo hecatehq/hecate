@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -51,14 +53,86 @@ func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
 		t.Fatalf("health path = %q, want %q", resp.Data.Path, executable)
 	}
 	if resp.Data.Stage != agentadapters.ProbeStageLookup ||
-		!strings.Contains(resp.Data.Hint, "Connections checks available agents automatically") ||
-		!strings.Contains(resp.Data.Hint, "New chat") ||
-		!strings.Contains(resp.Data.Hint, "first message") {
-		t.Fatalf("health = %#v, want automatic check plus session and first-message guidance", resp.Data)
+		!strings.Contains(resp.Data.Hint, "Review and approve") ||
+		!strings.Contains(resp.Data.Hint, "before Hecate runs") {
+		t.Fatalf("health = %#v, want executable approval guidance", resp.Data)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("passive GET executed candidate; marker stat = %v", err)
 	}
+}
+
+func TestAgentAdapterExecutableTrustApprovalLifecycle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell executable fixture is Unix-only")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "executed")
+	executable := filepath.Join(dir, "codex")
+	writeExecutable := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(executable, []byte(body), 0o755); err != nil {
+			t.Fatalf("write fake executable: %v", err)
+		}
+	}
+	writeExecutable("#!/bin/sh\nprintf executed > '" + marker + "'\n")
+	t.Setenv("PATH", dir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_INSTALL_DIR", dir)
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	catalog := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+	codex := findAgentAdapterResponseItem(t, catalog.Data, "codex")
+	if codex.ExecutableTrust == nil || codex.ExecutableTrust.State != agentadapters.ExecutableTrustStateUnapproved || codex.ExecutableTrust.Current == nil {
+		t.Fatalf("initial executable trust = %#v", codex.ExecutableTrust)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("passive catalog executed candidate; marker stat = %v", err)
+	}
+
+	probeFailure := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/agent-adapters/codex/probe", "")
+	assertAPIErrorType(t, probeFailure, http.StatusConflict, errCodeAgentExecutableTrustRequired)
+	client.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/agent-adapters/codex/executable-trust", `{"expected_identity":"sha256:short"}`)
+	client.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/agent-adapters/codex/executable-trust", `{"expected_identity":"sha256:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}`)
+	client.mustRequestStatus(http.StatusConflict, http.MethodPut, "/hecate/v1/agent-adapters/codex/executable-trust", `{"expected_identity":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}`)
+
+	approval := mustRequestJSON[AgentAdapterExecutableTrustResponse](client, http.MethodPut, "/hecate/v1/agent-adapters/codex/executable-trust", fmt.Sprintf(`{"expected_identity":%q}`, codex.ExecutableTrust.Current.IdentityToken))
+	if approval.Data.State != agentadapters.ExecutableTrustStateApproved || approval.Data.Current == nil {
+		t.Fatalf("approval response = %#v", approval)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("approval executed candidate; marker stat = %v", err)
+	}
+
+	writeExecutable("#!/bin/sh\nprintf changed > '" + marker + "'\n")
+	catalog = mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+	codex = findAgentAdapterResponseItem(t, catalog.Data, "codex")
+	if codex.ExecutableTrust == nil || codex.ExecutableTrust.State != agentadapters.ExecutableTrustStateChanged || codex.ExecutableTrust.Approved == nil {
+		t.Fatalf("changed executable trust = %#v", codex.ExecutableTrust)
+	}
+	changedFailure := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/agent-adapters/codex/probe", "")
+	assertAPIErrorType(t, changedFailure, http.StatusConflict, errCodeAgentExecutableIdentityChanged)
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/agent-adapters/codex/executable-trust", "")
+	catalog = mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+	codex = findAgentAdapterResponseItem(t, catalog.Data, "codex")
+	if codex.ExecutableTrust == nil || codex.ExecutableTrust.State != agentadapters.ExecutableTrustStateUnapproved {
+		t.Fatalf("revoked executable trust = %#v", codex.ExecutableTrust)
+	}
+}
+
+func findAgentAdapterResponseItem(t *testing.T, items []AgentAdapterResponseItem, id string) AgentAdapterResponseItem {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == id {
+			return item
+		}
+	}
+	t.Fatalf("adapter %q missing from catalog", id)
+	return AgentAdapterResponseItem{}
 }
 
 // TestAgentAdapterHealth404OnUnknownAdapter — we 404 BEFORE invoking

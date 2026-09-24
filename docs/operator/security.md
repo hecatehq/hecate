@@ -150,60 +150,66 @@ operator-controlled boundary and can weaken browser-level privacy assumptions.
 
 ## External-agent executable trust
 
-Hecate cannot prove that an external program is malware-free. Current catalog
-discovery can establish an absolute invocation path and inspect its canonical
-regular target, but path shape, filename, `--version`, auth output, and an ACP
-handshake do not authenticate its publisher. The latter checks already execute
-the candidate, so they are diagnostics rather than security verification.
-Catalog and compatibility health GETs therefore stay passive. Opening
-**Connections** automatically starts each available External Agent once for a
-short-lived, no-prompt ACP check; **Check again**, **New chat**,
-authentication, and logout can also execute the candidate. **New chat**
-performs a fresh executable resolution and prepares the real ACP session.
-Direct ACP agents are started during that setup. Embedded bridges may run
-bounded provider discovery during setup while deferring their prompt-serving
-vendor invocation and prompt-time auth result until the first message. The
-Connections check is not a security check or a prerequisite for use.
+Hecate cannot prove that an external program is malware-free. A filename,
+`--version` result, auth response, ACP handshake, SHA-256 digest, or operator
+approval is not a safety certificate. Version, auth, help, probe, and ACP
+commands already execute the candidate, so Hecate treats them as diagnostics,
+not authenticity checks.
 
-A locally computed SHA-256 digest proves byte identity and detects later
-replacement. It proves origin only when the expected digest came from an
-independently authenticated publisher channel, such as a signed release
-manifest or attestation. An unsigned checksum downloaded beside a binary is not
-an independent trust root. Similarly, artifact attestations establish
-provenance, not that software is harmless.
+Catalog discovery and the compatibility health GET are passive. Both resolve
+the selected invocation path and validate its canonical regular target; the
+catalog additionally measures that target without running it. The catalog's
+`executable_trust` object reports one of four states:
 
-Stronger evidence can be layered:
+- `unavailable` — no eligible executable could be measured, or measurement or
+  trust storage failed;
+- `unapproved` — Hecate measured a current identity but the operator has not
+  approved it for this runtime host and adapter;
+- `approved` — the current measurement matches the stored approval;
+- `changed` — an approval exists, but the current measurement no longer
+  matches it.
 
-- pin the expected publisher when validating a macOS code signature or Windows
-  Authenticode signature; merely having any valid platform certificate is not
-  enough;
-- verify a vendor-signed manifest or Sigstore-style attestation and compare its
-  digest with the exact installed bytes;
-- retain package-manager integrity metadata, while treating hashes from
-  Homebrew, WinGet, npm, pnpm, and similar catalogs as byte-integrity evidence
-  rather than publisher identity unless a publisher signature or attestation
-  is actually verified; an installed mutable file can still change afterward;
-- record a user-approved fingerprint as trust on first use, then refuse a
-  changed executable until it is reviewed again.
+The evidence includes invocation and canonical paths, the measured bytes'
+SHA-256, file identity, mode and size, a coverage classification, and a publisher
+evidence object. Publisher verification is not implemented in V1, so
+`publisher.status` is `unavailable`; Hecate does not infer a publisher from the
+path, package manager, or filename. `coverage="binary"` means the selected
+native executable bytes were measured. `coverage="launcher_only"` means the
+measured file can dispatch another mutable program—for example a shebang
+script, Volta shim, or package-manager launcher. Hecate displays the observed
+launcher chain, but V1 approval covers only the measured launcher bytes, not
+every interpreter or downstream program it may select. Windows continues to
+reject `.cmd`, `.bat`, `.ps1`, and other non-native launcher forms.
 
-Launchers require chain-aware review. A symlink should record its canonical
-target. A shebang script also depends on its interpreter. A Windows `.cmd` or
-`.bat` file, Volta shim, or npm/pnpm launcher can dispatch other mutable files,
-so hashing only the visible wrapper is `launcher-only` evidence, not a complete
-measurement of the agent app.
+Approval is explicit in **Connections**. The client sends only the reviewed
+`identity_token`; Hecate re-resolves and re-measures the executable server-side
+before persisting the decision. A stale token fails closed. Decisions are keyed
+by runtime host plus adapter and use the configured Hecate backend: memory
+decisions last for the process, while SQLite and Postgres decisions survive
+restart. They are separate from ACP tool grants.
 
-Hecate does not yet persist external-executable trust decisions or verify
-publisher signatures automatically. A complete gate should show the canonical
-path, launcher chain, publisher evidence, and shortened SHA-256 fingerprint,
-then key approval by adapter plus that measured invocation identity. It must
-recheck at the final spawn boundary and use platform-specific file-handle or
-file-identity binding for the executable that is actually launched; checking a
-path and then launching that path still leaves a swap/TOCTOU race. A path,
-content, launcher-chain, or signature change should invalidate approval before
-any version, auth, help, probe, or session command executes. Such approvals are
-separate from ACP tool grants and require memory, SQLite, and Postgres parity.
-Hecate should not upload executables or fingerprints to a reputation service by
-default.
+Every execution surface is gated: **Check**, version/auth/help/model
+diagnostics, authenticate/logout, direct ACP session startup, and provider CLI
+processes launched by embedded adapters—including a launch deferred until the
+first prompt. Hecate measures again immediately before process start and blocks
+an unapproved or changed identity. Opening Chats or Connections never starts a
+discovered app. Revocation blocks later launches, but it does not promise to
+terminate a direct ACP process that was already running; close or stop that
+session separately when immediate cessation matters. Authenticated remote
+operators may approve or revoke an identity on the supervised runtime host;
+managed ACP authentication remains local-only.
+
+The final check holds a process-local lease across child start so a concurrent
+Hecate approval or revocation cannot cross that boundary. The operating system
+is still asked to execute a path rather than a pinned open file handle. Another
+process running as the same OS user can therefore replace that path in the
+small interval between Hecate's final measurement and the OS exec. Protect the
+runtime account and installation directories accordingly; V1 does not claim to
+close that same-user path-swap/TOCTOU risk.
+
+Hecate does not upload executable bytes or fingerprints to a reputation
+service. Future publisher-signature or attestation support can add provenance
+evidence, but provenance still would not prove that software is harmless.
 
 ## Workspaces
 
@@ -394,8 +400,8 @@ Hecate stores local configuration and operational state on disk.
 - Do not commit `.env`, SQLite databases, Postgres dumps or DSNs, release keys,
   update signing keys, or platform credential files.
 - External agent credentials belong to the underlying CLI account. A fresh
-  chat launch and the automatic Connections check can surface auth failures, but Hecate
-  does not own, proxy, or pool those accounts. See [External
+  chat launch or an operator-triggered **Check** can surface auth failures, but
+  Hecate does not own, proxy, or pool those accounts. See [External
   Agents](../runtime/external-agents.md#credential-and-account-boundaries) for
   credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok
   Build.
@@ -959,6 +965,8 @@ Hecate uses GitHub Dependabot and CodeQL to catch dependency and code-scanning i
 
 - Keep the default loopback bind unless you add your own network protection.
 - Use trusted workspaces, especially for in-place mode and External Agent sessions.
+- Review each External Agent canonical path, fingerprint, and coverage before
+  approval; investigate every `changed` state instead of approving reflexively.
 - Prefer prompt-mode approvals for interactive use.
 - Revoke durable grants you no longer need.
 - Keep Hecate, the desktop app, and external agent CLIs updated.

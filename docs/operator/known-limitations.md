@@ -295,18 +295,17 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   in-flight turn; startup reconciliation
   marks its running assistant interrupted, although a later prompt may restore
   the stored native ACP session where supported.
-- Hecate does not yet authenticate a discovered provider CLI or persist an
-  executable fingerprint approval. Catalog discovery is passive and shows the
-  last-discovered path; **Refresh** repeats discovery without execution. Opening
-  **Connections** automatically runs one no-prompt check for each available
-  agent; **New chat**, **Check again**, auth/logout, setup discovery, and session launch
-  resolve the executable again, so the executed path can differ from earlier
-  discovery. A local SHA-256 digest alone would detect changed bytes;
-  without a signed publisher manifest or attestation it would not prove origin
-  or that the program is malware-free. Prefer vendor installers and pinned
-  platform publisher signatures or vendor-signed manifests when available;
-  treat ordinary package-manager hashes as integrity rather than publisher
-  identity, and isolate agents you do not fully trust.
+- External Agent apps require an explicit executable-identity approval per
+  runtime host and adapter. Passive discovery measures the canonical path and
+  SHA-256 without execution; checks, auth/logout, diagnostics, session startup,
+  and deferred embedded-provider launches revalidate the approved identity at
+  process start. Opening Chats or Connections does not run a discovered app.
+  This is change detection, not malware or publisher verification:
+  `publisher.status` is `unavailable` in V1, and `launcher_only` covers the
+  measured wrapper rather than every interpreter or program it dispatches.
+  The final launch still uses a filesystem path, so a same-user process can in
+  principle swap it after measurement and before OS exec. Revocation blocks
+  future launches but does not terminate an already-running direct ACP peer.
 - On Windows, every external agent currently requires a native `.exe`. Hecate
   rejects `.cmd`, `.bat`, `.ps1`, and other launcher forms rather than invoking
   a command shell and trusting an unmeasured wrapper/interpreter chain. Native
@@ -331,15 +330,16 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   evasive agent can transform a path or split it into unrelated short message
   or activity records that are not individually recognizable as that alias.
 - Agent auth and billing state belongs to the underlying CLI account. Hecate
-  can classify common failures during a fresh chat launch or the automatic
-  Connections check and surface friendly hints, but operators still need to use each
-  agent's own login/status flow when credentials expire.
+  can classify common failures during a fresh chat launch or an explicit
+  Connections **Check** and surface friendly hints, but operators still need to
+  use each agent's own login/status flow when credentials expire.
 - Cached check results and readiness fixtures are advisory only. They can force
-  Connections and Chats status states for UI testing, but they do not authorize
-  or block a later launch. Real External Agent chats re-resolve the executable
-  and require the underlying CLI and ACP adapter to start successfully. A
-  missing or rejected executable and absent required remote credentials remain
-  actual launch gates.
+  Connections and Chats status states for UI testing, but they neither
+  authorize nor block a later launch. Real External Agent chats re-resolve and
+  revalidate the approved executable and require the underlying CLI and ACP
+  adapter to start successfully. Missing, rejected, unapproved, changed, or
+  unmeasurable executables and absent required remote credentials remain actual
+  launch gates.
 - Workspace review is alpha-grade: Hecate keeps captured per-turn Git diffs as
   historical evidence and separately reviews live staged, working-tree, and
   untracked layers with bounded inline previews. Staged and untracked entries

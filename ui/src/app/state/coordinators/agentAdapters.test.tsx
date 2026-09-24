@@ -9,15 +9,124 @@ import { resolveExternalAgentReadiness } from "../../../lib/external-agent-readi
 const authenticateAgentAdapterMock = vi.fn();
 const logoutAgentAdapterMock = vi.fn();
 const probeAgentAdapterMock = vi.fn();
+const approveAgentAdapterExecutableMock = vi.fn();
+const revokeAgentAdapterExecutableMock = vi.fn();
+const getAgentAdaptersMock = vi.fn();
 
 vi.mock("../../../lib/api", () => ({
   getProviders: vi.fn(),
   getModels: vi.fn(),
   getProviderPresets: vi.fn(),
   probeAgentAdapter: (...args: unknown[]) => probeAgentAdapterMock(...args),
+  getAgentAdapters: (...args: unknown[]) => getAgentAdaptersMock(...args),
   authenticateAgentAdapter: (...args: unknown[]) => authenticateAgentAdapterMock(...args),
   logoutAgentAdapter: (...args: unknown[]) => logoutAgentAdapterMock(...args),
+  approveAgentAdapterExecutable: (...args: unknown[]) => approveAgentAdapterExecutableMock(...args),
+  revokeAgentAdapterExecutable: (...args: unknown[]) => revokeAgentAdapterExecutableMock(...args),
 }));
+
+const approvedExecutableTrust = {
+  schema_version: "hecate.external-agent-executable.v1",
+  state: "approved" as const,
+  reason: "operator_approved",
+};
+
+const executableIdentity = {
+  schema_version: "hecate.external-agent-executable.v1",
+  identity_token: "identity-v1",
+  invocation_path: "/usr/local/bin/codex",
+  canonical_path: "/opt/codex/bin/codex",
+  sha256: "a".repeat(64),
+  coverage: "binary" as const,
+  launcher_chain: [],
+  file_id: "dev:1:ino:2",
+  mode: 0o755,
+  size_bytes: 2048,
+  publisher: { status: "unavailable" },
+};
+
+function UnapprovedWrapper({ children }: { children: ReactNode }) {
+  return (
+    <ProvidersAndModelsProvider
+      initialState={{
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex",
+            available: true,
+            status: "available",
+            auth_status: "unknown",
+            supports_authenticate: true,
+            supports_logout: true,
+            executable_trust: {
+              schema_version: "hecate.external-agent-executable.v1",
+              state: "unapproved",
+              reason: "approval_required",
+              current: executableIdentity,
+            },
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          [
+            "codex",
+            {
+              adapter_id: "codex",
+              status: "ready",
+              stage: "ready",
+              duration_ms: 42,
+            },
+          ],
+        ]),
+      }}
+    >
+      {children}
+    </ProvidersAndModelsProvider>
+  );
+}
+
+function ApprovedIdentityWrapper({ children }: { children: ReactNode }) {
+  return (
+    <ProvidersAndModelsProvider
+      initialState={{
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex",
+            available: true,
+            status: "available",
+            auth_status: "ok",
+            supports_authenticate: true,
+            supports_logout: true,
+            executable_trust: {
+              schema_version: "hecate.external-agent-executable.v1",
+              state: "approved",
+              reason: "operator_approved",
+              current: executableIdentity,
+              approved: executableIdentity,
+            },
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          [
+            "codex",
+            {
+              adapter_id: "codex",
+              status: "ready",
+              stage: "ready",
+              duration_ms: 42,
+            },
+          ],
+        ]),
+      }}
+    >
+      {children}
+    </ProvidersAndModelsProvider>
+  );
+}
 
 function AuthRequiredWrapper({ children }: { children: ReactNode }) {
   return (
@@ -35,6 +144,7 @@ function AuthRequiredWrapper({ children }: { children: ReactNode }) {
             auth_error: "Sign in required.",
             supports_authenticate: true,
             supports_logout: true,
+            executable_trust: approvedExecutableTrust,
           },
         ],
         agentAdapterHealthByID: new Map([
@@ -71,6 +181,7 @@ function ReadyWrapper({ children }: { children: ReactNode }) {
             auth_status: "ok",
             supports_authenticate: true,
             supports_logout: true,
+            executable_trust: approvedExecutableTrust,
           },
         ],
         agentAdapterHealthByID: new Map([
@@ -95,9 +206,157 @@ beforeEach(() => {
   authenticateAgentAdapterMock.mockReset();
   logoutAgentAdapterMock.mockReset();
   probeAgentAdapterMock.mockReset();
+  approveAgentAdapterExecutableMock.mockReset();
+  revokeAgentAdapterExecutableMock.mockReset();
+  getAgentAdaptersMock.mockReset();
 });
 
 describe("useAgentAdapterActions", () => {
+  it("approves the reviewed executable identity and invalidates prior session evidence", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+      approved_by: "operator",
+      approved_at: "2026-09-24T10:00:00Z",
+    };
+    approveAgentAdapterExecutableMock.mockResolvedValue({
+      object: "agent_adapter_executable_trust",
+      data: approved,
+    });
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "list",
+      data: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: true,
+          status: "available",
+          supports_authenticate: true,
+          supports_logout: true,
+          executable_trust: approved,
+        },
+      ],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    await act(async () => {
+      await result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+
+    expect(approveAgentAdapterExecutableMock).toHaveBeenCalledWith("codex", "identity-v1");
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      approved,
+    );
+    expect(result.current.providersAndModels.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(notices).toContainEqual(["success", "External agent app approved."]);
+  });
+
+  it("revokes executable approval immediately and invalidates prior session evidence", async () => {
+    revokeAgentAdapterExecutableMock.mockResolvedValue(undefined);
+    getAgentAdaptersMock.mockRejectedValue(new Error("catalog refresh unavailable"));
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: ApprovedIdentityWrapper },
+    );
+
+    await act(async () => {
+      await result.current.adapterActions.revokeAgentAdapterExecutable("codex");
+    });
+
+    expect(revokeAgentAdapterExecutableMock).toHaveBeenCalledWith("codex");
+    expect(
+      result.current.providersAndModels.state.agentAdapters[0]?.executable_trust,
+    ).toMatchObject({
+      state: "unapproved",
+      reason: "approval_required",
+      current: executableIdentity,
+    });
+    expect(result.current.providersAndModels.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(notices).toContainEqual(["success", "External agent app approval revoked."]);
+  });
+
+  it("refreshes a stale reviewed identity after approval is rejected", async () => {
+    const changedIdentity = {
+      ...executableIdentity,
+      identity_token: "identity-v2",
+      sha256: "b".repeat(64),
+    };
+    const changedTrust = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "changed" as const,
+      reason: "identity_changed",
+      current: changedIdentity,
+      approved: executableIdentity,
+    };
+    approveAgentAdapterExecutableMock.mockRejectedValue(
+      new Error("External agent executable approval is stale."),
+    );
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: true,
+          status: "available",
+          supports_authenticate: true,
+          supports_logout: true,
+          executable_trust: changedTrust,
+        },
+      ],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let approved = true;
+    await act(async () => {
+      approved = await result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        "identity-v1",
+      );
+    });
+
+    expect(approved).toBe(false);
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      changedTrust,
+    );
+    expect(notices).toContainEqual(["error", "External agent executable approval is stale."]);
+  });
+
   it("authenticates an adapter and atomically replaces stale auth diagnostics", async () => {
     authenticateAgentAdapterMock.mockResolvedValue({
       object: "agent_adapter_authenticate",
@@ -212,7 +471,7 @@ describe("useAgentAdapterActions", () => {
     expect(notices).toEqual([["success", "External agent sign-in completed."]]);
   });
 
-  it("keeps an automatic check failure local to the adapter row", async () => {
+  it("keeps a silent check failure local to the adapter row", async () => {
     probeAgentAdapterMock.mockRejectedValue(new Error("adapter launch failed"));
     const notices: Array<[string, string]> = [];
     const { result } = renderHook(

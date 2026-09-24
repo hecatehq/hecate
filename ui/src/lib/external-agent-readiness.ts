@@ -3,6 +3,8 @@ import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../types/agen
 export type ExternalAgentReadinessKind =
   | "ready"
   | "unverified"
+  | "approval"
+  | "changed"
   | "sign_in"
   | "setup"
   | "billing"
@@ -42,12 +44,13 @@ export function resolveExternalAgentReadiness(
     };
   }
 
-  // A Connections session check describes the last disposable ACP session; it never
-  // authorize a later process launch or prove that a deferred prompt-serving
-  // vendor process can authenticate and serve a message. Current passive
-  // discovery and remote credential posture are the only client-side launch
-  // gates.
-  const launchBlocked = !adapter.available || adapter.remote_credential_ok === false;
+  // A Connections session check describes the last disposable ACP session; it
+  // never authorizes a later process launch. Current passive discovery,
+  // operator-approved executable identity, and remote credential posture are
+  // the client-side launch gates. The backend rechecks the identity at launch.
+  const executableApproved = externalAgentExecutableTrustApproved(adapter);
+  const launchBlocked =
+    !adapter.available || !executableApproved || adapter.remote_credential_ok === false;
   const checkedByProbe = health?.status === "ready" && !launchBlocked;
   const authStatus = adapter.auth_status;
   const authError = adapter.auth_error;
@@ -97,6 +100,58 @@ export function resolveExternalAgentReadiness(
       authStatus,
       authError,
       checkedByProbe,
+    };
+  }
+
+  if (!executableApproved) {
+    const trust = adapter.executable_trust;
+    if (trust?.state === "changed") {
+      return {
+        kind: "changed",
+        tone: "red",
+        label: "app changed",
+        needsRepair: true,
+        launchBlocked,
+        loginCommand,
+        setupHint,
+        signInHint,
+        detail:
+          "The discovered app no longer matches the approved identity. Review and approve the update in Connections before Hecate runs it.",
+        authStatus,
+        authError,
+        checkedByProbe: false,
+      };
+    }
+    if (trust?.state === "unavailable") {
+      return {
+        kind: "issue",
+        tone: "amber",
+        label: "identity unavailable",
+        needsRepair: true,
+        launchBlocked,
+        loginCommand,
+        setupHint,
+        signInHint,
+        detail:
+          "Hecate could not inspect this app's executable identity. Review its installation in Connections before trying again.",
+        authStatus,
+        authError,
+        checkedByProbe: false,
+      };
+    }
+    return {
+      kind: "approval",
+      tone: "amber",
+      label: "approve app",
+      needsRepair: true,
+      launchBlocked,
+      loginCommand,
+      setupHint,
+      signInHint,
+      detail: "Review and approve the exact app identity in Connections before Hecate runs it.",
+      authStatus,
+      authError,
+      checkedByProbe: false,
     };
   }
 
@@ -197,11 +252,17 @@ export function resolveExternalAgentReadiness(
     setupHint,
     signInHint,
     detail:
-      "Hecate checks available agents automatically in Connections. New chat still re-resolves the executable and prepares a fresh ACP session.",
+      "Use Check in Connections when you want to test ACP startup. New chat still re-resolves the approved executable identity and prepares a fresh ACP session.",
     authStatus,
     authError,
     checkedByProbe,
   };
+}
+
+export function externalAgentExecutableTrustApproved(
+  adapter: AgentAdapterRecord | undefined,
+): boolean {
+  return adapter?.executable_trust?.state === "approved";
 }
 
 export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {

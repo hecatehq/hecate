@@ -1165,6 +1165,9 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundCursor := false
 	foundGrok := false
 	for _, item := range response.Data {
+		if item.ExecutableTrust == nil || item.ExecutableTrust.SchemaVersion != agentadapters.ExecutableIdentitySchemaVersion {
+			t.Fatalf("adapter %q executable_trust = %#v, want versioned trust projection", item.ID, item.ExecutableTrust)
+		}
 		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex" && item.Embedded && item.CostMode == "external" {
 			foundCodex = true
 			if !item.SupportsAuthenticate {
@@ -5136,8 +5139,8 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	if payload.Error.Type != errCodeAgentAdapterUnavailable {
 		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
 	}
-	if payload.Error.OperatorAction != "Retry New chat. Connections automatically checks available external agents with a temporary no-prompt ACP session; use Check again there if the issue persists." {
-		t.Fatalf("operator action = %q, want automatic Connections check guidance", payload.Error.OperatorAction)
+	if payload.Error.OperatorAction != "Retry New chat, or use Check in Connections if the issue persists." {
+		t.Fatalf("operator action = %q, want explicit Connections check guidance", payload.Error.OperatorAction)
 	}
 	if !runner.prepareHasDeadline {
 		t.Fatal("prepare context did not have a deadline")

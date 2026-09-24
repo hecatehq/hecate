@@ -90,10 +90,41 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentadapters.NewPostgresApprovalStore: %v", err)
 	}
+	executableTrustStore, err := agentadapters.NewPostgresExecutableTrustStore(ctx, client)
+	if err != nil {
+		t.Fatalf("agentadapters.NewPostgresExecutableTrustStore: %v", err)
+	}
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	now := time.Now().UTC()
 	projectID := "project-" + suffix
+	executableRecord := agentadapters.ExecutableTrustRecord{
+		RuntimeHostID: "runtime-" + suffix,
+		AdapterID:     "codex",
+		Identity: agentadapters.ExecutableIdentity{
+			SchemaVersion:  agentadapters.ExecutableIdentitySchemaVersion,
+			IdentityToken:  "sha256:" + strings.Repeat("a", 64),
+			InvocationPath: "/test/codex",
+			CanonicalPath:  "/test/codex",
+			SHA256:         "bytes-" + suffix,
+			Coverage:       agentadapters.ExecutableCoverageBinary,
+			Mode:           0o755,
+			SizeBytes:      42,
+			Publisher: agentadapters.ExecutablePublisherEvidence{
+				Status: agentadapters.ExecutablePublisherUnavailable,
+			},
+		},
+		ApprovedBy: "postgres-smoke",
+		ApprovedAt: now,
+	}
+	if _, err := executableTrustStore.Approve(ctx, executableRecord); err != nil {
+		t.Fatalf("executable trust approve: %v", err)
+	}
+	if got, err := executableTrustStore.Get(ctx, executableRecord.RuntimeHostID, executableRecord.AdapterID); err != nil {
+		t.Fatalf("executable trust get: %v", err)
+	} else if got.Identity.IdentityToken != executableRecord.Identity.IdentityToken {
+		t.Fatalf("executable trust identity = %q, want %q", got.Identity.IdentityToken, executableRecord.Identity.IdentityToken)
+	}
 
 	providerID := "provider-" + suffix
 	if _, err := controlPlaneStore.UpsertProvider(ctx, controlplane.Provider{

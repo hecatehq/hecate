@@ -283,6 +283,8 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       probeAgentAdapter: actions.probeAgentAdapter,
       authenticateAgentAdapter: actions.authenticateAgentAdapter,
       logoutAgentAdapter: actions.logoutAgentAdapter,
+      approveAgentAdapterExecutable: actions.approveAgentAdapterExecutable,
+      revokeAgentAdapterExecutable: actions.revokeAgentAdapterExecutable,
     },
     retention: {
       runRetention: actions.runRetention,

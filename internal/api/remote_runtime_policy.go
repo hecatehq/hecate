@@ -114,6 +114,8 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/agent-adapters/{id}/probe"},
 	{method: http.MethodGet, path: "/hecate/v1/agent-adapters/{id}/health"},
 	{method: http.MethodPost, path: "/hecate/v1/agent-adapters/{id}/logout"},
+	{method: http.MethodPut, path: "/hecate/v1/agent-adapters/{id}/executable-trust"},
+	{method: http.MethodDelete, path: "/hecate/v1/agent-adapters/{id}/executable-trust"},
 	{method: http.MethodGet, path: "/hecate/v1/chat/sessions"},
 	{method: http.MethodPost, path: "/hecate/v1/chat/sessions"},
 	{method: http.MethodGet, path: "/hecate/v1/chat/sessions/{id}"},

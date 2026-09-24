@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -869,34 +870,35 @@ type LocalProviderDiscoveryResponseItem struct {
 }
 
 type AgentAdapterResponseItem struct {
-	ID                   string                              `json:"id"`
-	Name                 string                              `json:"name"`
-	Kind                 string                              `json:"kind"`
-	Command              string                              `json:"command"`
-	Args                 []string                            `json:"args,omitempty"`
-	Embedded             bool                                `json:"embedded"`
-	Available            bool                                `json:"available"`
-	Status               string                              `json:"status"`
-	Path                 string                              `json:"path,omitempty"`
-	Error                string                              `json:"error,omitempty"`
-	Description          string                              `json:"description,omitempty"`
-	CostMode             string                              `json:"cost_mode,omitempty"`
-	DocsURL              string                              `json:"docs_url,omitempty"`
-	AdapterVersion       string                              `json:"adapter_version,omitempty"`
-	AgentVersion         string                              `json:"agent_version,omitempty"`
-	SupportedRange       string                              `json:"supported_range,omitempty"`
-	VersionOutsideRange  bool                                `json:"version_outside_range,omitempty"`
-	SupportsAuthenticate bool                                `json:"supports_authenticate"`
-	SupportsLogout       bool                                `json:"supports_logout"`
-	AuthStatus           string                              `json:"auth_status,omitempty"`
-	AuthError            string                              `json:"auth_error,omitempty"`
-	CredentialModes      []AgentAdapterCredentialModeItem    `json:"credential_modes,omitempty"`
-	RemoteCredentialMode string                              `json:"remote_credential_mode,omitempty"`
-	RemoteCredentialOK   *bool                               `json:"remote_credential_ok,omitempty"`
-	RemoteCredentialHint string                              `json:"remote_credential_hint,omitempty"`
-	Capabilities         []AgentAdapterCapabilityItem        `json:"capabilities,omitempty"`
-	ConfigOptions        []agentcontrols.ConfigOption        `json:"config_options,omitempty"`
-	ClaudeCodeCLI        *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
+	ID                   string                               `json:"id"`
+	Name                 string                               `json:"name"`
+	Kind                 string                               `json:"kind"`
+	Command              string                               `json:"command"`
+	Args                 []string                             `json:"args,omitempty"`
+	Embedded             bool                                 `json:"embedded"`
+	Available            bool                                 `json:"available"`
+	Status               string                               `json:"status"`
+	Path                 string                               `json:"path,omitempty"`
+	Error                string                               `json:"error,omitempty"`
+	Description          string                               `json:"description,omitempty"`
+	CostMode             string                               `json:"cost_mode,omitempty"`
+	DocsURL              string                               `json:"docs_url,omitempty"`
+	AdapterVersion       string                               `json:"adapter_version,omitempty"`
+	AgentVersion         string                               `json:"agent_version,omitempty"`
+	SupportedRange       string                               `json:"supported_range,omitempty"`
+	VersionOutsideRange  bool                                 `json:"version_outside_range,omitempty"`
+	SupportsAuthenticate bool                                 `json:"supports_authenticate"`
+	SupportsLogout       bool                                 `json:"supports_logout"`
+	AuthStatus           string                               `json:"auth_status,omitempty"`
+	AuthError            string                               `json:"auth_error,omitempty"`
+	CredentialModes      []AgentAdapterCredentialModeItem     `json:"credential_modes,omitempty"`
+	RemoteCredentialMode string                               `json:"remote_credential_mode,omitempty"`
+	RemoteCredentialOK   *bool                                `json:"remote_credential_ok,omitempty"`
+	RemoteCredentialHint string                               `json:"remote_credential_hint,omitempty"`
+	Capabilities         []AgentAdapterCapabilityItem         `json:"capabilities,omitempty"`
+	ConfigOptions        []agentcontrols.ConfigOption         `json:"config_options,omitempty"`
+	ClaudeCodeCLI        *AgentAdapterSetupCommandStatusItem  `json:"claude_code_cli,omitempty"`
+	ExecutableTrust      *agentadapters.ExecutableTrustStatus `json:"executable_trust,omitempty"`
 }
 
 type AgentAdapterCapabilityItem struct {
