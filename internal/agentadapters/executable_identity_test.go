@@ -211,6 +211,36 @@ func TestMeasureExecutableIdentity_DetectsChangeDuringMeasurement(t *testing.T) 
 	}
 }
 
+func TestMeasureExecutableIdentity_BoundsGrowthDuringMeasurement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows mutation while a file is open depends on sharing flags")
+	}
+	path := filepath.Join(t.TempDir(), "agent")
+	contents := append(nativeExecutableFixturePrefix(), []byte("before")...)
+	writeExecutableIdentityFixture(t, path, contents)
+	limit := int64(len(contents) + 4)
+
+	_, err := measureExecutableIdentityWithLimitAndHook(path, limit, func() {
+		file, openErr := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if openErr != nil {
+			t.Fatalf("open executable for growth: %v", openErr)
+		}
+		if _, writeErr := file.Write([]byte("growth beyond limit")); writeErr != nil {
+			_ = file.Close()
+			t.Fatalf("grow executable: %v", writeErr)
+		}
+		if closeErr := file.Close(); closeErr != nil {
+			t.Fatalf("close grown executable: %v", closeErr)
+		}
+	})
+	if !errors.Is(err, ErrExecutableIdentityRaced) {
+		t.Fatalf("error = %v, want ErrExecutableIdentityRaced", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "measurement limit") {
+		t.Fatalf("error = %v, want measurement-limit detail", err)
+	}
+}
+
 func TestMeasureExecutableIdentity_DetectsSymlinkRetargetDuringMeasurement(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows external agents require native .exe files and symlink privileges vary")

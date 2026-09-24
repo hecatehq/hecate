@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	acp "github.com/coder/acp-go-sdk"
 )
 
 const executableTrustApprovedByOperator = "operator"
@@ -305,4 +307,55 @@ func (m *ExecutableTrustManager) AuthorizePath(ctx context.Context, adapterID, p
 		return nil, ErrExecutableIdentityChanged
 	}
 	return &ExecutablePermit{Identity: cloneExecutableIdentity(identity), release: release}, nil
+}
+
+// executableTrustBoundaryError collapses internal measurement detail before a
+// trust failure crosses the embedded ACP JSON-RPC boundary. The peer can then
+// return one exact, non-sensitive sentinel for Hecate to classify locally.
+func executableTrustBoundaryError(err error) error {
+	switch {
+	case errors.Is(err, ErrExecutableTrustRequired):
+		return ErrExecutableTrustRequired
+	case errors.Is(err, ErrExecutableIdentityChanged), errors.Is(err, ErrExecutableTrustConflict):
+		return ErrExecutableIdentityChanged
+	case errors.Is(err, ErrExecutableIdentityRaced):
+		return ErrExecutableIdentityRaced
+	case errors.Is(err, ErrExecutableIdentityUnavailable):
+		return ErrExecutableIdentityUnavailable
+	default:
+		return err
+	}
+}
+
+// embeddedACPExecutableTrustError restores only exact Hecate-owned trust
+// sentinels returned by an in-process adapter. Direct ACP peers remain
+// untrusted and cannot manufacture local policy errors through error data.
+func embeddedACPExecutableTrustError(adapter Adapter, err error) error {
+	if err == nil || !adapterUsesEmbeddedServer(adapter) {
+		return err
+	}
+	var requestErr *acp.RequestError
+	if !errors.As(err, &requestErr) {
+		return err
+	}
+	data, ok := requestErr.Data.(map[string]any)
+	if !ok {
+		return err
+	}
+	message, ok := data["error"].(string)
+	if !ok {
+		return err
+	}
+	switch message {
+	case ErrExecutableTrustRequired.Error():
+		return ErrExecutableTrustRequired
+	case ErrExecutableIdentityChanged.Error():
+		return ErrExecutableIdentityChanged
+	case ErrExecutableIdentityRaced.Error():
+		return ErrExecutableIdentityRaced
+	case ErrExecutableIdentityUnavailable.Error():
+		return ErrExecutableIdentityUnavailable
+	default:
+		return err
+	}
 }

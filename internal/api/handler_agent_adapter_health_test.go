@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
 func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
@@ -53,7 +55,7 @@ func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
 		t.Fatalf("health path = %q, want %q", resp.Data.Path, executable)
 	}
 	if resp.Data.Stage != agentadapters.ProbeStageLookup ||
-		!strings.Contains(resp.Data.Hint, "Review and approve") ||
+		!strings.Contains(resp.Data.Hint, "Review its current executable approval status") ||
 		!strings.Contains(resp.Data.Hint, "before Hecate runs") {
 		t.Fatalf("health = %#v, want executable approval guidance", resp.Data)
 	}
@@ -103,6 +105,9 @@ func TestAgentAdapterExecutableTrustApprovalLifecycle(t *testing.T) {
 	if approval.Data.State != agentadapters.ExecutableTrustStateApproved || approval.Data.Current == nil {
 		t.Fatalf("approval response = %#v", approval)
 	}
+	if approval.Data.ApprovedBy != "operator" {
+		t.Fatalf("approval actor = %q, want local operator", approval.Data.ApprovedBy)
+	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("approval executed candidate; marker stat = %v", err)
 	}
@@ -121,6 +126,19 @@ func TestAgentAdapterExecutableTrustApprovalLifecycle(t *testing.T) {
 	codex = findAgentAdapterResponseItem(t, catalog.Data, "codex")
 	if codex.ExecutableTrust == nil || codex.ExecutableTrust.State != agentadapters.ExecutableTrustStateUnapproved {
 		t.Fatalf("revoked executable trust = %#v", codex.ExecutableTrust)
+	}
+}
+
+func TestExecutableTrustApprovedByUsesAuthenticatedRemoteActor(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPut, "/hecate/v1/agent-adapters/codex/executable-trust", nil)
+	request = request.WithContext(remoteruntime.WithIdentity(request.Context(), remoteruntime.Identity{
+		ActorID:   "operator_1",
+		OrgID:     "org_1",
+		RuntimeID: "runtime_1",
+	}))
+
+	if got := executableTrustApprovedBy(request); got != "cloud:operator_1" {
+		t.Fatalf("executableTrustApprovedBy() = %q, want authenticated remote actor", got)
 	}
 }
 

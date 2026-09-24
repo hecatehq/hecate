@@ -91,7 +91,7 @@ func passiveAgentAdapterHealth(status agentadapters.Status) agentadapters.ProbeR
 	if status.Available {
 		result.Status = agentadapters.ProbeStatusUnverified
 		result.Error = ""
-		result.Hint = "App found. Review and approve its executable identity in Connections before Hecate runs a check or starts a chat."
+		result.Hint = "App found. Review its current executable approval status in Connections before Hecate runs a check or starts a chat."
 		return result
 	}
 	if status.AuthStatus == agentadapters.AuthStatusUnauthenticated {

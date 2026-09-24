@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
 func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
@@ -277,11 +278,12 @@ func (h *Handler) HandleRevokeAgentAdapterExecutable(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func executableTrustApprovedBy(_ *http.Request) string {
+func executableTrustApprovedBy(r *http.Request) string {
 	// Authentication identifies an operator today, but the local API does not
 	// yet expose a stable user principal. Keep the audit value honest rather
-	// than persisting an address or bearer credential.
-	return "operator"
+	// than persisting an address or bearer credential. Remote-runtime requests
+	// do carry a verified actor identity, so retain it in the approval audit.
+	return remoteruntime.ActorForAudit(r.Context(), "operator")
 }
 
 func (h *Handler) requireAgentAdapterExecutableTrust(w http.ResponseWriter, ctx context.Context, adapterID string) bool {

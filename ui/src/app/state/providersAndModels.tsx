@@ -85,7 +85,12 @@ export type ProbeAgentAdapterOptions = {
 };
 
 export type RefreshAgentAdaptersResult =
-  | { ok: true; adapters: AgentAdapterRecord[] }
+  | {
+      ok: true;
+      adapters: AgentAdapterRecord[];
+      applied: boolean;
+      authoritative: boolean;
+    }
   | { ok: false; error: string };
 
 export type VerifyModelToolSupportResult =
@@ -346,6 +351,10 @@ export function ProvidersAndModelsProvider({
   const modelsMutationRevisionRef = useRef(0);
   const latestModelsRefreshRef = useRef(0);
   const latestAgentAdaptersRefreshRef = useRef(0);
+  const latestAppliedAgentAdaptersRefreshRef = useRef<{
+    id: number;
+    adapters: AgentAdapterRecord[];
+  } | null>(null);
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -384,6 +393,7 @@ export function ProvidersAndModelsProvider({
     // be rolled back by an in-flight dashboard refresh. Production catalog
     // reads must use loadAgentAdapterCatalog instead.
     latestAgentAdaptersRefreshRef.current += 1;
+    latestAppliedAgentAdaptersRefreshRef.current = null;
     dispatch({ type: "agentAdapters/set", next });
   }, []);
   const setAgentAdapterApprovalMode = useCallback(
@@ -402,6 +412,7 @@ export function ProvidersAndModelsProvider({
       // operator refresh may replace it with catalog auth=unknown, but an
       // older response must not.
       latestAgentAdaptersRefreshRef.current += 1;
+      latestAppliedAgentAdaptersRefreshRef.current = null;
       agentAdapterEvidenceRevisionByIDRef.current.set(
         adapterID,
         (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) + 1,
@@ -421,6 +432,7 @@ export function ProvidersAndModelsProvider({
       // than every in-flight passive read and probe, so fence both projections
       // and discard cached process evidence in one reducer transition.
       latestAgentAdaptersRefreshRef.current += 1;
+      latestAppliedAgentAdaptersRefreshRef.current = null;
       agentAdapterEvidenceRevisionByIDRef.current.set(
         adapterID,
         (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) + 1,
@@ -467,14 +479,16 @@ export function ProvidersAndModelsProvider({
     }
   }, [loadModelCatalog]);
 
-  const loadAgentAdapterCatalog = useCallback(async (): Promise<AgentAdapterResponse> => {
+  const fetchAgentAdapterCatalog = useCallback(async () => {
     const refreshID = ++latestAgentAdaptersRefreshRef.current;
     const trustAtStart = new Map(
       agentAdaptersRef.current.map((item) => [item.id, executableTrustSignature(item)]),
     );
     const response = await getAgentAdapters();
-    if (latestAgentAdaptersRefreshRef.current === refreshID) {
-      (response.data ?? []).forEach((item) => {
+    const applied = latestAgentAdaptersRefreshRef.current === refreshID;
+    if (applied) {
+      const adapters = response.data ?? [];
+      adapters.forEach((item) => {
         if (trustAtStart.get(item.id) === executableTrustSignature(item)) return;
         agentAdapterEvidenceRevisionByIDRef.current.set(
           item.id,
@@ -482,15 +496,31 @@ export function ProvidersAndModelsProvider({
         );
         probeAgentAdapterInFlightRef.current.delete(item.id);
       });
-      dispatch({ type: "agentAdapters/catalogSet", next: response.data ?? [] });
+      latestAppliedAgentAdaptersRefreshRef.current = { id: refreshID, adapters };
+      dispatch({ type: "agentAdapters/catalogSet", next: adapters });
     }
-    return response;
+    const latestApplied = latestAppliedAgentAdaptersRefreshRef.current;
+    const authoritativeAdapters =
+      applied || (latestApplied !== null && latestApplied.id > refreshID)
+        ? latestApplied?.adapters
+        : undefined;
+    return { response, applied, authoritativeAdapters };
   }, []);
+
+  const loadAgentAdapterCatalog = useCallback(async (): Promise<AgentAdapterResponse> => {
+    const result = await fetchAgentAdapterCatalog();
+    return result.response;
+  }, [fetchAgentAdapterCatalog]);
 
   const refreshAgentAdapters = useCallback(async (): Promise<RefreshAgentAdaptersResult> => {
     try {
-      const payload = await loadAgentAdapterCatalog();
-      return { ok: true, adapters: payload.data ?? [] };
+      const { response, applied, authoritativeAdapters } = await fetchAgentAdapterCatalog();
+      return {
+        ok: true,
+        adapters: authoritativeAdapters ?? response.data ?? [],
+        applied,
+        authoritative: authoritativeAdapters !== undefined,
+      };
     } catch (error) {
       return {
         ok: false,
@@ -498,7 +528,7 @@ export function ProvidersAndModelsProvider({
           error instanceof Error ? error.message : "Failed to refresh external-agent discovery.",
       };
     }
-  }, [loadAgentAdapterCatalog]);
+  }, [fetchAgentAdapterCatalog]);
 
   const probeAgentAdapter = useCallback(
     async (

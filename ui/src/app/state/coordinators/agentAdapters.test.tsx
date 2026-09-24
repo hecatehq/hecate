@@ -1,10 +1,11 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import { useAgentAdapterActions } from "./agentAdapters";
 import { ProvidersAndModelsProvider, useProvidersAndModels } from "../providersAndModels";
 import { resolveExternalAgentReadiness } from "../../../lib/external-agent-readiness";
+import type { AgentAdapterExecutableTrust } from "../../../types/agent-adapter";
 
 const authenticateAgentAdapterMock = vi.fn();
 const logoutAgentAdapterMock = vi.fn();
@@ -44,6 +45,46 @@ const executableIdentity = {
   size_bytes: 2048,
   publisher: { status: "unavailable" },
 };
+
+const changedExecutableTrust: AgentAdapterExecutableTrust = {
+  schema_version: "hecate.external-agent-executable.v1",
+  state: "changed",
+  reason: "identity_changed",
+  current: {
+    ...executableIdentity,
+    identity_token: "identity-v2",
+    sha256: "b".repeat(64),
+  },
+  approved: executableIdentity,
+};
+
+const unavailableExecutableTrust: AgentAdapterExecutableTrust = {
+  schema_version: "hecate.external-agent-executable.v1",
+  state: "unavailable",
+  reason: "executable_not_found",
+};
+
+function adapterWithExecutableTrust(executableTrust: AgentAdapterExecutableTrust) {
+  return {
+    id: "codex",
+    name: "Codex",
+    kind: "acp",
+    command: "codex",
+    available: executableTrust.state !== "unavailable",
+    status: executableTrust.state === "unavailable" ? "missing" : "available",
+    supports_authenticate: true,
+    supports_logout: true,
+    executable_trust: executableTrust,
+  };
+}
+
+function deferredValue<T = unknown>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
 
 function UnapprovedWrapper({ children }: { children: ReactNode }) {
   return (
@@ -268,6 +309,428 @@ describe("useAgentAdapterActions", () => {
     expect(notices).toContainEqual(["success", "External agent app approved."]);
   });
 
+  it("preserves a confirmed approval when the passive follow-up refresh fails", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+    };
+    approveAgentAdapterExecutableMock.mockResolvedValue({
+      object: "agent_adapter_executable_trust",
+      data: approved,
+    });
+    getAgentAdaptersMock.mockRejectedValue(new Error("catalog refresh unavailable"));
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+
+    expect(succeeded).toBe(true);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      approved,
+    );
+    expect(notices).toEqual([["success", "External agent app approved."]]);
+  });
+
+  it("confirms approval when its response is lost after commit", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+    };
+    approveAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [adapterWithExecutableTrust(approved)],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+
+    expect(succeeded).toBe(true);
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      approved,
+    );
+    expect(notices).toEqual([["success", "External agent app approved."]]);
+  });
+
+  it("does not confirm a lost approval response from a different reviewed identity", async () => {
+    const otherIdentity = {
+      ...executableIdentity,
+      identity_token: "identity-v2",
+      sha256: "b".repeat(64),
+    };
+    const approvedOtherIdentity = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: otherIdentity,
+      approved: otherIdentity,
+    };
+    approveAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [adapterWithExecutableTrust(approvedOtherIdentity)],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () =>
+        useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+
+    expect(succeeded).toBe(false);
+    expect(notices).toEqual([["error", "response lost"]]);
+  });
+
+  it.each([
+    [
+      "changed",
+      changedExecutableTrust,
+      "The external agent app changed before approval could be confirmed. Review and approve its current identity.",
+    ],
+    [
+      "unavailable",
+      unavailableExecutableTrust,
+      "The external agent app became unavailable before approval could be confirmed. Refresh discovery and try again.",
+    ],
+  ] as const)(
+    "does not report success when the approval response is already %s",
+    async (_state, trust, expectedMessage) => {
+      approveAgentAdapterExecutableMock.mockResolvedValue({
+        object: "agent_adapter_executable_trust",
+        data: trust,
+      });
+      getAgentAdaptersMock.mockResolvedValue({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(trust)],
+      });
+      const notices: Array<[string, string]> = [];
+      const { result } = renderHook(
+        () => ({
+          adapterActions: useAgentAdapterActions({
+            setNoticeMessage: (kind, message) => notices.push([kind, message]),
+          }),
+          providersAndModels: useProvidersAndModels(),
+        }),
+        { wrapper: UnapprovedWrapper },
+      );
+
+      let succeeded = true;
+      await act(async () => {
+        succeeded = await result.current.adapterActions.approveAgentAdapterExecutable(
+          "codex",
+          executableIdentity.identity_token,
+        );
+      });
+
+      expect(succeeded).toBe(false);
+      expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+        trust,
+      );
+      expect(notices).toEqual([["error", expectedMessage]]);
+    },
+  );
+
+  it.each([
+    [
+      "changed",
+      changedExecutableTrust,
+      "The external agent app changed before approval could be confirmed. Review and approve its current identity.",
+    ],
+    [
+      "unavailable",
+      unavailableExecutableTrust,
+      "The external agent app became unavailable before approval could be confirmed. Refresh discovery and try again.",
+    ],
+  ] as const)(
+    "uses the refreshed %s state instead of an earlier approved response",
+    async (_state, refreshedTrust, expectedMessage) => {
+      const approved = {
+        schema_version: "hecate.external-agent-executable.v1",
+        state: "approved" as const,
+        reason: "operator_approved",
+        current: executableIdentity,
+        approved: executableIdentity,
+      };
+      approveAgentAdapterExecutableMock.mockResolvedValue({
+        object: "agent_adapter_executable_trust",
+        data: approved,
+      });
+      getAgentAdaptersMock.mockResolvedValue({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(refreshedTrust)],
+      });
+      const notices: Array<[string, string]> = [];
+      const { result } = renderHook(
+        () => ({
+          adapterActions: useAgentAdapterActions({
+            setNoticeMessage: (kind, message) => notices.push([kind, message]),
+          }),
+          providersAndModels: useProvidersAndModels(),
+        }),
+        { wrapper: UnapprovedWrapper },
+      );
+
+      let succeeded = true;
+      await act(async () => {
+        succeeded = await result.current.adapterActions.approveAgentAdapterExecutable(
+          "codex",
+          executableIdentity.identity_token,
+        );
+      });
+
+      expect(succeeded).toBe(false);
+      expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+        refreshedTrust,
+      );
+      expect(notices).toEqual([["error", expectedMessage]]);
+    },
+  );
+
+  it("does not trust an approved refresh response superseded by newer committed evidence", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+    };
+    let resolveApprovalRefresh: (value: unknown) => void = () => {};
+    let resolveNewerRefresh: (value: unknown) => void = () => {};
+    approveAgentAdapterExecutableMock.mockResolvedValue({
+      object: "agent_adapter_executable_trust",
+      data: approved,
+    });
+    getAgentAdaptersMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveApprovalRefresh = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveNewerRefresh = resolve;
+        }),
+      );
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let approvalSucceeded = true;
+    let approvalRequest!: Promise<void>;
+    act(() => {
+      approvalRequest = result.current.adapterActions
+        .approveAgentAdapterExecutable("codex", executableIdentity.identity_token)
+        .then((succeeded) => {
+          approvalSucceeded = succeeded;
+        });
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1));
+
+    let newerRefresh!: Promise<unknown>;
+    act(() => {
+      newerRefresh = result.current.providersAndModels.actions.refreshAgentAdapters();
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveNewerRefresh({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(changedExecutableTrust)],
+      });
+      await newerRefresh;
+      resolveApprovalRefresh({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(approved)],
+      });
+      await approvalRequest;
+    });
+
+    expect(approvalSucceeded).toBe(false);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      changedExecutableTrust,
+    );
+    expect(notices).toEqual([
+      [
+        "error",
+        "The external agent app changed before approval could be confirmed. Review and approve its current identity.",
+      ],
+    ]);
+  });
+
+  it("uses a newer matching catalog when it supersedes the approval refresh", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+    };
+    const approvalRefresh = deferredValue();
+    const newerRefresh = deferredValue();
+    approveAgentAdapterExecutableMock.mockResolvedValue({
+      object: "agent_adapter_executable_trust",
+      data: approved,
+    });
+    getAgentAdaptersMock
+      .mockReturnValueOnce(approvalRefresh.promise)
+      .mockReturnValueOnce(newerRefresh.promise);
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let approval!: Promise<boolean>;
+    act(() => {
+      approval = result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1));
+
+    let newer!: Promise<unknown>;
+    act(() => {
+      newer = result.current.providersAndModels.actions.refreshAgentAdapters();
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(2));
+
+    let succeeded = false;
+    await act(async () => {
+      newerRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(approved)],
+      });
+      await newer;
+      approvalRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(changedExecutableTrust)],
+      });
+      succeeded = await approval;
+    });
+
+    expect(succeeded).toBe(true);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      approved,
+    );
+    expect(notices).toEqual([["success", "External agent app approved."]]);
+  });
+
+  it("uses a newer matching catalog after an approval response is lost", async () => {
+    const approved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved" as const,
+      reason: "operator_approved",
+      current: executableIdentity,
+      approved: executableIdentity,
+    };
+    const approvalRefresh = deferredValue();
+    const newerRefresh = deferredValue();
+    approveAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    getAgentAdaptersMock
+      .mockReturnValueOnce(approvalRefresh.promise)
+      .mockReturnValueOnce(newerRefresh.promise);
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: UnapprovedWrapper },
+    );
+
+    let approval!: Promise<boolean>;
+    act(() => {
+      approval = result.current.adapterActions.approveAgentAdapterExecutable(
+        "codex",
+        executableIdentity.identity_token,
+      );
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1));
+
+    let newer!: Promise<unknown>;
+    act(() => {
+      newer = result.current.providersAndModels.actions.refreshAgentAdapters();
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(2));
+
+    let succeeded = false;
+    await act(async () => {
+      newerRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(approved)],
+      });
+      await newer;
+      approvalRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(changedExecutableTrust)],
+      });
+      succeeded = await approval;
+    });
+
+    expect(succeeded).toBe(true);
+    expect(notices).toEqual([["success", "External agent app approved."]]);
+  });
+
   it("revokes executable approval immediately and invalidates prior session evidence", async () => {
     revokeAgentAdapterExecutableMock.mockResolvedValue(undefined);
     getAgentAdaptersMock.mockRejectedValue(new Error("catalog refresh unavailable"));
@@ -296,6 +759,136 @@ describe("useAgentAdapterActions", () => {
     });
     expect(result.current.providersAndModels.state.agentAdapterHealthByID.has("codex")).toBe(false);
     expect(notices).toContainEqual(["success", "External agent app approval revoked."]);
+  });
+
+  it("reconciles executable trust when a revoke response is lost after commit", async () => {
+    revokeAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    const unapproved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "unapproved" as const,
+      reason: "approval_required",
+      current: executableIdentity,
+    };
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [adapterWithExecutableTrust(unapproved)],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: ApprovedIdentityWrapper },
+    );
+
+    let revoked = true;
+    await act(async () => {
+      revoked = await result.current.adapterActions.revokeAgentAdapterExecutable("codex");
+    });
+
+    expect(revoked).toBe(true);
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      unapproved,
+    );
+    expect(notices).toEqual([["success", "External agent app approval revoked."]]);
+  });
+
+  it.each([
+    [
+      "confirms deletion when the app also becomes unavailable",
+      unavailableExecutableTrust,
+      true,
+      ["success", "External agent app approval revoked."],
+    ],
+    [
+      "retains failure when an unavailable app still has an approval",
+      { ...unavailableExecutableTrust, approved: executableIdentity },
+      false,
+      ["error", "response lost"],
+    ],
+  ] as const)("%s", async (_name, trust, wantSuccess, expectedNotice) => {
+    revokeAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [adapterWithExecutableTrust(trust)],
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () =>
+        useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+      { wrapper: ApprovedIdentityWrapper },
+    );
+
+    let succeeded = !wantSuccess;
+    await act(async () => {
+      succeeded = await result.current.revokeAgentAdapterExecutable("codex");
+    });
+
+    expect(succeeded).toBe(wantSuccess);
+    expect(notices).toEqual([expectedNotice]);
+  });
+
+  it("uses a newer matching catalog after a revoke response is lost", async () => {
+    const unapproved = {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "unapproved" as const,
+      reason: "approval_required",
+      current: executableIdentity,
+    };
+    const revokeRefresh = deferredValue();
+    const newerRefresh = deferredValue();
+    revokeAgentAdapterExecutableMock.mockRejectedValue(new Error("response lost"));
+    getAgentAdaptersMock
+      .mockReturnValueOnce(revokeRefresh.promise)
+      .mockReturnValueOnce(newerRefresh.promise);
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: ApprovedIdentityWrapper },
+    );
+
+    let revoke!: Promise<boolean>;
+    act(() => {
+      revoke = result.current.adapterActions.revokeAgentAdapterExecutable("codex");
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1));
+
+    let newer!: Promise<unknown>;
+    act(() => {
+      newer = result.current.providersAndModels.actions.refreshAgentAdapters();
+    });
+    await waitFor(() => expect(getAgentAdaptersMock).toHaveBeenCalledTimes(2));
+
+    let succeeded = false;
+    await act(async () => {
+      newerRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(unapproved)],
+      });
+      await newer;
+      revokeRefresh.resolve({
+        object: "agent_adapters",
+        data: [adapterWithExecutableTrust(changedExecutableTrust)],
+      });
+      succeeded = await revoke;
+    });
+
+    expect(succeeded).toBe(true);
+    expect(result.current.providersAndModels.state.agentAdapters[0]?.executable_trust).toEqual(
+      unapproved,
+    );
+    expect(notices).toEqual([["success", "External agent app approval revoked."]]);
   });
 
   it("refreshes a stale reviewed identity after approval is rejected", async () => {

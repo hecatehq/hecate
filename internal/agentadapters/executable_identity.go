@@ -22,6 +22,8 @@ const (
 	executableIdentityMaxBytes    = int64(1 << 30)
 )
 
+var errExecutableIdentityMeasurementLimit = errors.New("executable exceeded the identity measurement limit while hashing")
+
 // measureExecutableIdentity measures the filesystem object that would be used
 // for an external-agent launch. The invocation path remains distinct from the
 // canonical target because shared shims such as Volta dispatch using argv[0].
@@ -40,6 +42,22 @@ func measureExecutableIdentityWithHook(path string, afterOpen func()) (Executabl
 }
 
 func measureExecutableIdentityWithContextAndHook(ctx context.Context, path string, afterOpen func()) (ExecutableIdentity, error) {
+	return measureExecutableIdentityWithContextLimitAndHooks(ctx, path, executableIdentityMaxBytes, nil, afterOpen)
+}
+
+// measureExecutableIdentityWithLimitAndHook keeps limit-race tests small and
+// deterministic while production always uses executableIdentityMaxBytes.
+func measureExecutableIdentityWithLimitAndHook(path string, maxBytes int64, afterOpen func()) (ExecutableIdentity, error) {
+	return measureExecutableIdentityWithContextLimitAndHooks(context.Background(), path, maxBytes, nil, afterOpen)
+}
+
+// The before-open hook exists only to make path-replacement tests
+// deterministic. Production callers never supply it.
+func measureExecutableIdentityWithHooks(path string, beforeOpen, afterOpen func()) (ExecutableIdentity, error) {
+	return measureExecutableIdentityWithContextLimitAndHooks(context.Background(), path, executableIdentityMaxBytes, beforeOpen, afterOpen)
+}
+
+func measureExecutableIdentityWithContextLimitAndHooks(ctx context.Context, path string, maxBytes int64, beforeOpen, afterOpen func()) (ExecutableIdentity, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -53,8 +71,11 @@ func measureExecutableIdentityWithContextAndHook(ctx context.Context, path strin
 	if err := validateAgentProcessLauncher(invocationPath); err != nil {
 		return ExecutableIdentity{}, executableIdentityUnavailable("validate executable launcher", err)
 	}
+	if beforeOpen != nil {
+		beforeOpen()
+	}
 
-	file, err := os.Open(canonicalPath)
+	file, err := openExecutableIdentityFile(canonicalPath)
 	if err != nil {
 		return ExecutableIdentity{}, executableIdentityUnavailable("open executable", err)
 	}
@@ -64,7 +85,7 @@ func measureExecutableIdentityWithContextAndHook(ctx context.Context, path strin
 	if err != nil {
 		return ExecutableIdentity{}, executableIdentityUnavailable("inspect opened executable", err)
 	}
-	if err := validateExecutableIdentityFile(before); err != nil {
+	if err := validateExecutableIdentityFile(before, maxBytes); err != nil {
 		return ExecutableIdentity{}, err
 	}
 	beforeID, err := executableFileIdentity(file, before)
@@ -76,24 +97,15 @@ func measureExecutableIdentityWithContextAndHook(ctx context.Context, path strin
 		afterOpen()
 	}
 
-	digest := sha256.New()
-	prefix := make([]byte, executableIdentityPrefixLimit)
-	reader := executableIdentityContextReader{ctx: ctx, reader: file}
-	prefixSize, readErr := io.ReadFull(reader, prefix)
-	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+	prefix, digest, hashErr := hashExecutableIdentity(ctx, file, maxBytes)
+	if hashErr != nil {
 		if err := ctx.Err(); err != nil {
 			return ExecutableIdentity{}, err
 		}
-		return ExecutableIdentity{}, executableIdentityUnavailable("read executable", readErr)
-	}
-	if _, err := digest.Write(prefix[:prefixSize]); err != nil {
-		return ExecutableIdentity{}, executableIdentityUnavailable("hash executable prefix", err)
-	}
-	if _, err := io.Copy(digest, reader); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ExecutableIdentity{}, ctxErr
+		if errors.Is(hashErr, errExecutableIdentityMeasurementLimit) {
+			return ExecutableIdentity{}, executableIdentityRaced("hash executable", hashErr)
 		}
-		return ExecutableIdentity{}, executableIdentityUnavailable("hash executable", err)
+		return ExecutableIdentity{}, executableIdentityUnavailable("hash executable", hashErr)
 	}
 
 	after, err := file.Stat()
@@ -111,12 +123,12 @@ func measureExecutableIdentityWithContextAndHook(ctx context.Context, path strin
 		return ExecutableIdentity{}, err
 	}
 
-	coverage, launcherChain := classifyExecutableIdentity(invocationPath, canonicalPath, prefix[:prefixSize])
+	coverage, launcherChain := classifyExecutableIdentity(invocationPath, canonicalPath, prefix)
 	identity := ExecutableIdentity{
 		SchemaVersion:  ExecutableIdentitySchemaVersion,
 		InvocationPath: invocationPath,
 		CanonicalPath:  canonicalPath,
-		SHA256:         hex.EncodeToString(digest.Sum(nil)),
+		SHA256:         hex.EncodeToString(digest),
 		Coverage:       coverage,
 		LauncherChain:  launcherChain,
 		FileID:         afterID,
@@ -131,6 +143,38 @@ func measureExecutableIdentityWithContextAndHook(ctx context.Context, path strin
 	}
 	identity.IdentityToken = executableIdentityToken(identity)
 	return identity, nil
+}
+
+func hashExecutableIdentity(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, []byte, error) {
+	if maxBytes < 0 {
+		return nil, nil, errExecutableIdentityMeasurementLimit
+	}
+	limited := &io.LimitedReader{
+		R: executableIdentityContextReader{ctx: ctx, reader: reader},
+		N: maxBytes + 1,
+	}
+	prefixLimit := int64(executableIdentityPrefixLimit)
+	if limited.N < prefixLimit {
+		prefixLimit = limited.N
+	}
+	prefix := make([]byte, int(prefixLimit))
+	prefixSize, readErr := io.ReadFull(limited, prefix)
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return nil, nil, readErr
+	}
+
+	digest := sha256.New()
+	if _, err := digest.Write(prefix[:prefixSize]); err != nil {
+		return nil, nil, err
+	}
+	copied, err := io.Copy(digest, limited)
+	if err != nil {
+		return nil, nil, err
+	}
+	if int64(prefixSize)+copied > maxBytes {
+		return nil, nil, errExecutableIdentityMeasurementLimit
+	}
+	return prefix[:prefixSize], digest.Sum(nil), nil
 }
 
 type executableIdentityContextReader struct {
@@ -171,14 +215,14 @@ func executableIdentityPaths(path string) (string, string, error) {
 	return invocationPath, filepath.Clean(canonicalPath), nil
 }
 
-func validateExecutableIdentityFile(info fs.FileInfo) error {
+func validateExecutableIdentityFile(info fs.FileInfo, maxBytes int64) error {
 	if !info.Mode().IsRegular() {
 		return executableIdentityUnavailable("validate executable", errors.New("target is not a regular file"))
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		return executableIdentityUnavailable("validate executable", errors.New("target is not executable"))
 	}
-	if info.Size() < 0 || info.Size() > executableIdentityMaxBytes {
+	if info.Size() < 0 || info.Size() > maxBytes {
 		return executableIdentityUnavailable("validate executable", errors.New("target exceeds the executable identity measurement limit"))
 	}
 	return nil

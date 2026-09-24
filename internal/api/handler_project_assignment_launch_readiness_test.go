@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +19,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
 func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEffects(t *testing.T) {
@@ -365,6 +370,156 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessUsesCairnlineReadModelWhenConfi
 	}
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want no task created by Cairnline launch readiness", tasks)
+	}
+}
+
+func TestProjectWorkAPI_ExternalAgentLaunchReadinessRequiresAvailableApprovedExecutable(t *testing.T) {
+	t.Setenv("HECATE_AGENT_ADAPTER_DEV_OVERRIDES", "")
+	t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "")
+	t.Setenv("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	for _, test := range []struct {
+		name              string
+		setup             func(*testing.T, *Handler, string)
+		remoteRuntime     bool
+		wantReady         bool
+		wantBlocker       string
+		wantAbsentBlocker string
+	}{
+		{
+			name: "missing",
+			setup: func(t *testing.T, _ *Handler, _ string) {
+				t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "codex=missing")
+			},
+			wantBlocker: "app is unavailable",
+		},
+		{
+			name: "unapproved",
+			setup: func(t *testing.T, _ *Handler, path string) {
+				writeProjectAssignmentExecutableFixture(t, path, []byte("unapproved"))
+			},
+			wantBlocker: "app approval is required",
+		},
+		{
+			name: "changed",
+			setup: func(t *testing.T, handler *Handler, path string) {
+				writeProjectAssignmentExecutableFixture(t, path, []byte("approved"))
+				approveProjectAssignmentExecutableFixture(t, handler)
+				writeProjectAssignmentExecutableFixture(t, path, []byte("changed"))
+			},
+			wantBlocker: "app changed after approval",
+		},
+		{
+			name: "identity unavailable",
+			setup: func(t *testing.T, _ *Handler, path string) {
+				writeProjectAssignmentExecutableFixture(t, path, []byte("oversized"))
+				if err := os.Truncate(path, (1<<30)+1); err != nil {
+					t.Fatalf("grow executable fixture: %v", err)
+				}
+			},
+			wantBlocker: "could not verify",
+		},
+		{
+			name:              "remote credential missing",
+			setup:             func(*testing.T, *Handler, string) {},
+			remoteRuntime:     true,
+			wantBlocker:       "Codex requires one remote-safe credential environment variable: OPENAI_API_KEY, CODEX_API_KEY",
+			wantAbsentBlocker: "app is unavailable",
+		},
+		{
+			name: "approved",
+			setup: func(t *testing.T, handler *Handler, path string) {
+				writeProjectAssignmentExecutableFixture(t, path, []byte("approved"))
+				approveProjectAssignmentExecutableFixture(t, handler)
+			},
+			wantReady: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "")
+			installDir := t.TempDir()
+			t.Setenv("CODEX_INSTALL_DIR", installDir)
+			executableName := "codex"
+			if runtime.GOOS == "windows" {
+				executableName += ".exe"
+			}
+			executable := filepath.Join(installDir, executableName)
+
+			handler, server := newProjectWorkTestServer()
+			if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+				ID:                "external_readiness",
+				Name:              "External readiness",
+				Surface:           agentprofiles.SurfaceExternalAgent,
+				ExternalAgentKind: "codex",
+			}); err != nil {
+				t.Fatalf("Create external-agent preset: %v", err)
+			}
+			seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+				Workspace:        t.TempDir(),
+				Driver:           projectwork.AssignmentDriverExternalAgent,
+				Status:           projectwork.AssignmentStatusQueued,
+				RoleAgentProfile: "external_readiness",
+			})
+			test.setup(t, handler, executable)
+
+			requestHandler := server
+			if test.remoteRuntime {
+				requestHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					server.ServeHTTP(w, r.WithContext(remoteruntime.WithIdentity(r.Context(), remoteruntime.Identity{
+						ActorID:   "operator_1",
+						OrgID:     "org_1",
+						RuntimeID: "runtime_1",
+					})))
+				})
+			}
+			readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](
+				newAPITestClient(t, requestHandler),
+				http.MethodGet,
+				"/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/launch-readiness",
+				"",
+			)
+			if readiness.Data.Ready != test.wantReady {
+				t.Fatalf("readiness = %+v, want ready=%v", readiness.Data, test.wantReady)
+			}
+			if test.wantBlocker != "" && !strings.Contains(strings.Join(readiness.Data.Blockers, "\n"), test.wantBlocker) {
+				t.Fatalf("blockers = %+v, want substring %q", readiness.Data.Blockers, test.wantBlocker)
+			}
+			if test.wantAbsentBlocker != "" && strings.Contains(strings.Join(readiness.Data.Blockers, "\n"), test.wantAbsentBlocker) {
+				t.Fatalf("blockers = %+v, do not want substring %q", readiness.Data.Blockers, test.wantAbsentBlocker)
+			}
+			if test.wantReady && len(readiness.Data.Blockers) != 0 {
+				t.Fatalf("blockers = %+v, want none", readiness.Data.Blockers)
+			}
+		})
+	}
+}
+
+func writeProjectAssignmentExecutableFixture(t *testing.T, path string, payload []byte) {
+	t.Helper()
+	prefix := []byte{0x7f, 'E', 'L', 'F'}
+	switch runtime.GOOS {
+	case "windows":
+		prefix = []byte{'M', 'Z', 0, 0}
+	case "darwin":
+		prefix = []byte{0xcf, 0xfa, 0xed, 0xfe}
+	}
+	if err := os.WriteFile(path, append(prefix, payload...), 0o700); err != nil {
+		t.Fatalf("write executable fixture: %v", err)
+	}
+}
+
+func approveProjectAssignmentExecutableFixture(t *testing.T, handler *Handler) {
+	t.Helper()
+	status := handler.executableTrust.InspectAdapter(context.Background(), "codex")
+	if status.Current == nil {
+		t.Fatalf("current executable identity = nil; trust status = %+v", status)
+	}
+	if _, err := handler.executableTrust.Approve(context.Background(), "codex", status.Current.IdentityToken, "operator"); err != nil {
+		t.Fatalf("approve executable fixture: %v", err)
 	}
 }
 

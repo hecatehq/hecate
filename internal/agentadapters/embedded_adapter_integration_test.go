@@ -3,6 +3,7 @@ package agentadapters
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -199,6 +200,78 @@ func TestEmbeddedAdaptersRunProviderCLIsWithPrivateFileLinks(t *testing.T) {
 				if strings.Contains(followUpText, privateMetadata) {
 					t.Fatalf("follow-up provider prompt retained private resource metadata %q", privateMetadata)
 				}
+			}
+		})
+	}
+}
+
+func TestEmbeddedPromptPreservesExecutableTrustFailure(t *testing.T) {
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	for _, test := range []struct {
+		name    string
+		mutate  func(*testing.T, *ExecutableTrustManager, string)
+		wantErr error
+	}{
+		{
+			name: "revoked",
+			mutate: func(t *testing.T, trust *ExecutableTrustManager, _ string) {
+				if err := trust.Revoke(t.Context(), "codex"); err != nil {
+					t.Fatalf("Revoke: %v", err)
+				}
+			},
+			wantErr: ErrExecutableTrustRequired,
+		},
+		{
+			name: "changed",
+			mutate: func(t *testing.T, _ *ExecutableTrustManager, path string) {
+				if err := os.WriteFile(path, []byte("changed after session preparation"), 0o700); err != nil {
+					t.Fatalf("change provider executable: %v", err)
+				}
+			},
+			wantErr: ErrExecutableIdentityChanged,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			executable := installFakeEmbeddedProviderCLI(t, "codex", filepath.Join(t.TempDir(), "prompt.txt"), "unused")
+			trust := NewExecutableTrustManager("runtime-a", NewMemoryExecutableTrustStore())
+			status := trust.InspectAdapter(t.Context(), "codex")
+			if status.Current == nil {
+				t.Fatalf("current executable identity = nil; status = %#v", status)
+			}
+			if _, err := trust.Approve(t.Context(), "codex", status.Current.IdentityToken, "operator"); err != nil {
+				t.Fatalf("Approve: %v", err)
+			}
+
+			manager := NewSessionManager()
+			manager.SetExecutableTrustManager(trust)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := manager.Shutdown(ctx); err != nil {
+					t.Errorf("Shutdown: %v", err)
+				}
+			})
+			workspace := t.TempDir()
+			const sessionID = "chat_embedded_trust_failure"
+			if _, err := manager.PrepareSession(t.Context(), PrepareSessionRequest{
+				SessionID: sessionID,
+				AdapterID: "codex",
+				Workspace: workspace,
+			}); err != nil {
+				t.Fatalf("PrepareSession: %v", err)
+			}
+
+			test.mutate(t, trust, executable)
+			_, err := manager.Run(t.Context(), RunRequest{
+				SessionID:      sessionID,
+				AdapterID:      "codex",
+				Workspace:      workspace,
+				Prompt:         PromptInput{Text: "run after trust changed"},
+				Timeout:        5 * time.Second,
+				MaxOutputBytes: 64 * 1024,
+			})
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Run error = %v, want %v", err, test.wantErr)
 			}
 		})
 	}

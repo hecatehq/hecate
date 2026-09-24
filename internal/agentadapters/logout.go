@@ -145,6 +145,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 		},
 	})
 	initCancel()
+	err = embeddedACPExecutableTrustError(adapter, err)
 	if err != nil {
 		cleanupPeer()
 		res.DurationMS = elapsedMS(start)
@@ -154,6 +155,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	callCtx, callCancel := context.WithTimeout(ctx, actionTimeout)
 	err = action(callCtx, conn, initResp)
 	callCancel()
+	err = embeddedACPExecutableTrustError(adapter, err)
 	if err != nil {
 		cleanupPeer()
 		res.DurationMS = elapsedMS(start)
