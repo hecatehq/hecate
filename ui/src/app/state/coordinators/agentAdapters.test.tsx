@@ -799,10 +799,10 @@ describe("useAgentAdapterActions", () => {
 
   it.each([
     [
-      "confirms deletion when the app also becomes unavailable",
+      "does not infer deletion when the app also becomes unavailable",
       unavailableExecutableTrust,
-      true,
-      ["success", "External agent app approval revoked."],
+      false,
+      ["error", "response lost"],
     ],
     [
       "retains failure when an unavailable app still has an approval",

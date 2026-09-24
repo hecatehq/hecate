@@ -212,10 +212,10 @@ function executableApprovalMatches(
 }
 
 function executableRevocationConfirmed(trust: AgentAdapterExecutableTrust | undefined): boolean {
-  return (
-    trust?.state === "unapproved" ||
-    (trust?.state === "unavailable" && trust.approved === undefined)
-  );
+  // Unavailable is not durable proof of deletion: it can also mean the trust
+  // store could not be read. Only an explicit store-backed unapproved state
+  // can reconcile a lost DELETE response without weakening launch safety.
+  return trust?.state === "unapproved";
 }
 
 function executableApprovalNotConfirmedMessage(
