@@ -178,8 +178,8 @@ const MCPEnvEncPrefix = "enc:"
 // MCP approval policy values. These establish the server-local baseline for
 // whether the agent loop dispatches an MCP tool call, pauses for operator
 // approval, or refuses to call it. Additive runtime policy, including a frozen
-// native-assignment preset approval policy, may require approval for an auto
-// call or deny a call whose server baseline requires approval.
+// Work-policy approval posture on an eligible native Task, may require approval
+// for an auto call or deny a call whose server baseline requires approval.
 //
 //   - MCPApprovalAuto: add no server-specific approval gate. Equivalent to
 //     leaving the field empty.
