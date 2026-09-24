@@ -90,6 +90,24 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
       "Refresh agent discovery in Connections, install the selected app if needed, or choose another agent.",
     tone: "warning",
   },
+  "agent_adapter.executable_trust_required": {
+    title: "External agent app needs approval",
+    action:
+      "Open Connections, review the exact executable identity, and approve it before retrying.",
+    tone: "warning",
+  },
+  "agent_adapter.executable_identity_changed": {
+    title: "External agent app changed",
+    action:
+      "Open Connections, refresh discovery, and review the new executable identity before approving the update.",
+    tone: "warning",
+  },
+  "agent_adapter.executable_identity_unavailable": {
+    title: "External agent identity unavailable",
+    action:
+      "Open Connections and refresh discovery. Check the app installation before trying to approve or run it.",
+    tone: "warning",
+  },
   "chat.session_stopping": {
     title: "Chat is stopping",
     action: "Wait a moment, then retry the action.",

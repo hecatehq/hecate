@@ -31,6 +31,7 @@ type SessionManager struct {
 	metrics              *telemetry.AgentAdapterMetrics
 	onAvailableCommands  func(AvailableCommandsUpdate)
 	workspaceCoordinator *workspacecoord.Registry
+	executableTrust      *ExecutableTrustManager
 	terminalSupport      bool
 	closed               bool
 }
@@ -148,6 +149,15 @@ func (m *SessionManager) SetWorkspaceCoordinator(registry *workspacecoord.Regist
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.workspaceCoordinator = registry
+}
+
+// SetExecutableTrustManager installs the Hecate-owned executable approval
+// gate. A nil manager preserves the package's low-level fixture behavior;
+// shipped runtime composition always installs one before serving requests.
+func (m *SessionManager) SetExecutableTrustManager(manager *ExecutableTrustManager) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executableTrust = manager
 }
 
 // Coordinator returns the installed approval coordinator (or nil).
@@ -442,9 +452,11 @@ func (m *SessionManager) completeNativeSessionReplacement(adapter Adapter, req R
 	coordinator := m.coordinator
 	metrics := m.metrics
 	workspaceCoordinator := m.workspaceCoordinator
+	executableTrust := m.executableTrust
 	terminalSupport := m.terminalSupport
 	m.mu.Unlock()
-	fresh, _, _, err := startACPSession(start.ctx, adapter, req.SessionID, req.Workspace, "", req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, workspaceCoordinator, terminalSupport)
+	startCtx := WithExecutableTrust(start.ctx, executableTrust, adapter.ID)
+	fresh, _, _, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, "", req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, workspaceCoordinator, terminalSupport)
 	if err != nil {
 		start.cancel()
 		m.abortNativeSessionReplacement(req.SessionID, start, stale)
@@ -561,9 +573,11 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		coordinator := m.coordinator
 		metrics := m.metrics
 		workspaceCoordinator := m.workspaceCoordinator
+		executableTrust := m.executableTrust
 		terminalSupport := m.terminalSupport
 		m.mu.Unlock()
 
+		startCtx = WithExecutableTrust(startCtx, executableTrust, adapter.ID)
 		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, workspaceCoordinator, terminalSupport)
 		committedReplacement := false
 		if err == nil && recovery != "" {

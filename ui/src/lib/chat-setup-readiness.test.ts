@@ -226,9 +226,39 @@ describe("resolveChatSetupRepairState", () => {
       },
     });
 
-    expect(billingRepair?.message).toContain("Connections runs an automatic check");
-    expect(billingRepair?.message).toContain("Check again");
+    expect(billingRepair?.message).toContain("Use Check in Connections");
     expect(issueRepair?.message).toContain("open Connections and use Check again");
+  });
+
+  it.each([
+    ["approval" as const, "Approve Codex", "Review this exact identity."],
+    ["changed" as const, "Review Codex update", "The executable no longer matches."],
+  ])("routes executable %s repair to the agent setup surface", (kind, title, detail) => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentName: "Codex",
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind,
+        tone: kind === "changed" ? "red" : "amber",
+        label: kind === "changed" ? "app changed" : "approve app",
+        needsRepair: true,
+        launchBlocked: true,
+        setupHint: "",
+        loginCommand: "",
+        signInHint: "",
+        detail,
+        checkedByProbe: false,
+      },
+    });
+
+    expect(repair).toMatchObject({
+      kind: "external_agent_setup",
+      title,
+      message: detail,
+      action: "open_agent_setup",
+    });
   });
 
   it("routes the hosted missing-credential wire shape before generic unavailability", () => {

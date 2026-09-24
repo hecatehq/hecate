@@ -148,6 +148,10 @@ export function resolveChatSetupRepairState({
 
 function externalAgentSetupTitle(agent: string, readiness?: ExternalAgentReadiness): string {
   switch (readiness?.kind) {
+    case "approval":
+      return `Approve ${agent}`;
+    case "changed":
+      return `Review ${agent} update`;
     case "billing":
       return `Check ${agent} billing`;
     case "issue":
@@ -164,6 +168,12 @@ function externalAgentSetupMessage(
 ): string {
   if (readiness) {
     switch (readiness.kind) {
+      case "approval":
+      case "changed":
+        return (
+          readiness.detail ||
+          `Review and approve the exact ${agent} app identity in Connections before Hecate runs it.`
+        );
       case "sign_in":
         return readiness.signInHint || readiness.detail || `${agent} needs local CLI sign-in.`;
       case "setup":
@@ -171,7 +181,7 @@ function externalAgentSetupMessage(
       case "billing":
         return (
           readiness.detail ||
-          `Check ${agent}'s billing or subscription, then retry the chat. Connections runs an automatic check; use Check again after fixing setup.`
+          `Check ${agent}'s billing or subscription, then retry the chat. Use Check in Connections after fixing setup.`
         );
       case "issue":
         return (

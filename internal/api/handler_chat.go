@@ -965,6 +965,9 @@ func (h *Handler) hecateChatOriginTask(ctx context.Context, sessionID string) (t
 }
 
 func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
+	if writeAgentExecutableTrustError(w, err) {
+		return
+	}
 	if errors.Is(err, agentadapters.ErrLaunchModelRequired) {
 		WriteErrorDetails(w, http.StatusBadRequest, errCodeModelRequired, err.Error(), ErrorDetails{
 			UserMessage:    "Choose a model before starting this external-agent chat.",
@@ -982,7 +985,7 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 	if errors.Is(err, context.DeadlineExceeded) {
 		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
 			UserMessage:    "The external agent did not respond while starting the session.",
-			OperatorAction: "Retry New chat. Connections automatically checks available external agents with a temporary no-prompt ACP session; use Check again there if the issue persists.",
+			OperatorAction: "Retry New chat, or use Check in Connections if the issue persists.",
 		})
 		return
 	}
@@ -990,6 +993,9 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 }
 
 func writeAgentChatConfigOptionError(w http.ResponseWriter, session chat.Session, err error) {
+	if writeAgentExecutableTrustError(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, agentadapters.ErrSessionNotActive):
 		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, err.Error(), ErrorDetails{

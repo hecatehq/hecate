@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -78,6 +79,7 @@ func TestExternalAgentChatDeleteDeletesNativeACPSessionE2E(t *testing.T) {
 		"HOME="+t.TempDir(),
 		"PATH="+adapterDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
+	approveExternalAgentExecutable(t, baseURL, "codex")
 	workspace := t.TempDir()
 	created := postJSONDecode[e2eChatSessionResponse](t, baseURL+"/hecate/v1/chat/sessions", fmt.Sprintf(`{
 		"agent_id": "codex",
@@ -139,6 +141,7 @@ func TestExternalAgentChatTurnSurvivesDisconnectAndKeyedReplayE2E(t *testing.T) 
 		"HOME="+t.TempDir(),
 		"PATH="+adapterDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
+	approveExternalAgentExecutable(t, baseURL, "codex")
 	created := postJSONDecode[e2eChatSessionResponse](t, baseURL+"/hecate/v1/chat/sessions", fmt.Sprintf(`{
 		"agent_id": "codex",
 		"workspace": %q,
@@ -205,6 +208,45 @@ func TestExternalAgentChatTurnSurvivesDisconnectAndKeyedReplayE2E(t *testing.T) 
 	}
 	if got := readFileLines(t, promptSessions); len(got) != 1 {
 		t.Fatalf("fake ACP prompt dispatches after settlement = %d (%v), want exactly one", len(got), got)
+	}
+}
+
+func approveExternalAgentExecutable(t *testing.T, baseURL, adapterID string) {
+	t.Helper()
+	catalog := getJSON[e2eAgentAdapterList](t, baseURL+"/hecate/v1/agent-adapters")
+	adapter := findE2EAdapter(t, catalog.Data, adapterID)
+	if adapter.ExecutableTrust == nil || adapter.ExecutableTrust.State != "unapproved" || adapter.ExecutableTrust.Current == nil {
+		t.Fatalf("%s executable trust = %+v, want measured unapproved identity", adapterID, adapter.ExecutableTrust)
+	}
+	token := adapter.ExecutableTrust.Current.IdentityToken
+	if token == "" {
+		t.Fatalf("%s executable identity token is empty", adapterID)
+	}
+
+	url := baseURL + "/hecate/v1/agent-adapters/" + adapterID + "/executable-trust"
+	body := fmt.Sprintf(`{"expected_identity":%q}`, token)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPut, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest approve %s executable: %v", adapterID, err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("PUT %s: %v", url, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("PUT %s: HTTP %d — body: %s", url, response.StatusCode, readBody(t, response))
+	}
+	var approved struct {
+		Data e2eAgentAdapterExecutableTrust `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&approved); err != nil {
+		t.Fatalf("decode executable approval: %v", err)
+	}
+	if approved.Data.State != "approved" || approved.Data.Current == nil || approved.Data.Approved == nil ||
+		approved.Data.Current.IdentityToken != token || approved.Data.Approved.IdentityToken != token {
+		t.Fatalf("%s executable approval = %+v, want approved reviewed identity", adapterID, approved.Data)
 	}
 }
 

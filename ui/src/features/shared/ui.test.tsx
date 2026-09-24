@@ -1051,6 +1051,11 @@ describe("ProviderPicker", () => {
 // ─── AgentAdapterPicker ───────────────────────────────────────────────
 
 describe("AgentAdapterPicker", () => {
+  const approvedExecutableTrust = {
+    schema_version: "hecate.external-agent-executable.v1",
+    state: "approved" as const,
+    reason: "operator_approved",
+  };
   const adapters: AgentAdapterRecord[] = [
     {
       id: "codex",
@@ -1062,6 +1067,7 @@ describe("AgentAdapterPicker", () => {
       cost_mode: "external",
       supports_authenticate: true,
       supports_logout: true,
+      executable_trust: approvedExecutableTrust,
     },
     {
       id: "claude_code",
@@ -1073,6 +1079,7 @@ describe("AgentAdapterPicker", () => {
       cost_mode: "external",
       supports_authenticate: true,
       supports_logout: true,
+      executable_trust: approvedExecutableTrust,
     },
   ];
 
@@ -1112,6 +1119,7 @@ describe("AgentAdapterPicker", () => {
             supports_logout: true,
             auth_status: "unknown",
             auth_error: "Claude Code config is present on disk.",
+            executable_trust: approvedExecutableTrust,
           },
         ]}
       />,
@@ -1150,6 +1158,7 @@ describe("AgentAdapterPicker", () => {
             supports_authenticate: false,
             supports_logout: false,
             auth_status: "unknown",
+            executable_trust: approvedExecutableTrust,
           },
         ]}
         healthByID={
@@ -1275,6 +1284,7 @@ describe("AgentAdapterPicker", () => {
             supports_authenticate: false,
             supports_logout: false,
             auth_status: "ok",
+            executable_trust: approvedExecutableTrust,
           },
         ]}
         healthByID={
@@ -1322,6 +1332,7 @@ describe("AgentAdapterPicker", () => {
             supports_logout: true,
             auth_status: "unauthenticated",
             auth_error: "Run claude /login in Terminal.",
+            executable_trust: approvedExecutableTrust,
           },
         ]}
         healthByID={
@@ -1347,6 +1358,42 @@ describe("AgentAdapterPicker", () => {
     expect(within(claude).queryByText("checked")).toBeNull();
     expect(claude.title).toContain("Run claude /login");
     expect(claude).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("keeps an unapproved discovered app disabled until reviewed in Connections", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={onChange}
+        adapters={[
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex",
+            available: true,
+            status: "available",
+            supports_authenticate: false,
+            supports_logout: false,
+            executable_trust: {
+              schema_version: "hecate.external-agent-executable.v1",
+              state: "unapproved",
+              reason: "approval_required",
+            },
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const codex = within(menu).getByText("Codex").closest("button") as HTMLElement;
+    expect(within(codex).getByText("approve")).toBeTruthy();
+    expect(codex).toHaveAttribute("aria-disabled", "true");
+    await user.click(codex);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 

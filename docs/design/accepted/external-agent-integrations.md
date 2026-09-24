@@ -139,6 +139,8 @@ The current runtime shape is ACP-first:
 - `acp_session.go` owns the long-lived adapter runtime, native ACP session,
   prompt turns, streaming update normalization, cancellation, shutdown, usage
   updates, raw diagnostics, and Git diff capture.
+- `executable_identity.go` and `executable_trust*.go` own passive measurement,
+  runtime-host-and-adapter approval persistence, and final process-start gates.
 - `approvals.go` maps ACP `RequestPermission` into Hecate's external-agent
   approval rows, grants, REST/SSE surfaces, and OTel metrics.
 
@@ -160,6 +162,8 @@ Implemented MVP endpoints:
 
 ```text
 GET  /hecate/v1/agent-adapters
+PUT  /hecate/v1/agent-adapters/{id}/executable-trust
+DELETE /hecate/v1/agent-adapters/{id}/executable-trust
 POST /hecate/v1/agent-adapters/{id}/probe
 GET  /hecate/v1/agent-adapters/{id}/health
 GET  /hecate/v1/chat/sessions
@@ -184,23 +188,21 @@ DELETE /hecate/v1/chat/grants/{grant_id}
 ```
 
 The catalog and compatibility health `GET` endpoints are passive: they may
-resolve and inspect an executable path but must not execute it. Connections
-automatically calls `POST /agent-adapters/{id}/probe` once for each available
-agent; **Check again** repeats that disposable check. It starts a temporary ACP
-runtime and performs a handshake without sending a prompt. Its provider-specific
-version or auth detection may execute the discovered app. Creating an External
-Agent chat is the independent real-session boundary: it resolves the current app
-and performs a fresh ACP handshake whether or not a check ran. Direct ACP peers
+resolve and inspect an executable path but must not execute it. The catalog also
+hashes the target and returns current executable-trust state and evidence; the
+compatibility health response remains path lookup only. Connections never
+auto-probes: the operator reviews and approves the exact measured identity,
+then may explicitly run a disposable `POST /agent-adapters/{id}/probe` check.
+That check starts a temporary ACP runtime and performs a handshake without
+sending a prompt; provider-specific version or auth detection may also execute
+the approved app. Creating an External Agent chat is the independent
+real-session boundary: it re-resolves and revalidates the approved app and
+performs a fresh ACP handshake whether or not a check ran. Direct ACP peers
 launch during that setup. Embedded bridges may run bounded provider discovery
 during setup while deferring their prompt-serving vendor invocation and
-prompt-time auth result until the first message, which is authoritative for that
-deferred work. A cached check result can explain an earlier failure, but cannot
-authorize or block the real session or first-message attempt. Clients refresh
-the passive catalog independently after install/path changes or a check; only
-that passive response may update pre-launch availability, status, error,
-remote-credential gates, and last-discovered path. Clients may retain
-process-derived versions, auth/capability evidence, and launch controls with the
-cached check for troubleshooting.
+prompt-time auth result until the first message. The same trust gate covers
+those deferred launches. Cached check evidence is advisory; executable trust
+and current passive discovery are authoritative launch inputs.
 
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response reviews staged, working-tree, and untracked layers,
@@ -325,6 +327,17 @@ long-lived interactive processes with their own auth, caches, child processes,
 and ACP stdio/session lifecycle. Reusing the task-runtime per-call sandbox is
 not a drop-in fit.
 
+The implemented executable gate is trust on first use, not malware detection.
+Passive discovery records canonical path, SHA-256, coverage, launcher chain,
+file evidence, and an unavailable publisher-evidence marker. Approval is keyed
+by runtime host plus adapter and persisted with the configured memory, SQLite,
+or Postgres chat backend. Probe, auth/logout, diagnostics, session startup, and
+deferred embedded-provider launches all remeasure at process start. A changed
+identity fails closed until re-approved; revoke blocks future launches but does
+not kill an already-running direct peer. `launcher_only` measures only the
+wrapper, publisher verification is not implemented, and path-based OS exec
+retains a narrow same-user swap/TOCTOU risk after the final measurement.
+
 ## Acceptance Criteria For First Implementation
 
 - [x] `GET /hecate/v1/agent-adapters` reports built-in adapter definitions and availability.
@@ -342,6 +355,8 @@ not a drop-in fit.
 - [x] Cancellation signals the ACP turn and marks the Turn and Chat session cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
 - [x] Adapter readiness can distinguish missing binaries, auth/billing failures, and versions outside Hecate's tested range.
+- [x] Passive discovery measures executable identity without running the app;
+      explicit runtime-host-and-adapter approval gates every process-start path.
 - [x] Operator approvals are prompt-first by default and visible through REST, SSE, Connections grants, and Chats review UI.
 - [x] Optional turn, wall-clock, and idle guardrails protect long-lived external-agent sessions.
 

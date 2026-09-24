@@ -15,6 +15,7 @@ import type {
 } from "../types/provider";
 import type {
   AgentAdapterAuthenticateResponse,
+  AgentAdapterExecutableTrustResponse,
   AgentAdapterLogoutResponse,
   AgentAdapterProbeResponse,
   AgentAdapterResponse,
@@ -450,6 +451,23 @@ export async function logoutAgentAdapter(adapterID: string): Promise<AgentAdapte
   return fetchJSON<AgentAdapterLogoutResponse>(
     `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/logout`,
     { method: "POST" },
+  );
+}
+
+export async function approveAgentAdapterExecutable(
+  adapterID: string,
+  expectedIdentity: string,
+): Promise<AgentAdapterExecutableTrustResponse> {
+  return fetchJSON<AgentAdapterExecutableTrustResponse>(
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/executable-trust`,
+    { method: "PUT", body: { expected_identity: expectedIdentity } },
+  );
+}
+
+export async function revokeAgentAdapterExecutable(adapterID: string): Promise<void> {
+  await fetchJSON<void>(
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/executable-trust`,
+    { method: "DELETE" },
   );
 }
 

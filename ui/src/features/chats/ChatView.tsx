@@ -887,11 +887,13 @@ export function ChatView({
     if (blockForWorkspaceDiscard()) return;
     try {
       if (adapterID) {
-        sessionStorage.setItem("hecate.connectionsFocus", `external-agent-auth-setup-${adapterID}`);
+        // The adapter row always exists, including executable approval and
+        // changed-identity states where no auth-specific setup card renders.
+        sessionStorage.setItem("hecate.connectionsFocus", `external-agents-adapter-${adapterID}`);
       }
     } catch {
       // sessionStorage unavailable — navigation still
-      // works, just no auto-scroll to the auth setup card.
+      // works, just no auto-scroll to the adapter review row.
     }
     onNavigate?.("connections");
   }

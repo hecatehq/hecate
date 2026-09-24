@@ -15,6 +15,17 @@ import (
 // branches inspect local credential hints, while Claude may run its bounded
 // `auth status` command.
 func DetectAuthStatus(adapter Adapter) (string, string) {
+	return detectAuthStatus(context.Background(), adapter)
+}
+
+// DetectAuthStatusWithContext preserves the request's executable-trust gate
+// for the bounded Claude CLI auth check. Credential-file heuristics remain
+// passive and do not require approval.
+func DetectAuthStatusWithContext(ctx context.Context, adapter Adapter) (string, string) {
+	return detectAuthStatus(ctx, adapter)
+}
+
+func detectAuthStatus(ctx context.Context, adapter Adapter) (string, string) {
 	switch adapter.ID {
 	case "codex":
 		if envAny("OPENAI_API_KEY", "CODEX_AUTH_TOKEN", "CODEX_API_KEY") || fileAny("${HOME}/.codex/auth.json") {
@@ -25,15 +36,15 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		if envAny("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN") {
 			return AuthStatusOK, ""
 		}
-		if ok, checked := detectClaudeCLIAuthStatus(); ok {
+		if ok, checked := detectClaudeCLIAuthStatusWithContext(ctx); ok {
 			return AuthStatusOK, ""
 		} else if checked {
 			return AuthStatusUnauthenticated, adapterSignInHint(adapter)
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk. Connections checks available agents automatically; Hecate also verifies CLI auth when Claude Code handles the first message."
+			return AuthStatusUnknown, "Claude Code config is present on disk. After approving the app, use Check in Connections; Hecate also verifies CLI auth when Claude Code handles the first message."
 		}
-		return AuthStatusUnknown, "Send a message in a Claude Code chat to verify it. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
+		return AuthStatusUnknown, "Approve the app and use Check in Connections to verify it. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -97,7 +108,16 @@ type claudeAuthStatusPayload struct {
 }
 
 func detectClaudeCLIAuthStatus() (ok bool, checked bool) {
-	out, _ := runClaudeAuthStatus()
+	return detectClaudeCLIAuthStatusWithContext(context.Background())
+}
+
+func detectClaudeCLIAuthStatusWithContext(ctx context.Context) (ok bool, checked bool) {
+	var out string
+	if trustManager, _ := executableTrustFromContext(ctx); trustManager != nil {
+		out, _ = runClaudeAuthStatusWithContext(ctx)
+	} else {
+		out, _ = runClaudeAuthStatus()
+	}
 	if strings.TrimSpace(out) == "" {
 		return false, false
 	}
@@ -109,7 +129,11 @@ func detectClaudeCLIAuthStatus() (ok bool, checked bool) {
 }
 
 func defaultRunClaudeAuthStatus() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	return runClaudeAuthStatusWithContext(context.Background())
+}
+
+func runClaudeAuthStatusWithContext(parent context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	adapter, ok := BuiltInByID("claude_code")
 	if !ok {

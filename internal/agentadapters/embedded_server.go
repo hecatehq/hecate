@@ -23,25 +23,126 @@ type embeddedACPServer interface {
 }
 
 type providerProcessRunner struct {
-	command string
-	path    string
-	runner  commandbridge.ProcessRunner
+	command   string
+	path      string
+	runner    commandbridge.ProcessRunner
+	adapterID string
+	trust     *ExecutableTrustManager
 }
 
 func newProviderProcessRunner(command, path string, baseEnv []string) providerProcessRunner {
+	return newProviderProcessRunnerWithTrust("", command, path, baseEnv, nil)
+}
+
+func newProviderProcessRunnerWithTrust(adapterID, command, path string, baseEnv []string, trust *ExecutableTrustManager) providerProcessRunner {
 	return providerProcessRunner{
-		command: strings.TrimSpace(command),
-		path:    strings.TrimSpace(path),
-		runner:  commandbridge.NewProcessRunner(baseEnv),
+		command:   strings.TrimSpace(command),
+		path:      strings.TrimSpace(path),
+		runner:    commandbridge.NewProcessRunner(baseEnv),
+		adapterID: strings.TrimSpace(adapterID),
+		trust:     trust,
 	}
 }
 
 func (r providerProcessRunner) Run(ctx context.Context, spec adapterprocess.Spec) (adapterprocess.Result, error) {
-	return r.runner.Run(ctx, r.bindCommand(spec))
+	return r.run(ctx, r.bindCommand(spec), nil)
 }
 
 func (r providerProcessRunner) RunStream(ctx context.Context, spec adapterprocess.Spec, onStdout func([]byte) error) (adapterprocess.Result, error) {
-	return r.runner.RunStream(ctx, r.bindCommand(spec), onStdout)
+	return r.run(ctx, r.bindCommand(spec), onStdout)
+}
+
+// run deliberately enters the kit through Start instead of Run so the
+// executable permit can be released immediately after the actual child-start
+// boundary. Holding it until a long prompt process exits would make an
+// operator revoke wait indefinitely; releasing it before Run would leave a
+// same-process approval race. Output remains bounded to the kit's public
+// default and Child preserves the kit's process-unit cancellation semantics.
+func (r providerProcessRunner) run(ctx context.Context, spec adapterprocess.Spec, onStdout func([]byte) error) (adapterprocess.Result, error) {
+	permit, err := r.authorize(ctx, spec.Command)
+	if err != nil {
+		return adapterprocess.Result{}, err
+	}
+	if permit != nil {
+		defer permit.Close()
+	}
+	child, err := r.runner.Start(ctx, adapterprocess.StartSpec{
+		Command:     spec.Command,
+		Args:        append([]string(nil), spec.Args...),
+		Dir:         spec.Dir,
+		Env:         spec.Env,
+		StderrLimit: spec.StderrLimit,
+	})
+	if err != nil {
+		return adapterprocess.Result{}, err
+	}
+	if permit != nil {
+		permit.Close()
+	}
+	_ = child.Stdin.Close()
+
+	limit := spec.StdoutLimit
+	if limit <= 0 {
+		limit = adapterprocess.DefaultOutputLimit
+	}
+	stdout := make([]byte, 0, minInt64(limit, 32*1024))
+	buffer := make([]byte, 32*1024)
+	var readErr error
+	var streamErr error
+	truncated := false
+	for {
+		n, err := child.Stdout.Read(buffer)
+		if n > 0 {
+			chunk := buffer[:n]
+			remaining := limit - int64(len(stdout))
+			if remaining > 0 {
+				keep := int64(n)
+				if keep > remaining {
+					keep = remaining
+					truncated = true
+				}
+				stdout = append(stdout, chunk[:int(keep)]...)
+			} else {
+				truncated = true
+			}
+			if onStdout != nil && streamErr == nil {
+				if callbackErr := onStdout(append([]byte(nil), chunk...)); callbackErr != nil {
+					streamErr = callbackErr
+					_ = child.Kill()
+				}
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				readErr = err
+			}
+			break
+		}
+	}
+	waitErr := child.Wait()
+	result := adapterprocess.Result{
+		Command:         child.Command,
+		Args:            append([]string(nil), child.Args...),
+		Dir:             child.Dir,
+		Stdout:          stdout,
+		Stderr:          child.Stderr(),
+		StdoutTruncated: truncated,
+		StderrTruncated: child.StderrTruncated(),
+	}
+	if streamErr != nil {
+		return result, fmt.Errorf("stream process stdout: %w", streamErr)
+	}
+	if readErr != nil {
+		return result, fmt.Errorf("read process stdout: %w", readErr)
+	}
+	return result, waitErr
+}
+
+func minInt64(a, b int64) int {
+	if a < b {
+		return int(a)
+	}
+	return int(b)
 }
 
 // Start lets embedded adapters run short-lived discovery exchanges through the
@@ -49,7 +150,25 @@ func (r providerProcessRunner) RunStream(ctx context.Context, spec adapterproces
 // It is intentionally separate from Run because discovery needs stdin/stdout
 // pipes while retaining the host's executable binding.
 func (r providerProcessRunner) Start(ctx context.Context, spec adapterprocess.StartSpec) (*adapterprocess.Child, error) {
-	return r.runner.Start(ctx, r.bindStartCommand(spec))
+	bound := r.bindStartCommand(spec)
+	permit, err := r.authorize(ctx, bound.Command)
+	if err != nil {
+		return nil, err
+	}
+	if permit != nil {
+		defer permit.Close()
+	}
+	return r.runner.Start(ctx, bound)
+}
+
+func (r providerProcessRunner) authorize(ctx context.Context, command string) (*ExecutablePermit, error) {
+	if r.trust == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(command) == "" || strings.TrimSpace(command) != r.path {
+		return nil, fmt.Errorf("%w: embedded adapter requested an unapproved executable", ErrExecutableIdentityUnavailable)
+	}
+	return r.trust.AuthorizePath(ctx, r.adapterID, command)
 }
 
 func (r providerProcessRunner) bindCommand(spec adapterprocess.Spec) adapterprocess.Spec {
@@ -67,7 +186,11 @@ func (r providerProcessRunner) bindStartCommand(spec adapterprocess.StartSpec) a
 }
 
 func newEmbeddedACPServer(adapter Adapter, providerPath string, baseEnv []string) (embeddedACPServer, error) {
-	runner := newProviderProcessRunner(adapter.Command, providerPath, baseEnv)
+	return newEmbeddedACPServerWithTrust(adapter, providerPath, baseEnv, nil)
+}
+
+func newEmbeddedACPServerWithTrust(adapter Adapter, providerPath string, baseEnv []string, trust *ExecutableTrustManager) (embeddedACPServer, error) {
+	runner := newProviderProcessRunnerWithTrust(adapter.ID, adapter.Command, providerPath, baseEnv, trust)
 	version := embeddedAdapterVersion(adapter.ID)
 	switch adapter.ID {
 	case "codex":

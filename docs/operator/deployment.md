@@ -86,6 +86,11 @@ registered route is not explicitly marked remote-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
 
+External Agent executable approval and revocation are remote-safe after that
+trusted proxy identity is established. They measure and authorize the app on
+the supervised runtime host, not on the browser device. The managed
+agent-adapter `authenticate` endpoint remains local-only.
+
 The desktop app's outbound Cloud connector uses a mixed local/remote posture
 instead of enabling global remote runtime mode. It creates an ephemeral secret
 for the sidecar process, stamps only relayed requests with the authenticated
@@ -367,13 +372,15 @@ environment.
 Codex and Claude Code use Hecate's built-in Go ACP adapter libraries, which
 launch their vendor CLIs as supervised child processes. Cursor Agent and Grok
 Build expose ACP modes directly in their vendor CLIs.
-Opening Connections performs passive path discovery, then automatically calls
-`POST /hecate/v1/agent-adapters/{id}/probe` once for each available adapter.
-That short-lived check starts the discovered app and opens a disposable ACP
-session without sending a prompt. **Check again** repeats it after a local
-repair or sign-in. **New chat** still re-resolves the executable and prepares
-the real ACP session. Direct ACP peers start during setup. Embedded bridges may
-run bounded provider discovery during setup while deferring their prompt-serving
+Opening Connections performs passive path discovery and identity measurement
+without executing the app. The operator must review and approve the exact
+identity in Connections. Only an explicit **Check** calls
+`POST /hecate/v1/agent-adapters/{id}/probe`; that short-lived diagnostic starts
+the approved app and opens a disposable ACP session without sending a prompt.
+**Check again** repeats it after a local repair or sign-in. **New chat**
+re-resolves and revalidates the approved executable before preparing the real
+ACP session. Direct ACP peers start during setup. Embedded bridges may run
+bounded provider discovery during setup while deferring their prompt-serving
 vendor invocation and prompt-time auth result until the first message.
 
 ## Resetting state
@@ -427,7 +434,9 @@ database; if they diverge, the env value wins on the next startup.
 Runtime host identity is separate, non-secret state in
 `HECATE_DATA_DIR/hecate.runtime-host.json`. Include that file when restoring the
 same named runtime host. Omitting it creates a new runtime ID on the next start
-without changing the bootstrap encryption key or stored credentials.
+without changing the bootstrap encryption key or stored credentials. Because
+External Agent executable approvals are scoped to runtime host plus adapter, a
+new runtime ID requires those identities to be reviewed and approved again.
 
 ## Storage backend
 
@@ -439,7 +448,8 @@ Hecate keeps one process-wide backend selector for Hecate-owned state.
 
 This backend covers settings, encrypted provider credentials, audit and usage
 history, Work policies (stored/API field: `agent_preset`), chat sessions,
-external-agent approvals and grants,
+external-agent action approvals and grants, External Agent executable identity
+approvals,
 chat attachment bodies, Tasks, the task queue, Task Schedules and their
 occurrence ledger, and Hecate's project-runtime overlays.
 

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,11 @@ function makeAdapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterR
     auth_status: "ok",
     supports_authenticate: false,
     supports_logout: false,
+    executable_trust: {
+      schema_version: "hecate.external-agent-executable.v1",
+      state: "approved",
+      reason: "operator_approved",
+    },
     ...overrides,
   };
 }
@@ -254,6 +259,45 @@ describe("NewChatAgentButton", () => {
     expect(result.title).not.toContain("cursor-agent login");
   });
 
+  it("blocks selection until the exact external app identity is approved", () => {
+    const result = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "unapproved",
+          reason: "approval_required",
+        },
+      }),
+      {
+        adapter_id: "codex",
+        status: "ready",
+        stage: "session",
+        duration_ms: 30,
+      },
+    );
+
+    expect(result).toMatchObject({ label: "approve", ready: false });
+    expect(result.title).toContain("Review and approve");
+  });
+
+  it("labels a changed external app before launch", () => {
+    const result = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        executable_trust: {
+          schema_version: "hecate.external-agent-executable.v1",
+          state: "changed",
+          reason: "identity_changed",
+        },
+      }),
+      undefined,
+    );
+
+    expect(result).toMatchObject({ label: "changed", ready: false });
+    expect(result.title).toContain("no longer matches");
+  });
+
   it("preserves an external-agent selection while the agent catalog loads", () => {
     const option = chatAgentOption("grok_build", []);
 
@@ -455,6 +499,45 @@ describe("NewChatAgentButton", () => {
 
     await user.click(cursor);
     expect(onSetupAgent).toHaveBeenCalledWith("cursor_agent");
+  });
+
+  it("falls back to Hecate and opens setup for an unapproved discovered app", async () => {
+    const onChange = vi.fn();
+    const onCreate = vi.fn();
+    const onSetupAgent = vi.fn();
+    render(
+      <NewChatAgentButton
+        value="codex"
+        adapters={[
+          makeAdapter({
+            executable_trust: {
+              schema_version: "hecate.external-agent-executable.v1",
+              state: "unapproved",
+              reason: "approval_required",
+            },
+          }),
+        ]}
+        healthByID={new Map()}
+        disableUnavailable
+        onChange={onChange}
+        onCreate={onCreate}
+        onSetupAgent={onSetupAgent}
+      />,
+    );
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("hecate"));
+    expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
+    onChange.mockClear();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Choose agent for new chat" }));
+    const codex = screen.getByRole("option", { name: /Codex/ });
+    expect(codex).toHaveAttribute("title", expect.stringContaining("Review and approve"));
+    await user.click(codex);
+
+    expect(onSetupAgent).toHaveBeenCalledWith("codex");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCreate).not.toHaveBeenCalled();
   });
 
   it("switches the selected agent from the dropdown before creating a chat", async () => {

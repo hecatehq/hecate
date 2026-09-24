@@ -212,14 +212,26 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
 - **External-agent discovery is passive.** Catalog discovery may resolve
   allowlisted install roots, resolve symlink targets for validation while
-  preserving the invocation path, inspect file type, or
-  compute local identity evidence, but it must never execute the candidate.
+  preserving the invocation path, inspect file type, and compute local identity
+  evidence, but it must never execute the candidate.
   Version/help/auth commands and ACP `Initialize` are execution surfaces, not
-  authenticity checks. Keep them behind an explicit operator action and, when
-  executable trust is implemented, behind the same final-boundary identity
-  gate as real sessions. Do not auto-probe when Chats or Connections opens,
+  authenticity checks. Keep them behind an explicit operator action and the
+  same final-boundary identity gate as real sessions. Do not auto-probe when
+  Chats or Connections opens,
   silently install provider CLIs, treat a checksum without authenticated
   publisher evidence as provenance, or describe a discovered binary as safe.
+  Preserve the four states (`unavailable`, `unapproved`, `approved`, `changed`),
+  server-side remeasurement with the client token used only as compare-and-swap,
+  and memory/SQLite/Postgres parity keyed by runtime host plus adapter.
+  `publisher.status` remains `unavailable` until Hecate verifies a real platform
+  or vendor trust chain. `launcher_only` approves only the measured launcher,
+  not its interpreter/downstream target. Gate probes, version/auth/help/model
+  diagnostics, authenticate/logout, direct peer startup, and every embedded
+  provider process—including deferred prompt launches. Hold the permit through
+  child start; do not claim this closes the residual same-user path-swap window
+  until execution is bound to a pinned handle. Revoke blocks future launches;
+  it does not imply that an existing direct process was killed. Keep approve and
+  revoke remote-safe and managed authenticate local-only.
   On Windows, every external-agent provider requires a native `.exe`. Reject
   `.cmd`, `.bat`, `.ps1`, and other launchers until Hecate has an explicit,
   measured wrapper/interpreter chain under the same Job Object supervision;
@@ -389,6 +401,16 @@ External Agent has two live/persistence layers:
    ACP `initialize.agentInfo` projection as `agent_info`; do not invent a
    parallel implementation-metadata shape.
 2. `internal/agentadapters` owns the live ACP/process session manager.
+
+Executable trust is a separate Hecate-owned policy layer, not an ACP permission
+grant. `ExecutableTrustManager` owns passive inspection, compare-and-swap
+approval, revocation, and process-local per-adapter launch serialization; its
+store follows the configured Chat backend. Pass trust through the
+request/session call tree and re-authorize inside the concrete process runner.
+In particular, an embedded
+ACP server existing in memory does not authorize a later provider CLI spawn.
+Do not accept client paths or fingerprints as measured facts, cache launch
+authority in probe results, or move this policy into provider-specific adapters.
 
 ACP `available_commands_update` is a complete provider-owned replacement
 snapshot, not a Hecate-maintained command list. Retain updates received during

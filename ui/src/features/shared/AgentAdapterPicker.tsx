@@ -1,14 +1,17 @@
 // AgentAdapterPicker is the dropdown the chat view uses to switch between
-// registered external-agent adapters. Passive discovery controls whether an
-// adapter can be selected; the latest Connections check is advisory because the
-// real chat setup always resolves the executable and performs a fresh ACP
-// handshake; an embedded vendor process may not start until the first prompt.
+// registered external-agent adapters. Passive discovery plus operator-approved
+// executable identity control whether an adapter can be selected; the latest
+// Connections check is advisory because the real chat setup always resolves
+// the executable and performs a fresh ACP handshake.
 
 import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
-import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
+import {
+  externalAgentExecutableTrustApproved,
+  resolveExternalAgentReadiness,
+} from "../../lib/external-agent-readiness";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
@@ -16,8 +19,7 @@ import { useFloatingMenu } from "./useFloatingMenu";
 
 // adapterPickerCheck combines current passive discovery with the latest
 // Connections check for display. Current discovery and required remote
-// credentials win over stale checks; failed checks remain visible but do not
-// disable a locally available adapter.
+// credentials and executable trust win over stale checks.
 function adapterPickerCheck(
   adapter: AgentAdapterRecord,
   health: AgentAdapterHealthRecord | null | undefined,
@@ -39,6 +41,20 @@ function adapterPickerCheck(
       iconColor: "var(--t3)",
       chipLabel: "setup",
       chipColor: "var(--t3)",
+    };
+  }
+  if (!externalAgentExecutableTrustApproved(adapter)) {
+    const changed = adapter.executable_trust?.state === "changed";
+    const unavailable = adapter.executable_trust?.state === "unavailable";
+    return {
+      title: changed
+        ? `The discovered ${adapter.name} app changed. Review and approve the update in Connections before Hecate runs it.`
+        : unavailable
+          ? `Hecate could not inspect the ${adapter.name} executable identity. Review its installation in Connections.`
+          : `Review and approve the exact ${adapter.name} app identity in Connections before Hecate runs it.`,
+      iconColor: changed ? "var(--red)" : "var(--amber)",
+      chipLabel: changed ? "changed" : unavailable ? "identity" : "approve",
+      chipColor: changed ? "var(--red)" : "var(--amber)",
     };
   }
   if (adapter.auth_status === "billing") {
@@ -151,11 +167,11 @@ function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): st
 }
 
 function adapterCheckTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `The last ${adapter.name} check needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred prompt-serving vendor invocation; Connections checks available agents automatically. ${detail}`;
+  return `The last ${adapter.name} check needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred prompt-serving vendor invocation; use Check in Connections to test it again. ${detail}`;
 }
 
 function adapterAdvisoryTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred prompt-serving vendor invocation; Connections checks available agents automatically.`;
+  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred prompt-serving vendor invocation; use Check in Connections to test it again.`;
 }
 
 export function AgentAdapterPicker({

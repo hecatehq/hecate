@@ -86,8 +86,8 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "Send a message") {
-		t.Fatalf("hint = %q, want first-message verification guidance", hint)
+	if !strings.Contains(hint, "Approve the app") || !strings.Contains(hint, "Check in Connections") {
+		t.Fatalf("hint = %q, want approval and explicit-check guidance", hint)
 	}
 	if !strings.Contains(hint, "claude /login") {
 		t.Fatalf("hint = %q, want the `claude /login` command callout", hint)
@@ -109,9 +109,9 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "Connections checks available agents automatically") ||
+	if !strings.Contains(hint, "After approving the app") ||
 		!strings.Contains(hint, "verifies CLI auth when Claude Code handles the first message") {
-		t.Fatalf("hint = %q, want Connections-check and first-message verification guidance", hint)
+		t.Fatalf("hint = %q, want approval, Connections-check, and first-message verification guidance", hint)
 	}
 }
 

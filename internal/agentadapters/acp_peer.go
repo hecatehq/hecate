@@ -44,6 +44,17 @@ func resolveAdapterPeerExecutable(ctx context.Context, adapter Adapter, lookup L
 }
 
 func launchACPAdapterPeer(ctx context.Context, adapter Adapter, workspace, resolvedPath string) (*acpPeer, error) {
+	trustManager, trustAdapterID := executableTrustFromContext(ctx)
+	if trustManager != nil {
+		if trustAdapterID == "" {
+			trustAdapterID = adapter.ID
+		}
+		permit, err := trustManager.AuthorizePath(ctx, trustAdapterID, resolvedPath)
+		if err != nil {
+			return nil, err
+		}
+		defer permit.Close()
+	}
 	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
 	if err != nil {
 		return nil, err
@@ -57,7 +68,7 @@ func launchACPAdapterPeer(ctx context.Context, adapter Adapter, workspace, resol
 
 	var peer *acpPeer
 	if adapterUsesEmbeddedServer(adapter) {
-		peer, err = launchEmbeddedACPAdapterPeer(adapter, resolvedPath, processEnv.values)
+		peer, err = launchEmbeddedACPAdapterPeer(adapter, resolvedPath, processEnv.values, trustManager)
 	} else {
 		peer, err = launchProcessACPAdapterPeer(runtimeAdapter(adapter), workspace, resolvedPath, processEnv.values)
 	}
@@ -77,8 +88,8 @@ func launchACPAdapterPeer(ctx context.Context, adapter Adapter, workspace, resol
 	return peer, nil
 }
 
-func launchEmbeddedACPAdapterPeer(adapter Adapter, resolvedPath string, baseEnv []string) (*acpPeer, error) {
-	server, err := newEmbeddedACPServer(adapter, resolvedPath, baseEnv)
+func launchEmbeddedACPAdapterPeer(adapter Adapter, resolvedPath string, baseEnv []string, trustManager *ExecutableTrustManager) (*acpPeer, error) {
+	server, err := newEmbeddedACPServerWithTrust(adapter, resolvedPath, baseEnv, trustManager)
 	if err != nil {
 		return nil, err
 	}

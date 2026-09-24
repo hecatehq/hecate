@@ -91,7 +91,7 @@ func passiveAgentAdapterHealth(status agentadapters.Status) agentadapters.ProbeR
 	if status.Available {
 		result.Status = agentadapters.ProbeStatusUnverified
 		result.Error = ""
-		result.Hint = "App found. Connections checks available agents automatically. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication."
+		result.Hint = "App found. Review and approve its executable identity in Connections before Hecate runs a check or starts a chat."
 		return result
 	}
 	if status.AuthStatus == agentadapters.AuthStatusUnauthenticated {

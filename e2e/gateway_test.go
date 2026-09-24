@@ -413,11 +413,22 @@ type e2eAgentAdapterProbe struct {
 }
 
 type e2eAgentAdapter struct {
-	ID         string `json:"id"`
-	Available  bool   `json:"available"`
-	Path       string `json:"path,omitempty"`
-	AuthStatus string `json:"auth_status,omitempty"`
-	AuthError  string `json:"auth_error,omitempty"`
+	ID              string                          `json:"id"`
+	Available       bool                            `json:"available"`
+	Path            string                          `json:"path,omitempty"`
+	AuthStatus      string                          `json:"auth_status,omitempty"`
+	AuthError       string                          `json:"auth_error,omitempty"`
+	ExecutableTrust *e2eAgentAdapterExecutableTrust `json:"executable_trust,omitempty"`
+}
+
+type e2eAgentAdapterExecutableTrust struct {
+	State    string                             `json:"state"`
+	Current  *e2eAgentAdapterExecutableIdentity `json:"current,omitempty"`
+	Approved *e2eAgentAdapterExecutableIdentity `json:"approved,omitempty"`
+}
+
+type e2eAgentAdapterExecutableIdentity struct {
+	IdentityToken string `json:"identity_token"`
 }
 
 type e2eAgentAdapterHealth struct {

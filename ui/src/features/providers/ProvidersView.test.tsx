@@ -1328,7 +1328,7 @@ describe("ProvidersView table renders", () => {
     expect(copyCommand).toHaveBeenCalledWith("OPENAI_API_KEY");
 
     const checkAgain = screen.getByRole("button", {
-      name: "Check Codex again; opens a temporary ACP session and may execute the agent app",
+      name: "Check again for Codex; opens a temporary ACP session and may execute the agent app",
     });
     expect(checkAgain).toHaveAttribute(
       "title",

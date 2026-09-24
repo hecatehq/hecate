@@ -8,7 +8,10 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
 } from "../../types/provider";
-import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
+import {
+  externalAgentExecutableTrustApproved,
+  resolveExternalAgentReadiness,
+} from "../../lib/external-agent-readiness";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { modelDisplayName } from "../../lib/runtime-utils";
 import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
@@ -422,7 +425,8 @@ export function chatAgentOptionStatus(
   if (optionID === "hecate") {
     return { label: "local", color: "var(--teal)", title: "Hecate Chat", ready: true };
   }
-  const launchReady = !resolveExternalAgentReadiness(adapter, health ?? null).launchBlocked;
+  const readiness = resolveExternalAgentReadiness(adapter, health ?? null);
+  const launchReady = !readiness.launchBlocked;
   if (adapter?.remote_credential_ok === false) {
     return {
       label: "auth",
@@ -441,6 +445,22 @@ export function chatAgentOptionStatus(
       color: "var(--t3)",
       title: adapterSetupTitle(optionID, adapter, adapter?.error),
       ready: launchReady,
+    };
+  }
+  if (!externalAgentExecutableTrustApproved(adapter)) {
+    const trustUnavailable = adapter.executable_trust?.state === "unavailable";
+    return {
+      label:
+        adapter.executable_trust?.state === "changed"
+          ? "changed"
+          : trustUnavailable
+            ? "identity"
+            : "approve",
+      color: adapter.executable_trust?.state === "changed" ? "var(--red)" : "var(--amber)",
+      title:
+        readiness.detail ||
+        `Open Connections to review and approve the exact ${adapter.name} app identity.`,
+      ready: false,
     };
   }
   if (adapter.auth_status === "billing") {
@@ -574,7 +594,7 @@ function adapterCheckTitle(
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const cleanDetail = sanitizedAdapterDetail(detail);
-  const action = `The last ${name} check needs attention. Starting a chat retries the current ACP launch; Connections checks available agents automatically.`;
+  const action = `The last ${name} check needs attention. Starting a chat retries the current ACP launch; use Check in Connections to test it again.`;
   return cleanDetail ? `${action} ${cleanDetail}` : action;
 }
 
