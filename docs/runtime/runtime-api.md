@@ -365,7 +365,8 @@ Run-local; Task responses do not expose cumulative `step_count` or
 `artifact_count` aliases across the Task's complete Run history.
 
 Task responses include `agent_preset_id` when a standalone native Task or a
-project-work assignment selected a Work policy. Project-created Tasks also
+project-work assignment selected a Work policy, or when a tools-on Hecate Chat
+backing Task copied its frozen Chat-safe snapshot. Project-created Tasks also
 include `work_item_id` and `assignment_id`. The latter are inspection links and
 do not replace the task's generic `origin_kind` / `origin_id` fields. The
 effective preset posture is snapshotted onto ordinary task fields (`sandbox_read_only`,

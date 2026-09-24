@@ -447,7 +447,7 @@ flowchart TD
 
     Executor["Executor<br/>(shell / git / file / agent_loop)"]
     Executor --> AgentLoop{"agent_loop?"}
-    AgentLoop -->|"yes"| LoopRef["See: Agent-loop model-call cycle<br/>(runtime + frozen native-assignment<br/>mid-loop approval policy,<br/>cost events, built-ins + MCP)"]
+    AgentLoop -->|"yes"| LoopRef["See: Agent-loop model-call cycle<br/>(runtime + frozen Work-policy<br/>mid-loop approval posture,<br/>cost events, built-ins + MCP)"]
     AgentLoop -->|"no"| Sandbox["Sandbox executor<br/>+ ProcessRunner / GitRunner<br/>(policy-validated,<br/>output-capped + timed out,<br/>bwrap/sandbox-exec wrapped<br/>where available)"]
     LoopRef --> Sandbox
     LoopRef --> McpServers["External MCP servers<br/>(stdio / HTTP, per-server<br/>approval policy)"]
