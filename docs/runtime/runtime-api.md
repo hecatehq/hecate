@@ -2177,7 +2177,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "status": "unverified",
     "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "hint": "App found. Review and approve its executable identity in Connections before Hecate runs a check or starts a chat.",
+    "hint": "App found. Review its current executable approval status in Connections before Hecate runs a check or starts a chat.",
     "supports_authenticate": false,
     "supports_logout": false,
     "supports_load_session": false,
@@ -4440,7 +4440,7 @@ update. Hecate verifies the same launch shape used by preflight/start: project,
 work item, assignment, and role identity; queued/startable status; stored driver
 support; active execution; workspace/root resolution; Agent Preset and skill
 resolution; native provider/model readiness; and External Agent adapter/options
-resolution.
+resolution, passive app availability, and exact executable identity approval.
 
 In strict embedded mode, the endpoint reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
@@ -4507,7 +4507,11 @@ The response envelope is:
 Native Hecate Task assignments may include `model_readiness`, using the same
 reason and repair vocabulary as `metadata.readiness` on `/v1/models`. External
 Agent assignments include `external_agent_id`, `external_agent`, and
-`session_title` when the adapter/options resolve. Assignments with a resolved
+`session_title` when the adapter/options resolve. They are blocked when a
+required remote-runtime credential is missing, the app is missing, its identity
+cannot be measured, approval is absent, or its current identity no longer
+matches the approved identity; readiness inspection never executes the app.
+Assignments with a resolved
 Agent Preset include `profile_posture`, a read-only summary of the selected
 preset's tools, writes, network, browser, approval, memory, and context-source
 posture. Native Hecate tasks report `browser_evidence_status` and

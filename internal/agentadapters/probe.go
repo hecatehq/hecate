@@ -212,6 +212,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		},
 	})
 	initCancel()
+	err = embeddedACPExecutableTrustError(adapter, err)
 	if err != nil {
 		res.Stderr = strings.TrimSpace(peer.Stderr())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
@@ -219,6 +220,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 			res.Hint = adapterSignInHint(adapter)
 		}
 		res.Error = err.Error()
+		res.Cause = err
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
@@ -231,6 +233,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		McpServers: []acp.McpServer{},
 	})
 	newCancel()
+	err = embeddedACPExecutableTrustError(adapter, err)
 	if err != nil {
 		res.Stderr = strings.TrimSpace(peer.Stderr())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
@@ -238,6 +241,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 			res.Hint = adapterSignInHint(adapter)
 		}
 		res.Error = err.Error()
+		res.Cause = err
 		res.DurationMS = elapsedMS(start)
 		return res
 	}

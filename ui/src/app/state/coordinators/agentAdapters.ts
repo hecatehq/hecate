@@ -109,14 +109,34 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     try {
       const response = await approveAgentAdapterExecutableRequest(adapterID, expectedIdentity);
       providersAndModels.actions.applyAgentAdapterExecutableTrust(adapterID, response.data);
-      await refreshAgentAdapters({ notify: false });
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const finalTrust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : refresh.ok
+            ? undefined
+            : response.data;
+      if (!executableApprovalMatches(finalTrust, expectedIdentity)) {
+        params.setNoticeMessage("error", executableApprovalNotConfirmedMessage(finalTrust));
+        return false;
+      }
       params.setNoticeMessage("success", "External agent app approved.");
       return true;
     } catch (error) {
       // The reviewed token can become stale between catalog read and approval.
       // Refresh passively so the operator sees the newly measured identity
-      // instead of repeatedly submitting the obsolete one.
-      await refreshAgentAdapters({ notify: false });
+      // instead of repeatedly submitting the obsolete one. A fresh matching
+      // approval also resolves the ambiguous case where the write committed
+      // but its HTTP response was lost.
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const trust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : undefined;
+      if (executableApprovalMatches(trust, expectedIdentity)) {
+        params.setNoticeMessage("success", "External agent app approved.");
+        return true;
+      }
       params.setNoticeMessage(
         "error",
         error instanceof Error ? error.message : "Failed to approve external agent app.",
@@ -146,6 +166,18 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
       params.setNoticeMessage("success", "External agent app approval revoked.");
       return true;
     } catch (error) {
+      // DELETE may have committed even when its response was lost. Reconcile
+      // passively so the UI cannot keep offering an approval the backend has
+      // already revoked.
+      const refresh = await providersAndModels.actions.refreshAgentAdapters();
+      const trust =
+        refresh.ok && refresh.authoritative
+          ? refresh.adapters.find((adapter) => adapter.id === adapterID)?.executable_trust
+          : undefined;
+      if (executableRevocationConfirmed(trust)) {
+        params.setNoticeMessage("success", "External agent app approval revoked.");
+        return true;
+      }
       params.setNoticeMessage(
         "error",
         error instanceof Error ? error.message : "Failed to revoke external agent app approval.",
@@ -166,4 +198,35 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     },
     overrides?.agentAdapters,
   );
+}
+
+function executableApprovalMatches(
+  trust: AgentAdapterExecutableTrust | undefined,
+  expectedIdentity: string,
+): boolean {
+  return (
+    trust?.state === "approved" &&
+    trust.current?.identity_token === expectedIdentity &&
+    trust.approved?.identity_token === expectedIdentity
+  );
+}
+
+function executableRevocationConfirmed(trust: AgentAdapterExecutableTrust | undefined): boolean {
+  return (
+    trust?.state === "unapproved" ||
+    (trust?.state === "unavailable" && trust.approved === undefined)
+  );
+}
+
+function executableApprovalNotConfirmedMessage(
+  trust: AgentAdapterExecutableTrust | undefined,
+): string {
+  switch (trust?.state) {
+    case "changed":
+      return "The external agent app changed before approval could be confirmed. Review and approve its current identity.";
+    case "unavailable":
+      return "The external agent app became unavailable before approval could be confirmed. Refresh discovery and try again.";
+    default:
+      return "The external agent app approval could not be confirmed. Review its current identity and try again.";
+  }
 }

@@ -557,7 +557,41 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	readiness.Title = "Ready to prepare External Agent chat"
 	readiness.Detail = "Launch checks are clear. Review the launch context before preparing this supervised External Agent chat."
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
+	status, ok := agentadapters.CatalogStatusForAdapter(ctx, plan.AdapterID, nil)
+	if ok && !status.RemoteCredentialOK && strings.TrimSpace(status.RemoteCredentialHint) != "" {
+		readiness.Blockers = append(readiness.Blockers, strings.TrimSpace(status.RemoteCredentialHint))
+		return nil
+	}
+	if !ok || !status.Available {
+		readiness.Blockers = append(readiness.Blockers, fmt.Sprintf(
+			"%s app is unavailable. Install it or review its setup in Connections.",
+			firstNonEmptyString(plan.Adapter.Name, "External Agent"),
+		))
+		return nil
+	}
+	if h == nil || h.executableTrust == nil {
+		readiness.Blockers = append(readiness.Blockers, "External Agent app approval is unavailable on this runtime.")
+		return nil
+	}
+	trust := h.executableTrust.InspectPath(ctx, plan.AdapterID, status.Path)
+	if blocker := externalAgentExecutableTrustReadinessBlocker(plan.Adapter.Name, trust); blocker != "" {
+		readiness.Blockers = append(readiness.Blockers, blocker)
+	}
 	return nil
+}
+
+func externalAgentExecutableTrustReadinessBlocker(adapterName string, trust agentadapters.ExecutableTrustStatus) string {
+	name := firstNonEmptyString(strings.TrimSpace(adapterName), "External Agent")
+	switch trust.State {
+	case agentadapters.ExecutableTrustStateApproved:
+		return ""
+	case agentadapters.ExecutableTrustStateUnapproved:
+		return name + " app approval is required. Open Connections, review its executable identity, and approve it."
+	case agentadapters.ExecutableTrustStateChanged:
+		return name + " app changed after approval. Open Connections, review its current executable identity, and approve it again if expected."
+	default:
+		return "Hecate could not verify the " + name + " app identity. Check the installation and refresh Connections."
+	}
 }
 
 func renderProjectAssignmentLaunchProfilePosture(profile projectworkapp.ResolvedAgentProfile, driverKind string, browserRuntime BrowserEvidenceRuntimeReadinessResponse) *ProjectAssignmentLaunchProfilePostureResponseItem {

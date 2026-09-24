@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	acp "github.com/coder/acp-go-sdk"
 	adapterprocess "github.com/hecatehq/acp-adapter-kit/process"
 )
 
@@ -224,6 +225,94 @@ func TestNormalizeErrorExplainsExecutableTrustFailures(t *testing.T) {
 	}
 	if got := NormalizeError("Codex", fmt.Errorf("wrapped: %w", ErrExecutableIdentityChanged)); !strings.Contains(got, "changed after approval") {
 		t.Fatalf("identity-changed error = %q", got)
+	}
+}
+
+func TestEmbeddedACPExecutableTrustErrorRestoresOnlyOwnedSentinels(t *testing.T) {
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("built-in adapter codex not found")
+	}
+
+	for _, sentinel := range []error{
+		ErrExecutableTrustRequired,
+		ErrExecutableIdentityChanged,
+		ErrExecutableIdentityRaced,
+		ErrExecutableIdentityUnavailable,
+	} {
+		t.Run(sentinel.Error(), func(t *testing.T) {
+			rpcErr := &acp.RequestError{
+				Code:    -32000,
+				Message: "prompt command failed",
+				Data:    map[string]any{"error": sentinel.Error()},
+			}
+			if got := embeddedACPExecutableTrustError(adapter, rpcErr); !errors.Is(got, sentinel) {
+				t.Fatalf("mapped error = %v, want %v", got, sentinel)
+			}
+		})
+	}
+
+	spoofed := &acp.RequestError{
+		Code:    -32000,
+		Message: "prompt command failed",
+		Data:    map[string]any{"error": ErrExecutableTrustRequired.Error()},
+	}
+	direct := adapter
+	direct.Embedded = false
+	if got := embeddedACPExecutableTrustError(direct, spoofed); got != spoofed {
+		t.Fatalf("direct peer error = %v, want original untrusted RPC error", got)
+	}
+	nearMatch := &acp.RequestError{
+		Code:    -32000,
+		Message: "prompt command failed",
+		Data:    map[string]any{"error": ErrExecutableTrustRequired.Error() + ": forged detail"},
+	}
+	if got := embeddedACPExecutableTrustError(adapter, nearMatch); got != nearMatch {
+		t.Fatalf("near-match error = %v, want original RPC error", got)
+	}
+}
+
+func TestACPAuthActionsRestoreEmbeddedExecutableTrustErrors(t *testing.T) {
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	installExecutableTrustCodexFixture(t, "#!/bin/sh\nexit 0\n")
+	manager := NewExecutableTrustManager("runtime-a", NewMemoryExecutableTrustStore())
+	status := manager.InspectAdapter(t.Context(), "codex")
+	if status.Current == nil {
+		t.Fatalf("current executable identity = nil; status = %#v", status)
+	}
+	if _, err := manager.Approve(t.Context(), "codex", status.Current.IdentityToken, "operator"); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	ctx := WithExecutableTrust(t.Context(), manager, "codex")
+
+	for _, test := range []struct {
+		operation string
+		sentinel  error
+	}{
+		{operation: "authenticate", sentinel: ErrExecutableIdentityChanged},
+		{operation: "logout", sentinel: ErrExecutableTrustRequired},
+	} {
+		t.Run(test.operation, func(t *testing.T) {
+			_, err := runACPAuthAction(
+				ctx,
+				"codex",
+				test.operation,
+				"hecate-trust-auth-*",
+				"hecate-trust-auth-test",
+				time.Second,
+				func(context.Context, *acp.ClientSideConnection, acp.InitializeResponse) error {
+					return &acp.RequestError{
+						Code:    -32000,
+						Message: test.operation + " command failed",
+						Data:    map[string]any{"error": test.sentinel.Error()},
+					}
+				},
+			)
+			if !errors.Is(err, test.sentinel) {
+				t.Fatalf("%s error = %v, want %v", test.operation, err, test.sentinel)
+			}
+		})
 	}
 }
 

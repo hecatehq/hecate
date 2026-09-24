@@ -1333,7 +1333,7 @@ describe("Connections external-agent panel", () => {
     await user.click(signOut);
 
     expect(logoutAgentAdapter).toHaveBeenCalledWith("codex");
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitFor(() => expect(signOut).toHaveFocus());
   });
 
   it("shows authenticate for local adapters that need sign-in", async () => {
@@ -1382,7 +1382,7 @@ describe("Connections external-agent panel", () => {
     await user.click(signIn);
 
     expect(authenticateAgentAdapter).toHaveBeenCalledWith("codex");
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitFor(() => expect(signIn).toHaveFocus());
     expect(screen.queryByRole("button", { name: /Sign in Cursor Agent/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Sign out Codex/ })).toBeNull();
   });
@@ -1798,7 +1798,7 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
-      expect(screen.getByTestId("external-agents-check-codex")).toHaveTextContent("Check again");
+      expect(screen.getByTestId("external-agents-check-codex")).toHaveTextContent("Check");
     });
 
     it("does not execute an available adapter when Connections opens", async () => {
@@ -1865,6 +1865,41 @@ describe("Connections external-agent panel", () => {
 
       await user.click(within(row).getByRole("button", { name: "Approve app for Codex" }));
       expect(approveAgentAdapterExecutable).toHaveBeenCalledWith("codex", "codex-identity-current");
+    });
+
+    it("explains that launcher-only approval does not cover dispatched programs", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              executable_trust: {
+                schema_version: "hecate.external-agent-executable.v1",
+                state: "unapproved",
+                reason: "approval_required",
+                current: {
+                  ...currentExecutableIdentity,
+                  coverage: "launcher_only",
+                },
+              },
+            },
+          ],
+        }),
+      );
+
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const trust = await screen.findByTestId("external-agents-trust-codex");
+      expect(trust).toHaveTextContent("launcher only");
+      expect(within(trust).getByText(/Only this launcher was measured/)).toHaveTextContent(
+        "Only this launcher was measured. Interpreters and programs it dispatches are not covered by this approval.",
+      );
     });
 
     it("keeps approval focus during refresh, then moves it to the named row", async () => {
@@ -1934,6 +1969,125 @@ describe("Connections external-agent panel", () => {
       });
     });
 
+    it("moves focus to the named row when a failed approval removes its control", async () => {
+      const user = userEvent.setup();
+
+      function UnavailableApprovalHarness() {
+        const [unavailable, setUnavailable] = useState(false);
+        const state = createRuntimeConsoleFixture({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              available: !unavailable,
+              status: unavailable ? "missing" : "available",
+              cost_mode: "external",
+              supports_authenticate: false,
+              supports_logout: false,
+              executable_trust: unavailable
+                ? {
+                    schema_version: "hecate.external-agent-executable.v1",
+                    state: "unavailable" as const,
+                    reason: "executable_not_found",
+                  }
+                : {
+                    schema_version: "hecate.external-agent-executable.v1",
+                    state: "unapproved" as const,
+                    reason: "approval_required",
+                    current: currentExecutableIdentity,
+                  },
+            },
+          ],
+        });
+        const actions = createRuntimeConsoleActions();
+        actions.approveAgentAdapterExecutable = async () => {
+          setUnavailable(true);
+          return false;
+        };
+        return withRuntimeConsole(<ConnectionsPanel />, { state, actions });
+      }
+
+      render(<UnavailableApprovalHarness />);
+      const row = await screen.findByRole("group", { name: "Codex" });
+      await user.click(within(row).getByRole("button", { name: "Approve app for Codex" }));
+
+      await waitFor(() => {
+        expect(within(row).queryByRole("button", { name: /Approve/ })).toBeNull();
+        expect(row).toHaveFocus();
+      });
+    });
+
+    it("does not steal focus moved elsewhere while approval is pending", async () => {
+      const user = userEvent.setup();
+      let finishApproval: () => void = () => {};
+      const approvalFinished = new Promise<void>((resolve) => {
+        finishApproval = resolve;
+      });
+
+      function DeliberateFocusHarness() {
+        const [approved, setApproved] = useState(false);
+        const state = createRuntimeConsoleFixture({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              supports_authenticate: false,
+              supports_logout: false,
+              executable_trust: approved
+                ? {
+                    schema_version: "hecate.external-agent-executable.v1",
+                    state: "approved" as const,
+                    reason: "operator_approved",
+                    current: currentExecutableIdentity,
+                    approved: currentExecutableIdentity,
+                  }
+                : {
+                    schema_version: "hecate.external-agent-executable.v1",
+                    state: "unapproved" as const,
+                    reason: "approval_required",
+                    current: currentExecutableIdentity,
+                  },
+            },
+          ],
+        });
+        const actions = createRuntimeConsoleActions();
+        actions.approveAgentAdapterExecutable = async () => {
+          await approvalFinished;
+          setApproved(true);
+          return true;
+        };
+        return withRuntimeConsole(
+          <>
+            <button type="button">Elsewhere</button>
+            <ConnectionsPanel />
+          </>,
+          { state, actions },
+        );
+      }
+
+      render(<DeliberateFocusHarness />);
+      const row = await screen.findByRole("group", { name: "Codex" });
+      await user.click(within(row).getByRole("button", { name: "Approve app for Codex" }));
+      const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+      await user.click(elsewhere);
+      await act(async () => {
+        finishApproval();
+        await approvalFinished;
+      });
+
+      await waitFor(() => {
+        expect(within(row).queryByRole("button", { name: /Approving|Approve app/ })).toBeNull();
+        expect(elsewhere).toHaveFocus();
+      });
+    });
+
     it("shows a changed identity for review before approving the update", async () => {
       const approveAgentAdapterExecutable = vi.fn(async () => true);
       const priorIdentity = {
@@ -1986,9 +2140,10 @@ describe("Connections external-agent panel", () => {
         within(row).getByRole("button", { name: "Revoke previous approval for Codex" }),
       ).toHaveTextContent("Revoke previous approval");
       expect(within(row).getByRole("button", { name: /Sign out Codex/ })).toBeDisabled();
-      await user.click(within(row).getByRole("button", { name: "Approve update for Codex" }));
+      const approveUpdate = within(row).getByRole("button", { name: "Approve update for Codex" });
+      await user.click(approveUpdate);
       expect(approveAgentAdapterExecutable).toHaveBeenCalledWith("codex", "codex-identity-current");
-      await waitFor(() => expect(row).toHaveFocus());
+      await waitFor(() => expect(approveUpdate).toHaveFocus());
     });
 
     it("revokes an approved identity and does not expose development override paths", async () => {
@@ -2021,9 +2176,10 @@ describe("Connections external-agent panel", () => {
       const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       const row = await screen.findByTestId("external-agents-adapter-codex");
-      await user.click(within(row).getByRole("button", { name: "Revoke approval for Codex" }));
+      const revoke = within(row).getByRole("button", { name: "Revoke approval for Codex" });
+      await user.click(revoke);
       expect(revokeAgentAdapterExecutable).toHaveBeenCalledWith("codex");
-      await waitFor(() => expect(row).toHaveFocus());
+      await waitFor(() => expect(revoke).toHaveFocus());
 
       const overrideState = createRuntimeConsoleFixture({
         ...withAdapter(),
@@ -2108,7 +2264,7 @@ describe("Connections external-agent panel", () => {
       expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
       expect(
         within(row).getByRole("button", {
-          name: "Check again for Codex; opens a temporary ACP session and may execute the agent app",
+          name: "Check for Codex; opens a temporary ACP session and may execute the agent app",
         }),
       ).toHaveAttribute("title", "Runs a short-lived Codex session check without sending a prompt");
     });
@@ -2219,7 +2375,7 @@ describe("Connections external-agent panel", () => {
       const row = await screen.findByTestId("external-agents-adapter-codex");
       expect(row).toHaveTextContent("path /opt/hecate/agents/codex");
       const checkAgain = within(row).getByRole("button", {
-        name: "Check again for Codex; opens a temporary ACP session and may execute the agent app",
+        name: "Check for Codex; opens a temporary ACP session and may execute the agent app",
       });
       expect(checkAgain).toHaveAttribute(
         "title",
@@ -2635,7 +2791,7 @@ describe("Connections external-agent panel", () => {
       const row = await screen.findByTestId("external-agents-adapter-claude_code");
       expect(row).toHaveTextContent("path /Users/alice/.local/bin/claude");
       const checkAgain = within(row).getByRole("button", {
-        name: "Check again for Claude Code; opens a temporary ACP session and may execute the agent app",
+        name: "Check for Claude Code; opens a temporary ACP session and may execute the agent app",
       });
       expect(checkAgain).toHaveAttribute(
         "title",

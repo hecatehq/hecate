@@ -825,6 +825,8 @@ describe("refreshAgentAdapters", () => {
     const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
     let first: Promise<unknown> | undefined;
     let second: Promise<unknown> | undefined;
+    let firstResult: unknown;
+    let secondResult: unknown;
 
     act(() => {
       first = result.current.actions.refreshAgentAdapters();
@@ -832,9 +834,9 @@ describe("refreshAgentAdapters", () => {
     });
     await act(async () => {
       resolveSecond({ object: "agent_adapters", data: [available] });
-      await second;
+      secondResult = await second;
       resolveFirst({ object: "agent_adapters", data: [missing] });
-      await first;
+      firstResult = await first;
     });
 
     expect(result.current.state.agentAdapters[0]).toMatchObject({
@@ -842,15 +844,22 @@ describe("refreshAgentAdapters", () => {
       status: "available",
       path: "/Applications/Codex.app/Contents/Resources/codex",
     });
+    expect(secondResult).toMatchObject({
+      ok: true,
+      applied: true,
+      authoritative: true,
+      adapters: [available],
+    });
+    expect(firstResult).toMatchObject({
+      ok: true,
+      applied: false,
+      authoritative: true,
+      adapters: [available],
+    });
   });
 
   it("does not let an in-flight catalog overwrite an explicit local projection", async () => {
     let resolveCatalog: (value: unknown) => void = () => {};
-    getAgentAdaptersMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveCatalog = resolve;
-      }),
-    );
     const missing = {
       id: "codex",
       name: "Codex",
@@ -867,8 +876,20 @@ describe("refreshAgentAdapters", () => {
       status: "available",
       path: "/Applications/Codex.app/Contents/Resources/codex",
     };
+    getAgentAdaptersMock
+      .mockResolvedValueOnce({ object: "agent_adapters", data: [missing] })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCatalog = resolve;
+        }),
+      );
     const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
     let refresh: Promise<unknown> | undefined;
+    let refreshResult: unknown;
+
+    await act(async () => {
+      await result.current.actions.refreshAgentAdapters();
+    });
 
     act(() => {
       refresh = result.current.actions.refreshAgentAdapters();
@@ -878,10 +899,11 @@ describe("refreshAgentAdapters", () => {
     });
     await act(async () => {
       resolveCatalog({ object: "agent_adapters", data: [missing] });
-      await refresh;
+      refreshResult = await refresh;
     });
 
     expect(result.current.state.agentAdapters[0]).toMatchObject(available);
+    expect(refreshResult).toMatchObject({ ok: true, applied: false, authoritative: false });
   });
 
   it("does not let an older passive read overwrite a completed auth action", async () => {
