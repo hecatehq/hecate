@@ -32,10 +32,11 @@ type Task struct {
 	// project assignment.
 	WorkItemID   string
 	AssignmentID string
-	// AgentPresetID identifies the Hecate-owned preset resolved when a
-	// project assignment or standalone task was created. The effective launch
-	// posture is snapshotted onto the task's execution and sandbox fields so
-	// later preset edits cannot change retries or resumes.
+	// AgentPresetID identifies the Hecate-owned preset resolved for a project
+	// assignment or standalone task, or copied from a Hecate Chat's frozen
+	// session snapshot when its backing task was created. The effective launch
+	// posture is snapshotted onto execution and sandbox fields so later preset
+	// edits cannot change retries or resumes.
 	AgentPresetID string
 	// AgentPresetToolsEnabled snapshots whether the resolved Agent Preset
 	// permits tools for this task. nil marks legacy/manual tasks that predate
@@ -43,12 +44,14 @@ type Task struct {
 	// explicit all-tools denial for new preset-backed native tasks.
 	AgentPresetToolsEnabled *bool `json:",omitempty"`
 	// AgentPresetApprovalPolicy snapshots the resolved Agent Preset approval
-	// posture for a native project-assignment or standalone task. QA does not
-	// consume this layer. Empty means there is no frozen native-preset approval
-	// layer, including for Hecate Chat, External Agent, QA, and legacy tasks, and
-	// preserves their existing runtime, MCP-server, and browser approval
-	// behavior. New preset-backed tasks store one of the AgentPresetApproval*
-	// values below so later preset edits cannot change retries or resumes.
+	// posture for a native project-assignment or standalone task, or the explicit
+	// posture copied to a tools-on Hecate Chat backing task. Empty means there is
+	// no frozen native-preset approval layer, including for legacy Chat snapshots,
+	// External Agent, QA, and legacy/manual tasks, and preserves their existing
+	// runtime, MCP-server, and browser approval behavior. Browser authority is
+	// independent and never inferred from this field. New preset-backed tasks
+	// store one of the AgentPresetApproval* values below so later preset edits
+	// cannot change retries or resumes.
 	AgentPresetApprovalPolicy string `json:",omitempty"`
 	// AgentPresetBrowserAllowed snapshots whether the resolved Hecate Agent
 	// Preset permits the native, read-only browser evidence tool. nil marks

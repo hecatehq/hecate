@@ -240,6 +240,11 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		spec.Task.AgentPresetApprovalPolicy = policy
 		return spec
 	}
+	chatSpec := func(policy string) ExecutionSpec {
+		spec := standaloneSpec(policy)
+		spec.Task.OriginKind = "chat"
+		return spec
+	}
 
 	t.Run("require adds a gate to an otherwise ungated call", func(t *testing.T) {
 		spec := assignmentSpec(types.AgentPresetApprovalRequire)
@@ -263,6 +268,17 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		}
 	})
 
+	t.Run("require activates for a chat preset-backed task", func(t *testing.T) {
+		spec := chatSpec(types.AgentPresetApprovalRequire)
+		gate := newAgentLoopApprovalGate(nil)
+		pause, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+		})
+		if !ok || !strings.Contains(pause.Approval.Reason, "frozen Agent Preset") {
+			t.Fatalf("approval = %+v ok=%v, want chat preset-required pause", pause.Approval, ok)
+		}
+	})
+
 	t.Run("allow does not weaken a global gate", func(t *testing.T) {
 		spec := assignmentSpec(types.AgentPresetApprovalAllow)
 		gate := newAgentLoopApprovalGate([]string{"shell_exec"})
@@ -282,6 +298,15 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		}
 		if !gate.isBlockedByAgentPreset(call, spec) {
 			t.Fatal("block policy did not refuse globally gated call")
+		}
+	})
+
+	t.Run("chat block converts a global gate into a hard refusal", func(t *testing.T) {
+		spec := chatSpec(types.AgentPresetApprovalBlock)
+		gate := newAgentLoopApprovalGate([]string{"shell_exec"})
+		call := agentLoopToolCall("call-shell", "shell_exec", `{"command":"pwd"}`)
+		if gate.isGated(call, spec) || !gate.isBlockedByAgentPreset(call, spec) {
+			t.Fatal("chat block policy did not refuse the globally gated call")
 		}
 	})
 
@@ -313,7 +338,20 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		}
 	})
 
-	t.Run("legacy unrelated chat and QA tasks do not activate a stored value", func(t *testing.T) {
+	t.Run("chat inherit and allow do not weaken or add gates", func(t *testing.T) {
+		call := agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`)
+		for _, policy := range []string{types.AgentPresetApprovalInherit, types.AgentPresetApprovalAllow} {
+			spec := chatSpec(policy)
+			if gate := newAgentLoopApprovalGate(nil); gate.isGated(call, spec) || gate.isBlockedByAgentPreset(call, spec) {
+				t.Fatalf("chat %s policy unexpectedly added an approval decision", policy)
+			}
+			if gate := newAgentLoopApprovalGate([]string{"read_file"}); !gate.isGated(call, spec) {
+				t.Fatalf("chat %s policy weakened the runtime gate", policy)
+			}
+		}
+	})
+
+	t.Run("legacy incomplete unrelated and QA tasks do not activate a stored value", func(t *testing.T) {
 		gate := newAgentLoopApprovalGate(nil)
 		call := agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`)
 		legacy := assignmentSpec("")
@@ -321,12 +359,13 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 		partial.Task.AgentPresetToolsEnabled = nil
 		unrelated := standaloneSpec(types.AgentPresetApprovalRequire)
 		unrelated.Task.OriginKind = "manual"
-		chat := standaloneSpec(types.AgentPresetApprovalRequire)
-		chat.Task.OriginKind = "chat"
+		legacyChat := chatSpec("")
+		partialChat := chatSpec(types.AgentPresetApprovalRequire)
+		partialChat.Task.AgentPresetToolsEnabled = nil
 		qa := assignmentSpec(types.AgentPresetApprovalRequire)
 		qa.Run.WorkflowMode = types.WorkflowModeQA
 		qa.Run.WorkflowVersion = "v0"
-		for name, spec := range map[string]ExecutionSpec{"legacy": legacy, "partial": partial, "unrelated": unrelated, "chat": chat, "qa": qa} {
+		for name, spec := range map[string]ExecutionSpec{"legacy": legacy, "partial": partial, "unrelated": unrelated, "legacy_chat": legacyChat, "partial_chat": partialChat, "qa": qa} {
 			if gate.isGated(call, spec) || gate.isBlockedByAgentPreset(call, spec) {
 				t.Fatalf("%s task unexpectedly activated preset approval policy", name)
 			}
@@ -334,12 +373,13 @@ func TestAgentLoopApprovalGate_AgentPresetPolicyComposesWithExistingGates(t *tes
 	})
 
 	t.Run("invalid persisted value fails safely to approval", func(t *testing.T) {
-		spec := assignmentSpec("unexpected")
-		gate := newAgentLoopApprovalGate(nil)
-		if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
-			agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
-		}); !ok {
-			t.Fatal("invalid persisted approval snapshot did not fail safely")
+		for _, spec := range []ExecutionSpec{assignmentSpec("unexpected"), chatSpec("unexpected")} {
+			gate := newAgentLoopApprovalGate(nil)
+			if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+				agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+			}); !ok {
+				t.Fatalf("invalid persisted approval snapshot did not fail safely for origin %q", spec.Task.OriginKind)
+			}
 		}
 	})
 

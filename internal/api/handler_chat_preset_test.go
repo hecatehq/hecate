@@ -17,6 +17,15 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+func TestChatAgentPresetSnapshotDefaultsApprovalPolicyToInherit(t *testing.T) {
+	t.Parallel()
+
+	snapshot := chatAgentPresetSnapshot(agentprofiles.Profile{ID: "chat_default", Name: "Chat default"})
+	if snapshot.ApprovalPolicy != agentprofiles.ApprovalInherit {
+		t.Fatalf("approval policy = %q, want inherit", snapshot.ApprovalPolicy)
+	}
+}
+
 func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{
@@ -44,6 +53,7 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 		ToolsEnabled:     false,
 		WritesAllowed:    false,
 		NetworkAllowed:   true,
+		ApprovalPolicy:   agentprofiles.ApprovalRequire,
 	}); err != nil {
 		t.Fatalf("Create preset: %v", err)
 	}
@@ -56,7 +66,7 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 	if created.Data.AgentPreset == nil || created.Data.AgentPreset.ID != "safe_review" || created.Data.AgentPreset.Name != "Safe reviewer" || created.Data.AgentPreset.ExecutionProfile != "review" {
 		t.Fatalf("created preset snapshot = %#v, want safe_review", created.Data.AgentPreset)
 	}
-	if created.Data.AgentPreset.ToolsEnabled || created.Data.AgentPreset.WritesAllowed || !created.Data.AgentPreset.NetworkAllowed {
+	if created.Data.AgentPreset.ToolsEnabled || created.Data.AgentPreset.WritesAllowed || !created.Data.AgentPreset.NetworkAllowed || created.Data.AgentPreset.ApprovalPolicy != agentprofiles.ApprovalRequire {
 		t.Fatalf("created preset posture = %#v, want tools=false writes=false network=true", created.Data.AgentPreset)
 	}
 
@@ -65,6 +75,7 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 		profile.Instructions = "Never allow this changed instruction into the existing chat."
 		profile.ProviderHint = "mutated-provider"
 		profile.ModelHint = "mutated-model"
+		profile.ApprovalPolicy = agentprofiles.ApprovalBlock
 	}); err != nil {
 		t.Fatalf("Update preset after session creation: %v", err)
 	}
@@ -73,11 +84,11 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 	}
 
 	stored := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
-	if stored.Data.AgentPreset == nil || stored.Data.AgentPreset.Name != "Safe reviewer" || stored.Data.AgentPreset.Instructions != "Inspect before proposing changes." || stored.Data.AgentPreset.ProviderHint != "openai" || stored.Data.AgentPreset.ModelHint != "gpt-4o-mini" {
+	if stored.Data.AgentPreset == nil || stored.Data.AgentPreset.Name != "Safe reviewer" || stored.Data.AgentPreset.Instructions != "Inspect before proposing changes." || stored.Data.AgentPreset.ProviderHint != "openai" || stored.Data.AgentPreset.ModelHint != "gpt-4o-mini" || stored.Data.AgentPreset.ApprovalPolicy != agentprofiles.ApprovalRequire {
 		t.Fatalf("stored preset snapshot changed after profile update: %#v", stored.Data.AgentPreset)
 	}
 	listed := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/hecate/v1/chat/sessions", "")
-	if len(listed.Data) != 1 || listed.Data[0].AgentPreset == nil || listed.Data[0].AgentPreset.Name != "Safe reviewer" {
+	if len(listed.Data) != 1 || listed.Data[0].AgentPreset == nil || listed.Data[0].AgentPreset.Name != "Safe reviewer" || listed.Data[0].AgentPreset.ApprovalPolicy != agentprofiles.ApprovalRequire {
 		t.Fatalf("listed preset snapshot changed after profile update: %#v", listed.Data)
 	}
 
@@ -95,6 +106,15 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 	}
 	if turned.Data.Messages[1].ContextPacket == nil || turned.Data.Messages[1].ContextPacket.ExecutionProfile != "review" {
 		t.Fatalf("direct-model preset context = %#v, want review execution profile", turned.Data.Messages[1].ContextPacket)
+	}
+	foundPresetContext := false
+	for _, item := range turned.Data.Messages[1].ContextPacket.Items {
+		if item.Kind == "agent_preset" && item.Metadata["approval_policy"] == agentprofiles.ApprovalRequire {
+			foundPresetContext = true
+		}
+	}
+	if !foundPresetContext {
+		t.Fatalf("direct-model preset context = %#v, want frozen approval policy metadata", turned.Data.Messages[1].ContextPacket)
 	}
 	request := provider.LastRequest()
 	if len(request.Messages) < 2 || request.Messages[0].Role != "system" {

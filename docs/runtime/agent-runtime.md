@@ -749,12 +749,15 @@ per-task prompt after any project prelude and before the operator's per-chat
 instructions. When a permitted tools-on Chat turn creates an `agent_loop` Task,
 Hecate copies the snapshot id and tools setting, uses its non-empty execution
 profile, maps `writes_allowed=false` to `sandbox_read_only=true`, and maps
-`network_allowed` to `sandbox_network`. A tools-disabled Chat snapshot cannot
-create a tools-on Task; it keeps the session on the direct-model path.
+`network_allowed` to `sandbox_network`, and copies the explicit approval
+posture into the backing Task's additive mid-loop approval layer. A
+tools-disabled Chat snapshot cannot create a tools-on Task; it keeps the
+session on the direct-model path.
 
 This Chat contract intentionally does not resolve a live preset at run time or
 carry project-memory/context-source policy, skills, browser capabilities, MCP
-servers, approval-policy defaults, or External Agent options into the Task.
+servers, or External Agent options into the Task. In particular, approval
+posture does not imply either native browser grant.
 Later preset edits and deletion do not change an existing Chat or its backing
 Task. The preset is Hecate runtime state, not Cairnline coordination intent;
 it never creates or changes a Project, role, assignment, or handoff.
@@ -818,9 +821,10 @@ present and adds no policy; an invalid non-empty stored value fails safely as
 `require`.
 
 This snapshot is admitted only for standard native agent loops created from a
-resolved Work policy, either directly through `agent_preset_id` or through a
-project assignment. It does not apply to Hecate Chat, External Agent, QA, or
-non-preset Tasks. A preset may retain browser grants while
+resolved Work policy: directly through `agent_preset_id`, through a project
+assignment, or through a tools-on Hecate Chat carrying its explicit frozen
+Chat-safe posture. Legacy Chat Tasks without that approval field add no layer.
+It does not apply to External Agent, QA, or non-preset Tasks. A preset may retain browser grants while
 using `block`, but every otherwise-available browser call requires approval and
 is therefore denied; assignment launch readiness and the standalone New Task
 preview warn about that configured but unusable combination.

@@ -956,6 +956,14 @@ how chat turns create backing tasks, continue terminal runs, or stamp run
 context packets; keep the HTTP handler focused on request parsing, chat message
 persistence, live publishing, and response rendering.
 
+When a Hecate Chat selects a Work policy, persist one narrow immutable session
+snapshot and copy its explicit approval posture to newly created tools-on
+backing Tasks. New snapshots must store `inherit` explicitly; an empty value is
+legacy compatibility state and must not activate a policy. Keep approval
+authority separate from browser authority: a Chat snapshot never makes either
+native browser tool available. Continuing, retrying, or resuming an existing
+Task consumes its stored posture rather than re-reading the session or preset.
+
 Native `agent_loop` code is intentionally split by responsibility:
 
 - `executor_agent_loop.go` is the control-flow spine. Keep it focused on model-call

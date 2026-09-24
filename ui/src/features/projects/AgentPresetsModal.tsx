@@ -614,11 +614,12 @@ export function AgentPresetsModal({
                 </label>
               </div>
               <div id="approval-policy-help" style={presetRoleSubtleTextStyle}>
-                Frozen onto new compatible native Hecate Tasks and project assignments. Require adds
-                an approval gate to every otherwise-permitted tool call. Block converts agent-loop
-                tool calls that global runtime, mandatory browser, or per-MCP-server policy would
-                otherwise send for approval into denials. Allow never bypasses a stricter gate.
-                Hecate Chat and External Agents keep their own approval controls.
+                Frozen onto new compatible native Hecate Tasks, project assignments, and tools-on
+                Hecate Chat backing Tasks. Require adds an approval gate to every
+                otherwise-permitted tool call. Block converts agent-loop tool calls that global
+                runtime, mandatory browser, or per-MCP-server policy would otherwise send for
+                approval into denials. Allow never bypasses a stricter gate. Direct Chat turns have
+                no tool calls; External Agents keep their ACP permission controls.
               </div>
               <div style={presetRoleSubtleTextStyle}>
                 Project memory, context-source, and skill settings activate only through Project

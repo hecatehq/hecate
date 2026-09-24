@@ -382,6 +382,7 @@ func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Sess
 			"tools_enabled":     fmt.Sprintf("%t", preset.ToolsEnabled),
 			"writes_allowed":    fmt.Sprintf("%t", preset.WritesAllowed),
 			"network_allowed":   fmt.Sprintf("%t", preset.NetworkAllowed),
+			"approval_policy":   strings.TrimSpace(preset.ApprovalPolicy),
 		},
 	})
 }

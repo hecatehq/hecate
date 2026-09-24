@@ -392,9 +392,12 @@ also carry a frozen, additive Agent Preset approval layer: preset `require`
 gates an otherwise-`auto` MCP call, while preset `block` denies a call whose
 server uses `require_approval`. Preset `inherit` and `allow` add no gate and do
 not weaken the server policy; server `block` always remains a hard refusal.
-Hecate Chat, External Agents, QA, and non-preset Tasks do not use that frozen
-layer. See [Work policy endpoints](runtime-api.md#work-policy-endpoints) for the
-complete composition and compatibility contract.
+Tools-on Hecate Chat backing Tasks use this layer when their Chat-safe Work
+policy snapshot carries an explicit approval posture. External Agents, QA,
+legacy Chat snapshots without that field, and non-preset Tasks remain outside
+it. See [Work policy
+endpoints](runtime-api.md#work-policy-endpoints) for the complete composition
+and compatibility contract.
 
 Per-tool granularity (e.g. allow read tools on a server while gating write tools) is on the roadmap; for now, gate the whole server or split your task across multiple server entries with different policies.
 

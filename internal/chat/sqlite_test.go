@@ -38,6 +38,26 @@ func TestSQLiteStoreConformance(t *testing.T) {
 	})
 }
 
+func TestAgentPresetSnapshotJSONPreservesLegacyApprovalSemantics(t *testing.T) {
+	t.Parallel()
+
+	legacy := unmarshalAgentPresetSnapshot(`{"id":"legacy","name":"Legacy","tools_enabled":true}`)
+	if legacy == nil || legacy.ApprovalPolicy != "" {
+		t.Fatalf("legacy snapshot = %#v, want empty approval policy", legacy)
+	}
+
+	current := &AgentPresetSnapshot{
+		ID:             "current",
+		Name:           "Current",
+		ToolsEnabled:   true,
+		ApprovalPolicy: types.AgentPresetApprovalInherit,
+	}
+	decoded := unmarshalAgentPresetSnapshot(marshalAgentPresetSnapshot(current))
+	if decoded == nil || decoded.ApprovalPolicy != types.AgentPresetApprovalInherit {
+		t.Fatalf("current snapshot = %#v, want explicit inherit", decoded)
+	}
+}
+
 func TestSQLiteStoreBackfillsWorkspaceOwnerProjection(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

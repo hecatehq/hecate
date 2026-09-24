@@ -157,6 +157,7 @@ func TestHecateAgentTaskOrchestrator_StartMapsFrozenChatPresetPolicy(t *testing.
 				ToolsEnabled:     false,
 				WritesAllowed:    false,
 				NetworkAllowed:   true,
+				ApprovalPolicy:   types.AgentPresetApprovalRequire,
 			},
 		},
 		Prompt:        "inspect this change",
@@ -172,8 +173,46 @@ func TestHecateAgentTaskOrchestrator_StartMapsFrozenChatPresetPolicy(t *testing.
 	if task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled {
 		t.Fatalf("task tools snapshot = %v, want explicit false", task.AgentPresetToolsEnabled)
 	}
+	if task.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire {
+		t.Fatalf("task approval snapshot = %q, want require", task.AgentPresetApprovalPolicy)
+	}
 	if !task.SandboxReadOnly || !task.SandboxNetwork {
 		t.Fatalf("task sandbox posture = read_only %v network %v, want true/true", task.SandboxReadOnly, task.SandboxNetwork)
+	}
+}
+
+func TestHecateAgentTaskOrchestrator_LegacyChatPresetDoesNotInventApprovalPolicy(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingHecateAgentTaskRunner{startRunID: "run_legacy"}
+	orchestrator := hecateAgentTaskOrchestrator{
+		store:      taskstate.NewMemoryStore(),
+		runner:     runner,
+		taskID:     func() string { return "task_legacy" },
+		resourceID: func(prefix string) string { return prefix + "_legacy" },
+		now:        func() time.Time { return time.Date(2026, 7, 20, 9, 30, 0, 0, time.UTC) },
+	}
+
+	task, _, err := orchestrator.StartOrContinue(t.Context(), hecateAgentTaskRunCommand{
+		Session: chat.Session{
+			ID:        "chat_legacy",
+			Workspace: "/tmp/hecate-legacy",
+			Provider:  "openai",
+			Model:     "gpt-4o-mini",
+			AgentPreset: &chat.AgentPresetSnapshot{
+				ID:           "legacy_review",
+				ToolsEnabled: true,
+			},
+		},
+		Prompt:        "inspect this change",
+		ForceNewTask:  true,
+		ContextPacket: chat.ContextPacket{Version: "chat_context_v1"},
+	})
+	if err != nil {
+		t.Fatalf("StartOrContinue: %v", err)
+	}
+	if task.AgentPresetApprovalPolicy != "" {
+		t.Fatalf("legacy task approval snapshot = %q, want empty", task.AgentPresetApprovalPolicy)
 	}
 }
 
@@ -251,13 +290,17 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	ctx := t.Context()
 	store := taskstate.NewMemoryStore()
 	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	toolsEnabled := true
 	task, err := store.CreateTask(ctx, types.Task{
-		ID:          "task_existing",
-		Title:       "Existing chat",
-		Status:      "completed",
-		LatestRunID: "run_existing",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                        "task_existing",
+		Title:                     "Existing chat",
+		Status:                    "completed",
+		LatestRunID:               "run_existing",
+		AgentPresetID:             "frozen_existing",
+		AgentPresetToolsEnabled:   &toolsEnabled,
+		AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
+		CreatedAt:                 now,
+		UpdatedAt:                 now,
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -285,6 +328,11 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 			ProjectID:   "proj_continue",
 			TaskID:      task.ID,
 			LatestRunID: "run_existing",
+			AgentPreset: &chat.AgentPresetSnapshot{
+				ID:             "changed_session",
+				ToolsEnabled:   true,
+				ApprovalPolicy: types.AgentPresetApprovalBlock,
+			},
 		},
 		Prompt: "continue with tools",
 		ContextPacket: chat.ContextPacket{
@@ -303,6 +351,9 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	}
 	if runner.continueTask.ID != task.ID || runner.continueRun.ID != "run_existing" {
 		t.Fatalf("continue input = task %q run %q, want existing task/run", runner.continueTask.ID, runner.continueRun.ID)
+	}
+	if runner.continueTask.AgentPresetID != "frozen_existing" || runner.continueTask.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire {
+		t.Fatalf("continue preset snapshot = %q/%q, want existing require snapshot", runner.continueTask.AgentPresetID, runner.continueTask.AgentPresetApprovalPolicy)
 	}
 	if continuedTask.ID != task.ID || run.ID != "run_next" || run.TaskID != task.ID {
 		t.Fatalf("continued result = task %+v run %+v, want next run for existing task", continuedTask, run)

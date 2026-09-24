@@ -127,6 +127,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		toolsEnabled := preset.ToolsEnabled
 		task.AgentPresetID = preset.ID
 		task.AgentPresetToolsEnabled = &toolsEnabled
+		task.AgentPresetApprovalPolicy = strings.TrimSpace(preset.ApprovalPolicy)
 		task.SandboxReadOnly = !preset.WritesAllowed
 		task.SandboxNetwork = preset.NetworkAllowed
 	}

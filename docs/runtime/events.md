@@ -458,7 +458,8 @@ execution target. Current producers are:
 - an otherwise-permitted native or MCP call on a Work-policy-backed native
   Task whose frozen Agent Preset uses `approval_policy=block` and whose call
   would otherwise require runtime, mandatory browser, or per-MCP-server
-  approval (`policy=agent_preset_approval`).
+  approval (`policy=agent_preset_approval`). This includes a tools-on Hecate
+  Chat backing Task when its Chat-safe snapshot froze an explicit policy.
 
 The event is an audit signal rather than a runtime failure. Its task step uses
 `status=completed`, `phase=policy`, and `result=denied`, while the agent still
@@ -532,8 +533,10 @@ The frozen preset approval layer is additive. `require` produces the normal
 `policy.tool_blocked` only where another policy would have required approval.
 Workflow, tools, sandbox, network, browser-capability/runtime, and MCP-server
 hard denials take precedence and retain their existing policy value. This
-snapshot is present only on standard Work-policy-backed native Tasks and never
-changes pre-execution approval events.
+snapshot is present only on standard Work-policy-backed native Tasks,
+including eligible tools-on Hecate Chat backing Tasks, and never changes
+pre-execution approval events. Direct Chat turns and legacy Chat snapshots
+without the field produce no preset-approval event.
 
 ## Typed file tool events
 

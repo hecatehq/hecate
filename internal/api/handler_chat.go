@@ -248,6 +248,10 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 }
 
 func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSnapshot {
+	approvalPolicy := strings.TrimSpace(profile.ApprovalPolicy)
+	if approvalPolicy == "" {
+		approvalPolicy = agentprofiles.ApprovalInherit
+	}
 	return &chat.AgentPresetSnapshot{
 		ID:               strings.TrimSpace(profile.ID),
 		Name:             strings.TrimSpace(profile.Name),
@@ -258,6 +262,7 @@ func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSna
 		ToolsEnabled:     profile.ToolsEnabled,
 		WritesAllowed:    profile.WritesAllowed,
 		NetworkAllowed:   profile.NetworkAllowed,
+		ApprovalPolicy:   approvalPolicy,
 	}
 }
 

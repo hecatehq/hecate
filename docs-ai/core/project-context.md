@@ -63,14 +63,16 @@ session.
 When a Hecate Chat is created with a named Agent Preset, accept only a
 `hecate_chat` or `any` surface and persist a narrow immutable snapshot: id,
 name, provider/model hints, instructions, execution profile, and
-tool/write/network posture. Fill only omitted provider/model selections from
+tool/write/network/approval posture. Fill only omitted provider/model selections from
 the hints. Compose the frozen instructions after the bounded project prelude
 and before the operator's per-chat instructions; a tools-disabled snapshot
 must keep the chat on the direct-model path. A permitted tools-on turn maps the
 same frozen posture to the backing native Task. Do not re-resolve the preset
 later or borrow project-assignment behavior: Chat presets do not activate
 project-memory/context-source policy, skills, browser capabilities, MCP servers,
-approval-policy defaults, or External Agent options. This is Hecate execution
+or External Agent options. The approval posture is additive only for tools-on
+backing Tasks; direct turns have no tools, and legacy snapshots without an
+explicit value retain runtime defaults. This is Hecate execution
 state, not Cairnline coordination; it must not create or mutate portable
 Projects, roles, assignments, or handoffs.
 
@@ -130,7 +132,8 @@ with Hecate runtime policy. The shared launch-plan seam validates preset surface
 compatibility; native assignment tasks snapshot the preset id, tools posture,
 and approval posture and enforce write/network posture through task sandbox
 fields. The same frozen approval posture applies to standard standalone native
-Tasks resolved from a Work policy. It is additive and applies only to mid-loop
+Tasks resolved from a Work policy and to tools-on Hecate Chat backing Tasks
+whose session snapshot carries an explicit value. It is additive and applies only to mid-loop
 tool calls. `require` gates every
 otherwise-permitted call selected from the exact advertised catalog; `block`
 denies only a call that runtime-wide policy, the mandatory browser gate, or the
@@ -138,8 +141,9 @@ matching MCP server would otherwise send for approval. `inherit` and `allow`
 add no gate and never weaken those stricter policies. Workflow, tools,
 read-only, network, browser availability/grant, and MCP hard denials take
 precedence and cannot be made approvable by a preset. The snapshot does not
-alter pre-execution approval and is never inferred for Hecate Chat, External
-Agents, QA, non-preset Tasks, or Tasks whose snapshot is absent. A tools-disabled
+alter pre-execution approval and is never inferred for legacy Hecate Chat
+snapshots, External Agents, QA, non-preset Tasks, or Tasks whose snapshot is
+absent. Chat approval authority never implies browser authority. A tools-disabled
 snapshot runs as a supervised model-only task: it exposes no native, Project
 Assistant, or MCP tools, starts no MCP host, and rejects unexpected calls before
 dispatch. Preset-backed native HTTP/search tools fail closed when that snapshot

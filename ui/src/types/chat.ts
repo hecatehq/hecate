@@ -20,6 +20,9 @@ export type ChatAgentPresetSnapshotRecord = {
   tools_enabled: boolean;
   writes_allowed: boolean;
   network_allowed: boolean;
+  // Optional only for sessions created before Chat approval posture was
+  // snapshotted. New sessions always return an explicit value.
+  approval_policy?: "inherit" | "require" | "block" | "allow" | (string & {});
 };
 
 // PersistedContentBlock mirrors the Hecate-extension wire shape used to

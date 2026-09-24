@@ -1170,7 +1170,7 @@ func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	// task field that Hecate Chat or an unrelated origin can activate. Project
 	// assignment and standalone Task creation are the only public paths that
 	// emit the complete immutable snapshot.
-	if !hasAuthoritativeNativeAgentPresetSnapshot(task) {
+	if !hasAuthoritativeBrowserAgentPresetSnapshot(task) {
 		return true
 	}
 	switch name {
@@ -1187,7 +1187,10 @@ func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	return err != nil || len(origins) == 0
 }
 
-func hasAuthoritativeNativeAgentPresetSnapshot(task types.Task) bool {
+// hasAuthoritativeBrowserAgentPresetSnapshot deliberately excludes Hecate
+// Chat. Chat may carry a frozen approval posture, but browser grants remain
+// available only to standalone native Tasks and project-work assignments.
+func hasAuthoritativeBrowserAgentPresetSnapshot(task types.Task) bool {
 	if strings.TrimSpace(task.AgentPresetID) == "" || task.AgentPresetToolsEnabled == nil {
 		return false
 	}
