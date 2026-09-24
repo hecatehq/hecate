@@ -1051,6 +1051,7 @@ type ChatAgentPresetSnapshotItem struct {
 	ToolsEnabled     bool   `json:"tools_enabled"`
 	WritesAllowed    bool   `json:"writes_allowed"`
 	NetworkAllowed   bool   `json:"network_allowed"`
+	ApprovalPolicy   string `json:"approval_policy,omitempty"`
 }
 
 type ChatContextSummaryItem struct {

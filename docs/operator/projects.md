@@ -402,9 +402,10 @@ capabilities will be blocked.
 External Agent CLIs remain trusted local subprocesses. Their preset
 write/network fields are visible launch posture, not a Hecate sandbox around
 the vendor CLI; the preset approval field likewise does not replace ACP
-permission controls. Hecate Chat also keeps its existing Task-runtime approval
-configuration instead of inheriting this native project-assignment posture.
-Use the adapter's own controls and review the workspace diff.
+permission controls. A tools-on Hecate Chat backing Task uses only the explicit
+approval posture in that session's own frozen Chat-safe Work policy snapshot;
+it does not borrow project-assignment or browser posture. Use the adapter's own
+controls for External Agents and review the workspace diff.
 
 For a pristine work item, selected-work detail presents one kickoff action.
 **Add responsibility** appears only when no project role can back an assignment.

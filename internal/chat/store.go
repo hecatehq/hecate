@@ -78,6 +78,10 @@ type AgentPresetSnapshot struct {
 	ToolsEnabled     bool   `json:"tools_enabled"`
 	WritesAllowed    bool   `json:"writes_allowed"`
 	NetworkAllowed   bool   `json:"network_allowed"`
+	// ApprovalPolicy is always explicit for newly created sessions, including
+	// "inherit". An empty value therefore identifies a legacy snapshot and must
+	// not activate a Chat-specific approval layer.
+	ApprovalPolicy string `json:"approval_policy,omitempty"`
 }
 
 func (snapshot *AgentPresetSnapshot) Empty() bool {

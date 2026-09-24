@@ -116,8 +116,10 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   otherwise-permitted advertised tool call; `block` denies only calls that
   global runtime, mandatory browser, or per-MCP-server policy would otherwise
   gate. `inherit` and `allow` add no gate and cannot weaken a stricter policy.
-  This snapshot does not change pre-execution gates and does not apply to
-  Hecate Chat, External Agents, QA, or Tasks without the snapshot.
+  This snapshot does not change pre-execution gates. Tools-on Hecate Chat
+  backing Tasks use the explicit approval posture frozen with a new Chat;
+  legacy Chat snapshots without it keep runtime defaults. External Agents, QA,
+  and Tasks without the snapshot do not use this layer.
   Tools-disabled Tasks run as supervised model-only Tasks: they expose no native
   or MCP tools, start no MCP host, and reject unexpected tool calls before
   dispatch. Tasks without the tools snapshot retain their prior catalog
@@ -261,9 +263,10 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   memory/source activation. Hecate Chat can now select a `hecate_chat` or `any`
   preset when the session is created and freezes its narrow runtime snapshot.
   That Chat slice applies provider/model hints, instructions, execution profile,
-  and tool/write/network posture, but deliberately does not inherit project
-  memory/source policy, skills, browser capabilities, MCP selection, approval
-  defaults, or External Agent options. Standalone native Tasks freeze the
+  tool/write/network posture, and additive mid-loop approval posture to
+  tools-on backing Tasks, but deliberately does not inherit project
+  memory/source policy, skills, browser capabilities, MCP selection, or
+  External Agent options. Standalone native Tasks freeze the
   policy's execution, route-hint, instruction, tools, write, network, approval,
   and browser posture at creation but deliberately do not activate Project
   memory, context-source bodies, skills, or Cairnline coordination. Native

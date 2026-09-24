@@ -86,6 +86,7 @@ func TestAgentLoopBrowserToolCatalogFailsClosedWithoutPresetSnapshot(t *testing.
 		AgentPresetID:                    "prof_chat_browser",
 		OriginKind:                       "chat",
 		AgentPresetToolsEnabled:          &toolsEnabled,
+		AgentPresetApprovalPolicy:        types.AgentPresetApprovalRequire,
 		AgentPresetBrowserAllowed:        &allowed,
 		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
 	}, opts)

@@ -854,6 +854,7 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 		ToolsEnabled:     false,
 		WritesAllowed:    false,
 		NetworkAllowed:   true,
+		ApprovalPolicy:   types.AgentPresetApprovalRequire,
 	}
 	created, err := store.Create(ctx, Session{
 		ID:          "chat_agent_preset",
@@ -863,7 +864,7 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if created.AgentPreset == nil || created.AgentPreset.ID != "safe_review" || created.AgentPreset.ToolsEnabled || created.AgentPreset.WritesAllowed || !created.AgentPreset.NetworkAllowed {
+	if created.AgentPreset == nil || created.AgentPreset.ID != "safe_review" || created.AgentPreset.ToolsEnabled || created.AgentPreset.WritesAllowed || !created.AgentPreset.NetworkAllowed || created.AgentPreset.ApprovalPolicy != types.AgentPresetApprovalRequire {
 		t.Fatalf("created agent preset = %#v, want frozen safe_review posture", created.AgentPreset)
 	}
 	preset.Name = "mutated through create input"
@@ -888,11 +889,12 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 
 	got.AgentPreset.ProviderHint = "mutated through get result"
 	got.AgentPreset.NetworkAllowed = false
+	got.AgentPreset.ApprovalPolicy = types.AgentPresetApprovalBlock
 	got, ok, err = store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after get mutation: ok=%v err=%v", ok, err)
 	}
-	if got.AgentPreset == nil || got.AgentPreset.ProviderHint != "openai" || !got.AgentPreset.NetworkAllowed {
+	if got.AgentPreset == nil || got.AgentPreset.ProviderHint != "openai" || !got.AgentPreset.NetworkAllowed || got.AgentPreset.ApprovalPolicy != types.AgentPresetApprovalRequire {
 		t.Fatalf("stored agent preset mutated through get result: %#v", got.AgentPreset)
 	}
 
@@ -912,11 +914,12 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	updated, err := store.UpdateSession(ctx, created.ID, func(session *Session) {
 		session.AgentPreset.Name = "Updated safe reviewer"
 		session.AgentPreset.WritesAllowed = true
+		session.AgentPreset.ApprovalPolicy = types.AgentPresetApprovalAllow
 	})
 	if err != nil {
 		t.Fatalf("UpdateSession: %v", err)
 	}
-	if updated.AgentPreset == nil || updated.AgentPreset.Name != "Updated safe reviewer" || !updated.AgentPreset.WritesAllowed {
+	if updated.AgentPreset == nil || updated.AgentPreset.Name != "Updated safe reviewer" || !updated.AgentPreset.WritesAllowed || updated.AgentPreset.ApprovalPolicy != types.AgentPresetApprovalAllow {
 		t.Fatalf("updated agent preset = %#v, want persisted update", updated.AgentPreset)
 	}
 }

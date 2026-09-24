@@ -16,6 +16,155 @@ import (
 
 const agentLoopE2EModel = "gpt-4o-mini"
 
+func TestHecateChatWorkPolicyApprovalE2E(t *testing.T) {
+	workDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize temp dir: %v", err)
+	}
+	upstream, captured := fakeAgentLoopToolCallingUpstream(t)
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=",
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_KIND=local",
+		"PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
+	)
+
+	preset := postJSONDecodeStatus[e2eAgentPresetResponse](t, baseURL+"/hecate/v1/agent-presets", `{
+		"id": "chat_require_approval",
+		"name": "Chat approval review",
+		"surface": "hecate_chat",
+		"tools_enabled": true,
+		"writes_allowed": true,
+		"network_allowed": false,
+		"approval_policy": "require"
+	}`, http.StatusCreated)
+	if preset.Data.ID != "chat_require_approval" || !preset.Data.ToolsEnabled {
+		t.Fatalf("agent preset = %+v, want tools-on chat_require_approval", preset.Data)
+	}
+	probe := postJSONDecode[e2eModelToolProbeResponse](t, baseURL+"/hecate/v1/model-capabilities/tool-probes", fmt.Sprintf(`{
+		"provider": "fake",
+		"model": %q
+	}`, agentLoopE2EModel))
+	if probe.Data.Verification == nil || probe.Data.Verification.Status != "supported" {
+		t.Fatalf("tool verification = %+v, want supported", probe.Data.Verification)
+	}
+
+	created := postJSONDecode[e2eChatWorkPolicyResponse](t, baseURL+"/hecate/v1/chat/sessions", fmt.Sprintf(`{
+		"agent_id": "hecate",
+		"agent_preset_id": "chat_require_approval",
+		"provider": "fake",
+		"model": %q,
+		"workspace": %q,
+		"workspace_mode": "in_place"
+	}`, agentLoopE2EModel, workDir))
+	if created.Data.AgentPreset == nil || created.Data.AgentPreset.ApprovalPolicy != "require" {
+		t.Fatalf("chat preset snapshot = %+v, want frozen require", created.Data.AgentPreset)
+	}
+
+	messageResult := postE2EChatMessageAsync(baseURL+"/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{
+		"execution_mode": "hecate_task",
+		"tools_enabled": true,
+		"content": "Use shell_exec to inspect the workspace."
+	}`)
+	started := waitForE2EChatTaskLink(t, baseURL, created.Data.ID, e2eChatWorkPolicyResponse{}, 10*time.Second)
+	waitForE2ETaskRunStatus(t, baseURL, started.Data.TaskID, started.Data.LatestRunID, "awaiting_approval", 10*time.Second)
+
+	task := getJSON[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks/"+started.Data.TaskID)
+	if task.Data.AgentPresetApprovalPolicy != "require" {
+		t.Fatalf("task approval snapshot = %q, want require", task.Data.AgentPresetApprovalPolicy)
+	}
+	approvals := getJSON[e2eTaskApprovalsResponse](t, baseURL+"/hecate/v1/tasks/"+started.Data.TaskID+"/approvals")
+	if len(approvals.Data) != 1 || approvals.Data[0].Status != "pending" {
+		t.Fatalf("approvals = %+v, want one pending Work policy approval", approvals.Data)
+	}
+	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+started.Data.TaskID+"/runs/"+started.Data.LatestRunID+"/steps")
+	for _, step := range steps.Data {
+		if step.Kind == "tool" && step.ToolName == "shell_exec" {
+			t.Fatalf("shell tool dispatched before approval: %+v", step)
+		}
+	}
+	if bodies := capturedBodies(captured); len(bodies) != 2 {
+		t.Fatalf("upstream requests = %d, want one probe and one model call before approval: %+v", len(bodies), bodies)
+	}
+
+	postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+started.Data.TaskID+"/runs/"+started.Data.LatestRunID+"/cancel", `{"reason":"e2e cleanup"}`)
+	select {
+	case result := <-messageResult:
+		if result.err != nil || result.status != http.StatusOK {
+			t.Fatalf("chat message completion = status %d err %v", result.status, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("chat message request did not settle after task cancellation")
+	}
+}
+
+type e2eAsyncChatMessageResult struct {
+	status int
+	err    error
+}
+
+func postE2EChatMessageAsync(url, body string) <-chan e2eAsyncChatMessageResult {
+	result := make(chan e2eAsyncChatMessageResult, 1)
+	go func() {
+		response, err := http.Post(url, "application/json", strings.NewReader(body)) //nolint:noctx
+		if err != nil {
+			result <- e2eAsyncChatMessageResult{err: err}
+			return
+		}
+		defer response.Body.Close()
+		var decoded e2eChatWorkPolicyResponse
+		if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+			result <- e2eAsyncChatMessageResult{status: response.StatusCode, err: err}
+			return
+		}
+		result <- e2eAsyncChatMessageResult{status: response.StatusCode}
+	}()
+	return result
+}
+
+type e2eModelToolProbeResponse struct {
+	Data struct {
+		Verification *struct {
+			Status string `json:"status"`
+		} `json:"verification,omitempty"`
+	} `json:"data"`
+}
+
+func waitForE2EChatTaskLink(t *testing.T, baseURL, sessionID string, initial e2eChatWorkPolicyResponse, timeout time.Duration) e2eChatWorkPolicyResponse {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	last := initial
+	for time.Now().Before(deadline) {
+		if last.Data.TaskID != "" && last.Data.LatestRunID != "" {
+			return last
+		}
+		time.Sleep(50 * time.Millisecond)
+		last = getJSON[e2eChatWorkPolicyResponse](t, baseURL+"/hecate/v1/chat/sessions/"+sessionID)
+	}
+	t.Fatalf("chat %s did not publish a task/run link within %s; last=%+v", sessionID, timeout, last.Data)
+	return e2eChatWorkPolicyResponse{}
+}
+
+type e2eChatWorkPolicyResponse struct {
+	Data struct {
+		ID          string `json:"id"`
+		TaskID      string `json:"task_id"`
+		LatestRunID string `json:"latest_run_id"`
+		Status      string `json:"status"`
+		AgentPreset *struct {
+			ApprovalPolicy string `json:"approval_policy"`
+		} `json:"agent_preset,omitempty"`
+		Messages []struct {
+			Role         string `json:"role"`
+			Status       string `json:"status"`
+			Error        string `json:"error"`
+			ToolsEnabled bool   `json:"tools_enabled"`
+		} `json:"messages,omitempty"`
+	} `json:"data"`
+}
+
 func TestAgentLoopToolDispatchE2E(t *testing.T) {
 	workDir := t.TempDir()
 	canonicalWorkDir, err := filepath.EvalSymlinks(workDir)
@@ -353,6 +502,12 @@ func fakeAgentLoopToolCallingUpstream(t *testing.T) (string, *capturedRequests) 
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		captured.record(body)
+		if requestAdvertisedTool(body, "hecate_capability_probe") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"id":"chatcmpl-tool-probe","object":"chat.completion","created":1700000000,"model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-tool-probe","type":"function","function":{"name":"hecate_capability_probe","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, agentLoopE2EModel)
+			return
+		}
 
 		callNumber := chatCalls.Add(1)
 		if streamed, _ := body["stream"].(bool); streamed {

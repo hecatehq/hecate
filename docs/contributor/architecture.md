@@ -631,12 +631,14 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
 - **Resolved route survives streaming.** Streaming and non-streaming model calls both copy the resolved provider, provider kind, and model back onto the run result, so task detail and resumes see what actually served the call.
 - **Cost ceiling is task-cumulative.** The per-task `BudgetMicrosUSD` is checked against `priorCost + costSpent` after each model call, where `priorCost` includes every prior run in the resume chain. A chain of resumes can't escape the ceiling.
 - **Frozen preset approval is additive and native-Task-local.** Only a standard
-  native Task with a non-empty resolved Work policy snapshot uses the
-  preset approval layer. `require` gates every otherwise-permitted call from
+  native Task with a complete resolved Work policy snapshot uses the preset
+  approval layer. This includes a tools-on Hecate Chat backing Task when its
+  session froze an explicit approval value. `require` gates every otherwise-permitted call from
   the advertised catalog; `block` turns an existing runtime, browser, or MCP
   approval decision into `policy.tool_blocked`; `inherit` and `allow` do not
   weaken those policies. Hard denials run first. Pre-execution approval,
-  Hecate Chat, External Agents, QA, and non-preset Tasks are unchanged.
+  direct Chat turns, legacy Chat snapshots without the field, External Agents,
+  QA, and non-preset Tasks are unchanged.
 - **Browser grants are independent runtime capabilities.** Only a native
   Work-policy-backed Task whose immutable snapshot grants the
   requested capability and shared exact origins can reach the local browser

@@ -198,6 +198,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   live checkout, and render review/files against the generated managed
   workspace returned by the session. External Agent chats do not expose this
   selector because ACP sessions use their selected workspace in place.
+- Show the approval posture in a Hecate Chat's frozen Work policy summary.
+  Explain it as applying to tools-on, task-backed turns only. Keep the field
+  optional when reading legacy sessions, label absence as the runtime default,
+  and never suggest that Chat approval posture grants browser capability or
+  changes External Agent permission handling.
 - Successful keyed message responses expose `message_request.replay` and the
   exact committed user-message id. A replay can return before its assistant is
   terminal: keep that queue item at the FIFO head, observe the live session

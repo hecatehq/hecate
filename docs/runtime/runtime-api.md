@@ -379,8 +379,10 @@ change when the preset is later edited or deleted. The two browser grants are
 independent and share the snapshotted exact-origin list. They are distinct from
 `sandbox_network`: one controls static `browser_inspect`, and the other
 controls approval-bound `browser_flow`. An omitted approval snapshot means that
-there is no frozen Work policy approval layer; Hecate Chat, External Agent,
-QA, and non-preset Tasks all use that state. An omitted tools snapshot
+there is no frozen Work policy approval layer; legacy Hecate Chat snapshots,
+External Agent, QA, and non-preset Tasks all use that state. New tools-on
+Hecate Chat backing Tasks carry the explicit value frozen with the session.
+An omitted tools snapshot
 preserves existing tool behavior, while explicit
 `agent_preset_tools_enabled=false` is an all-tools denial. Omitted browser
 snapshots grant no browser capability.
@@ -775,10 +777,12 @@ are rejected at startup with a clear error. Empty value disables every listed
 gate (use only in trusted environments). For per-MCP-server gating in
 `agent_loop` runs, see
 `approval_policy` on `mcp_servers` entries in
-[`mcp.md#approval-policy`](mcp.md#approval-policy). Native project-assignment
-Tasks may add the frozen Agent Preset layer documented under
-[Work policy endpoints](#work-policy-endpoints); it affects only mid-loop tool
-calls and never changes these pre-execution gates.
+[`mcp.md#approval-policy`](mcp.md#approval-policy). Eligible
+Work-policy-backed native Tasks—including standalone Tasks, project
+assignments, and tools-on Hecate Chat backing Tasks with an explicit frozen
+posture—may add the Agent Preset layer documented under [Work policy
+endpoints](#work-policy-endpoints). It affects only mid-loop tool calls and
+never changes these pre-execution gates.
 
 ## Event and stream endpoints
 
@@ -2365,8 +2369,10 @@ Hecate Chat session creation accepts only presets whose `surface` is
 from native Task resolution: `hecate_task` presets are available to standalone
 and project-assignment Tasks, while `external_agent` presets remain for
 External Agent launch paths. Hecate Chat does not copy the preset's
-`approval_policy` into its backing Task, and External Agent permission requests
-continue through the ACP approval/grant path.
+browser grants into its backing Task. It does copy the explicit
+`approval_policy` from the frozen Chat-safe snapshot to tools-on backing Tasks;
+External Agent permission requests continue through the ACP approval/grant
+path.
 
 `POST /hecate/v1/tasks` accepts `agent_preset_id` only for a standard native
 `agent_loop` Task with no `workflow_mode`. The selected preset must have
@@ -2523,9 +2529,11 @@ per-MCP-server `block` denials take precedence and cannot be converted into an
 approval by this snapshot. An empty snapshot is the compatibility state for
 non-preset Tasks and preserves their existing approval behavior; an invalid
 non-empty stored value fails safely as `require`. Hecate does not accept this
-output-only field directly on Task creation. It is derived only while resolving
-the supplied `agent_preset_id` (or a project assignment's resolved preset), and
-does not apply to Hecate Chat, External Agent, or QA Tasks.
+output-only field directly on Task creation. It is derived while resolving the
+supplied `agent_preset_id`, a project assignment's resolved preset, or a
+tools-on Hecate Chat's explicit frozen Chat-safe snapshot. Legacy Chat
+snapshots without the field retain runtime defaults. It does not apply to
+External Agent or QA Tasks.
 
 Because every otherwise-permitted browser call requires approval, a native
 preset that combines `approval_policy=block` with either browser grant retains
@@ -4437,7 +4445,7 @@ task response also exposes `work_item_id`, `assignment_id`, and
 tools posture into `agent_preset_tools_enabled`, approval posture into
 `agent_preset_approval_policy`, and write/network posture into
 `sandbox_read_only` and `sandbox_network`. The approval snapshot is the
-native-assignment-only additive mid-loop policy described under
+Work-policy-backed additive mid-loop policy described under
 [Work policy endpoints](#work-policy-endpoints); it does not modify
 pre-execution approval. The
 created run snapshots `project_id`, `work_item_id`, and `assignment_id`
@@ -4979,7 +4987,8 @@ GET /hecate/v1/chat/sessions
         "execution_profile": "reviewer",
         "tools_enabled": true,
         "writes_allowed": false,
-        "network_allowed": false
+        "network_allowed": false,
+        "approval_policy": "require"
       },
       "status": "completed",
       "rtk_enabled": true,
@@ -5018,7 +5027,8 @@ configured providers that expose the selected model.
 For `agent_id="hecate"`, an optional `agent_preset_id` selects a saved Agent
 Preset whose `surface` is `hecate_chat` or `any`. Hecate copies the narrow
 Chat-safe subset into the session at creation time: id, name, provider/model
-hints, instructions, execution profile, and tools/write/network posture.
+hints, instructions, execution profile, tools/write/network posture, and
+approval posture.
 The `agent_preset` object returned on list and detail responses is that frozen
 snapshot, not a live preset lookup. Later preset edits or deletion therefore do
 not change historical chat behavior or a Task created from the chat. Explicit
@@ -5028,7 +5038,7 @@ omitted values.
 `agent_preset_id` is invalid for an External Agent session. Hecate does not
 translate this Chat selection into ACP configuration, project roles,
 Cairnline coordination, project memory/source policy, project skills, browser
-evidence, MCP-server selection, approval-policy defaults, or other
+evidence, MCP-server selection, or other
 adapter-specific options. Those surfaces retain their own explicit contracts.
 
 `project_id` is optional. When supplied, it must reference an embedded
@@ -5074,8 +5084,13 @@ tools-enabled setting permits the normal per-turn tools choice; it does not
 force an `agent_loop` Task. When a permitted tools-on turn creates a backing
 Task, Hecate copies the frozen preset id and tools setting to the Task, uses the
 frozen execution profile when present, maps `writes_allowed=false` to
-`sandbox_read_only=true`, and maps `network_allowed` to `sandbox_network`.
-Normal Hecate policy, approvals, and model-capability checks still apply.
+`sandbox_read_only=true`, maps `network_allowed` to `sandbox_network`, and
+copies the frozen `approval_policy` into the Task's additive mid-loop approval
+layer. `require` gates every otherwise-permitted advertised tool call;
+`block` refuses calls that another runtime or MCP policy would otherwise gate;
+`inherit` and `allow` add no gate or override. Direct turns have no tools to
+approve. Normal Hecate policy and model-capability checks still apply, and the
+Chat snapshot grants no browser capability.
 
 `workspace_mode` records the execution posture for future task-backed turns:
 
@@ -5180,7 +5195,8 @@ POST /hecate/v1/chat/sessions
       "execution_profile": "reviewer",
       "tools_enabled": true,
       "writes_allowed": false,
-      "network_allowed": false
+      "network_allowed": false,
+      "approval_policy": "require"
     },
     "status": "idle",
     "rtk_enabled": false,

@@ -405,8 +405,10 @@ metrics for every otherwise-permitted advertised call, while `inherit` and
 `allow` add no telemetry decision of their own. Hard workflow, tools, sandbox,
 network, browser-capability/runtime, and MCP-server denials take precedence and
 keep their existing policy discriminator. This layer applies only to mid-loop
-calls on standard Work-policy-backed native Tasks; it does not change
-pre-execution, Hecate Chat, External Agent, QA, or non-preset Task telemetry.
+calls on standard Work-policy-backed native Tasks, including tools-on Hecate
+Chat backing Tasks with an explicit frozen approval posture. It does not change
+pre-execution, direct Chat, legacy Chat snapshot, External Agent, QA, or
+non-preset Task telemetry.
 
 Steps carry `hecate.step.duration_ms`. Shell/file tool steps also promote a
 closed allowlist of sandbox/tool attributes such as wrapper kind, timeout,

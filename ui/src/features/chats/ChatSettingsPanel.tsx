@@ -536,12 +536,35 @@ function ChatSettingsAgentPreset({ preset }: { preset: ChatAgentPresetSnapshotRe
         <ChatSettingsField label="Profile" value={preset.execution_profile} mono />
       )}
       <ChatSettingsField label="Posture" value={posture} />
+      <ChatSettingsField
+        label="Approvals"
+        value={chatPresetApprovalPolicyLabel(preset.approval_policy)}
+      />
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
         Frozen when this chat was created. Later work-policy edits or deletion do not change this
-        chat or its backing Tasks.
+        chat or its backing Tasks. Approval posture applies to tools-on, task-backed turns; direct
+        chat has no tool calls to approve.
       </div>
     </div>
   );
+}
+
+function chatPresetApprovalPolicyLabel(policy?: string): string {
+  switch (policy) {
+    case "require":
+      return "Always require approval";
+    case "block":
+      return "Block approval-gated actions";
+    case "allow":
+      return "Allow when otherwise permitted";
+    case "inherit":
+      return "Runtime default";
+    case undefined:
+    case "":
+      return "Runtime default (legacy chat)";
+    default:
+      return "Require approval (unrecognized saved value)";
+  }
 }
 
 function ChatSettingsRTKRow({

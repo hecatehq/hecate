@@ -80,6 +80,7 @@ func TestAgentLoopBrowserFlowCatalogRequiresIndependentProjectPresetGrant(t *tes
 	chat := interactionOnly
 	chat.OriginKind = "chat"
 	chat.AgentPresetToolsEnabled = &toolsEnabled
+	chat.AgentPresetApprovalPolicy = types.AgentPresetApprovalRequire
 	if hasToolDefinition(agentToolDefinitionsForTask(chat, opts), AgentToolBrowserFlow) {
 		t.Fatal("browser_flow advertised for Hecate Chat with forged preset fields")
 	}

@@ -153,6 +153,7 @@ func renderChatAgentPresetSnapshot(snapshot *chat.AgentPresetSnapshot) *ChatAgen
 		ToolsEnabled:     snapshot.ToolsEnabled,
 		WritesAllowed:    snapshot.WritesAllowed,
 		NetworkAllowed:   snapshot.NetworkAllowed,
+		ApprovalPolicy:   snapshot.ApprovalPolicy,
 	}
 }
 

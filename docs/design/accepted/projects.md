@@ -270,13 +270,15 @@ Read-only snapshots remove broad subprocess, direct-write, and interactive-termi
 surfaces while keeping structured inspection and proposal-only patches;
 network-disabled snapshots remove native HTTP/search. The preset id is the
 compatibility marker, so legacy/manual tasks are not reinterpreted from a
-zero-valued network flag. The approval snapshot is additive and applies only to
-native project-assignment mid-loop calls: `require` gates every
+zero-valued network flag. The approval snapshot is additive and applies to
+native project-assignment and standalone Task mid-loop calls, plus tools-on
+Hecate Chat backing Tasks whose session froze an explicit value: `require` gates every
 otherwise-permitted advertised tool, `block` denies calls that global,
 mandatory browser, or per-MCP policy would otherwise gate, and `inherit` /
 `allow` add no gate. Hard denials remain authoritative, and the snapshot does
-not alter pre-execution approval or apply to Hecate Chat, External Agents, QA,
-legacy/manual Tasks, or an absent snapshot. External Agent CLIs remain trusted
+not alter pre-execution approval or apply to direct/legacy Chat turns, External
+Agents, QA, legacy/manual Tasks, or an absent snapshot. Chat approval authority
+does not grant browser capability. External Agent CLIs remain trusted
 subprocesses rather than Hecate-sandboxed native tasks.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate

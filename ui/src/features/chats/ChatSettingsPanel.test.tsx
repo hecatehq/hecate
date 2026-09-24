@@ -148,15 +148,37 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
           tools_enabled: false,
           writes_allowed: false,
           network_allowed: false,
+          approval_policy: "require",
         }}
       />,
     );
 
     expect(screen.getByText("Work policy")).toBeTruthy();
     expect(screen.getByText("Chat review")).toBeTruthy();
+    expect(screen.getByText("Always require approval")).toBeTruthy();
     expect(screen.getByText(/Frozen when this chat was created/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();
     expect(screen.getByText(/frozen work policy disables local tools/i)).toBeTruthy();
+  });
+
+  it("labels a legacy frozen preset without approval posture", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        usageSource="hecate"
+        externalSession={null}
+        agentPreset={{
+          id: "legacy_chat_review",
+          name: "Legacy chat review",
+          tools_enabled: true,
+          writes_allowed: false,
+          network_allowed: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Runtime default (legacy chat)")).toBeTruthy();
   });
 
   it("explains isolated execution and changes the workspace mode", () => {

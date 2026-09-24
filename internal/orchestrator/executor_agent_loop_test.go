@@ -3050,25 +3050,31 @@ func TestAgentLoop_AgentPresetBlockDeniesGatedCallWithoutPausingOrDispatching(t 
 
 func TestAgentLoop_AgentPresetRequirePausesOtherwiseUngatedCall(t *testing.T) {
 	t.Parallel()
-	llm := &scriptedLLM{responses: []*types.ChatResponse{
-		makeChatResp(makeAssistantMsg("", agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`))),
-	}}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
-	spec := newAgentLoopSpec(t)
-	spec.Task.OriginKind = "project_work_item"
-	spec.Task.AgentPresetID = "implementation"
-	spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
-	spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalRequire
+	for _, origin := range []string{"project_work_item", "chat"} {
+		origin := origin
+		t.Run(origin, func(t *testing.T) {
+			t.Parallel()
+			llm := &scriptedLLM{responses: []*types.ChatResponse{
+				makeChatResp(makeAssistantMsg("", agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`))),
+			}}
+			loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+			spec := newAgentLoopSpec(t)
+			spec.Task.OriginKind = origin
+			spec.Task.AgentPresetID = "implementation"
+			spec.Task.AgentPresetToolsEnabled = enabledAgentPresetToolsSnapshot()
+			spec.Task.AgentPresetApprovalPolicy = types.AgentPresetApprovalRequire
 
-	res, err := loop.Execute(context.Background(), spec)
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if res.Status != "awaiting_approval" || len(res.PendingApprovals) != 1 {
-		t.Fatalf("result = %+v, want one preset-required approval", res)
-	}
-	if !strings.Contains(res.PendingApprovals[0].Reason, "frozen Agent Preset") {
-		t.Fatalf("approval reason = %q, want frozen-preset explanation", res.PendingApprovals[0].Reason)
+			res, err := loop.Execute(context.Background(), spec)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if res.Status != "awaiting_approval" || len(res.PendingApprovals) != 1 {
+				t.Fatalf("result = %+v, want one preset-required approval", res)
+			}
+			if !strings.Contains(res.PendingApprovals[0].Reason, "frozen Agent Preset") {
+				t.Fatalf("approval reason = %q, want frozen-preset explanation", res.PendingApprovals[0].Reason)
+			}
+		})
 	}
 }
 

@@ -366,8 +366,10 @@ control, not a portable Cairnline permission and not an override:
 Hard denials are evaluated before the Work policy approval layer. A tools-off,
 read-only, network-disabled, browser-unavailable/ungranted, workflow-blocked,
 or MCP-blocked action cannot become approvable. The frozen field affects no
-pre-execution gate and is absent for Hecate Chat, External Agent, QA, and Tasks
-without the snapshot. External Agent
+pre-execution gate. Tools-on Hecate Chat backing Tasks consume the explicit
+approval posture frozen on new Chat sessions; legacy Chat snapshots without it
+retain runtime defaults. External Agent, QA, and Tasks without a snapshot do
+not use this layer. External Agent
 permission requests continue through the ACP approval and durable-grant path.
 A Work policy that combines `block` with a browser grant keeps its configured
 origins for inspection but cannot execute the always-approval-gated browser

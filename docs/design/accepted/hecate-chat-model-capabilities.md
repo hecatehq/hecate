@@ -260,6 +260,7 @@ the session:
 - instructions
 - execution profile
 - tools, writes, and network posture
+- approval posture
 
 An omitted selection preserves the existing Chat defaults. Provider/model hints
 fill only omitted create-time values; an explicit operator choice wins. The
@@ -271,13 +272,19 @@ before the per-chat operator instructions. A tools-disabled snapshot locks the
 Chat to direct model turns. For a permitted tools-on turn, the task captures the
 snapshot id and tools setting, uses the non-empty execution profile, maps
 `writes_allowed=false` to a read-only sandbox, and maps `network_allowed` to
-the Task network setting.
+the Task network setting. It also copies the explicit approval posture into the
+Task's additive mid-loop approval layer. `require` gates every otherwise
+permitted advertised tool call; `block` refuses calls another policy would
+otherwise gate; `inherit` and `allow` add no gate or override. Direct-model
+turns have no tool calls to approve, and legacy snapshots without the field
+retain runtime defaults.
 
 This alpha slice deliberately excludes workspace-mode defaults, project-memory
 and context-source policy, project skills, browser evidence, MCP servers,
-approval-policy defaults, cost/turn/timeout guardrails, and External Agent
-options. It also does not create or change Cairnline project, role, assignment,
-or handoff records. Those remain separate Hecate or Cairnline contracts.
+cost/turn/timeout guardrails, and External Agent options. The Chat approval
+posture never grants browser capability. It also does not create or change
+Cairnline project, role, assignment, or handoff records. Those remain separate
+Hecate or Cairnline contracts.
 
 ### First prompt
 
@@ -561,9 +568,9 @@ Done in the core bridge:
   snapshots it onto backing tasks, and locks posture after task-backed work
   exists; External Agent sessions remain in-place ACP workspaces
 - Hecate Chat setup selects `hecate_chat` / `any` Agent Presets and freezes a
-  Chat-safe runtime snapshot; preset instructions, provider/model hints, and
-  task posture are applied without importing project, browser, MCP, or
-  External Agent behavior
+  Chat-safe runtime snapshot; preset instructions, provider/model hints,
+  tool/write/network posture, and additive tools-on approval posture are
+  applied without importing project, browser, MCP, or External Agent behavior
 - Connections lets an operator explicitly verify tool support for a ready,
   otherwise-unknown provider/model. The result is generation-bound, safe to
   inspect in `metadata.capabilities.tool_verification`, and only projects onto
