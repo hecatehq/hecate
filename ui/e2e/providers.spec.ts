@@ -2,6 +2,7 @@ import {
   expect,
   test,
   mockGatewayAPIs,
+  mockExecutableTrust,
   MOCK_AGENT_ADAPTERS,
   MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
 } from "./fixtures";
@@ -46,7 +47,7 @@ test("empty state shows the placeholder and an Add provider CTA", async ({ page 
   await expect(page.getByRole("button", { name: /add provider/i }).first()).toBeVisible();
 });
 
-test("discovery refresh checks a newly available external agent once", async ({ page }) => {
+test("discovery refresh keeps a newly available external agent passive", async ({ page }) => {
   let catalogReads = 0;
   const checkedAdapterIDs: string[] = [];
   const codex = MOCK_AGENT_ADAPTERS[0]!;
@@ -77,6 +78,11 @@ test("discovery refresh checks a newly available external agent once", async ({ 
                   status: "available",
                   error: "",
                   path: "/Applications/Codex.app/Contents/Resources/codex",
+                  executable_trust: mockExecutableTrust(
+                    "codex",
+                    "/Applications/Codex.app/Contents/Resources/codex",
+                    "unapproved",
+                  ),
                 }
               : adapter,
           ),
@@ -97,6 +103,10 @@ test("discovery refresh checks a newly available external agent once", async ({ 
               status: "available",
               error: "",
               path: "/Applications/Codex.app/Contents/Resources/codex",
+              executable_trust: mockExecutableTrust(
+                "codex",
+                "/Applications/Codex.app/Contents/Resources/codex",
+              ),
             },
             health: {
               adapter_id: "codex",
@@ -121,13 +131,15 @@ test("discovery refresh checks a newly available external agent once", async ({ 
   await expect(page.getByTestId("external-agents-adapter-codex")).toContainText(
     "last discovered path /Applications/Codex.app/Contents/Resources/codex",
   );
-  await expect.poll(() => checkedAdapterIDs).toEqual(["codex"]);
+  expect(checkedAdapterIDs).toEqual([]);
   expect(catalogReads).toBeGreaterThanOrEqual(1);
 
-  // Passive rediscovery should not start another short-lived ACP session for
-  // this panel visit; the existing check remains sufficient until Check again.
+  // Passive rediscovery must not start a short-lived ACP session. The operator
+  // explicitly approves the identity and chooses Check when execution is wanted.
+  const readsBeforeRefresh = catalogReads;
   await page.getByRole("button", { name: "Refresh external-agent discovery" }).click();
-  await expect.poll(() => checkedAdapterIDs).toEqual(["codex"]);
+  await expect.poll(() => catalogReads).toBeGreaterThan(readsBeforeRefresh);
+  expect(checkedAdapterIDs).toEqual([]);
 });
 
 test("readiness repair card opens a blocked provider from Connections", async ({ page }) => {

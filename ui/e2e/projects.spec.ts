@@ -2,6 +2,7 @@ import type { Page, Route } from "@playwright/test";
 import {
   expect,
   mockGatewayAPIs,
+  mockExecutableTrust,
   MOCK_AGENT_ADAPTERS,
   MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
   test,
@@ -1104,7 +1105,15 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
       body: JSON.stringify({
         object: "agent_adapters",
         data: codexAdapter
-          ? [{ ...codexAdapter, available: true, status: "available", error: "" }]
+          ? [
+              {
+                ...codexAdapter,
+                available: true,
+                status: "available",
+                error: "",
+                executable_trust: mockExecutableTrust("codex", "/usr/local/bin/codex"),
+              },
+            ]
           : [],
       }),
     });
@@ -1125,6 +1134,7 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
             status: "available",
             auth_status: "ok",
             error: "",
+            executable_trust: mockExecutableTrust("codex", "/usr/local/bin/codex"),
           },
           health: {
             adapter_id: "codex",

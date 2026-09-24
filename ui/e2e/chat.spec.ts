@@ -2,6 +2,7 @@ import {
   expect,
   test as baseTest,
   mockGatewayAPIs,
+  mockExecutableTrust,
   MOCK_MODELS,
   MOCK_PROVIDERS,
   MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
@@ -85,6 +86,7 @@ async function mockAvailableAgentAdapters(page: Page) {
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("codex", "/usr/local/bin/codex"),
           },
           {
             id: "claude_code",
@@ -95,6 +97,7 @@ async function mockAvailableAgentAdapters(page: Page) {
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("claude_code", "/usr/local/bin/claude"),
           },
           {
             id: "cursor_agent",
@@ -104,6 +107,7 @@ async function mockAvailableAgentAdapters(page: Page) {
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("cursor_agent", "/usr/local/bin/cursor-agent"),
           },
           {
             id: "grok_build",
@@ -114,6 +118,7 @@ async function mockAvailableAgentAdapters(page: Page) {
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("grok_build", "/usr/local/bin/grok"),
           },
         ],
       }),
@@ -457,6 +462,7 @@ test("New chat creates an external-agent session with controls before the first 
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("codex", "/usr/local/bin/codex"),
           },
           {
             id: "claude_code",
@@ -467,6 +473,7 @@ test("New chat creates an external-agent session with controls before the first 
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("claude_code", "/usr/local/bin/claude"),
           },
           {
             id: "cursor_agent",
@@ -476,6 +483,7 @@ test("New chat creates an external-agent session with controls before the first 
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("cursor_agent", "/usr/local/bin/cursor-agent"),
           },
         ],
       }),
@@ -674,6 +682,7 @@ test("New external-agent chat asks for workspace without flashing an inline erro
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("codex", "/usr/local/bin/codex"),
           },
         ],
       }),
@@ -734,6 +743,7 @@ test("New external-agent chat with model setup shows controls and composer toget
             available: true,
             status: "available",
             cost_mode: "external",
+            executable_trust: mockExecutableTrust("grok_build", "/usr/local/bin/grok"),
             config_options: [
               {
                 id: "model",
@@ -4276,6 +4286,10 @@ async function openExternalAgentReadinessFixture(page: Page, fixture: ExternalAd
       fixture.authStatus === "unauthenticated"
         ? `Run ${fixture.command.replace(/\s+.*/, "")} login`
         : undefined,
+    executable_trust:
+      fixture.available === false
+        ? undefined
+        : mockExecutableTrust(fixture.id, `/usr/local/bin/${fixture.command}`),
   };
   const status = fixture.available === false ? "not_installed" : (fixture.healthStatus ?? "ready");
 
@@ -4406,6 +4420,10 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
     cost_mode: "external",
     auth_status: fixture.authStatus ?? "unknown",
     auth_error: fixture.authStatus === "unauthenticated" ? "Run claude /login" : undefined,
+    executable_trust:
+      fixture.available === false
+        ? undefined
+        : mockExecutableTrust("claude_code", "/usr/local/bin/claude"),
     claude_code_cli:
       fixture.available === false
         ? { available: false }
