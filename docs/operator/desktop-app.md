@@ -43,7 +43,7 @@ For Linux or Windows operators who need the safest path today, use Docker or
 the standalone binary tarballs until the desktop bundles get real-machine
 smoke coverage.
 
-## Current state — `v0.7.0`
+## Current state — `v0.8.0`
 
 What works:
 
