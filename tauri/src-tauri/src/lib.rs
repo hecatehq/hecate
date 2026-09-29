@@ -4,6 +4,8 @@
 //! deliberately smaller Cloud companion: it never bundles or starts the Go
 //! runtime and only exposes the commands implemented in `mobile`.
 
+mod cloud_retry;
+
 #[cfg(desktop)]
 mod desktop;
 #[cfg(any(mobile, test))]

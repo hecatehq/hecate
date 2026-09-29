@@ -278,7 +278,7 @@ describe("SettingsView", () => {
         account_email: null,
         cloud_url: "https://console.hecatehq.com",
         base_url: "http://127.0.0.1:54321",
-        message: "Approve sign-in in your browser. This window will update automatically.",
+        message: "Check your browser to approve this sign-in. Hecate will update automatically.",
         last_error: null,
       });
     const { state, actions, user } = setup();
@@ -301,7 +301,7 @@ describe("SettingsView", () => {
     expect(await within(section).findByText("Finish signing in")).toBeTruthy();
     expect(
       within(section).getByText(
-        /Approve the sign-in request in your browser. This window updates automatically/i,
+        "Check your browser to approve this sign-in. Hecate will update automatically.",
       ),
     ).toBeTruthy();
     expect(within(section).queryByText("ABCD-EFGH")).toBeNull();
@@ -354,7 +354,7 @@ describe("SettingsView", () => {
       vi.advanceTimersByTime(1000);
       for (let index = 0; index < 5; index += 1) await Promise.resolve();
     });
-    expect(statusReads).toBe(2);
+    expect(statusReads).toBe(3);
     expect(within(section).getByText("alice@example.com")).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Sign out" })).toBeTruthy();
   });
@@ -418,6 +418,78 @@ describe("SettingsView", () => {
     expect(within(section).getByText("Remote access state is unavailable.")).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Retry" })).toBeEnabled();
     expect(within(section).queryByRole("button", { name: "Sign in to Hecate Cloud" })).toBeNull();
+  });
+
+  it("shows native retry guidance when saved credential verification is paused", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const outageMessage =
+      "Hecate Cloud is temporarily unavailable. Automatic checks will resume after the waiting period.";
+    tauriInvokeMock.mockResolvedValue({
+      available: true,
+      restoring: false,
+      phase: "error",
+      running: false,
+      authorizing: false,
+      signed_in: false,
+      gateway_ready: true,
+      auto_start_enabled: false,
+      account_email: null,
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:54321",
+      message: outageMessage,
+      last_error: "Hecate Cloud is temporarily unavailable.",
+      retry_after_seconds: 30,
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    expect(await within(section).findByText(outageMessage)).toBeTruthy();
+    expect(within(section).queryByText(/Remote access to this computer stays off/i)).toBeNull();
+    expect(within(section).queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the account signed in and pauses the first instance read during a Cloud outage", async () => {
+    vi.useFakeTimers();
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const outageMessage =
+      "Hecate Cloud is temporarily unavailable. Automatic checks will resume after the waiting period.";
+    tauriInvokeMock.mockResolvedValue({
+      available: true,
+      restoring: false,
+      phase: "connected",
+      running: true,
+      authorizing: false,
+      signed_in: true,
+      gateway_ready: true,
+      auto_start_enabled: true,
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:54321",
+      message: outageMessage,
+      last_error: "Hecate Cloud is temporarily unavailable.",
+      retry_after_seconds: 30,
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    const accountSection = screen.getByTestId("desktop-cloud-connection");
+    const runtimeSection = screen.getByTestId("desktop-cloud-runtimes");
+    expect(within(accountSection).getByText("alice@example.com")).toBeTruthy();
+    expect(within(accountSection).getByText(outageMessage)).toBeTruthy();
+    expect(within(accountSection).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(within(accountSection).queryByRole("alert")).toBeNull();
+    expect(
+      within(runtimeSection).getByText(
+        "Connection refresh is paused. Hecate will try again automatically.",
+      ),
+    ).toBeTruthy();
+    expect(within(runtimeSection).getByRole("button", { name: "Refresh" })).toBeDisabled();
+    expect(tauriInvokeMock).toHaveBeenCalledTimes(1);
+    expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_connection_status", undefined);
   });
 
   it("does not let a stale account poll undo sign-out", async () => {
@@ -855,7 +927,7 @@ describe("SettingsView", () => {
     expect(within(section).queryByRole("button", { name: "Start Staging" })).toBeNull();
   });
 
-  it("re-reads account status after an in-flight snapshot races an expired instance request", async () => {
+  it("re-reads account status after an in-flight snapshot races a 401 instance request", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     let statusReads = 0;
     let pollStatus: (() => void) | undefined;
@@ -925,7 +997,7 @@ describe("SettingsView", () => {
       await waitFor(() => expect(statusReads).toBe(2));
 
       await act(async () => {
-        rejectConnections?.(new Error("Your Hecate Cloud session expired."));
+        rejectConnections?.(new Error("Hecate Cloud rejected the saved session (401)."));
         await Promise.resolve();
       });
       expect(statusReads).toBe(2);
@@ -1005,6 +1077,125 @@ describe("SettingsView", () => {
       resolveRefresh?.([]);
       await Promise.resolve();
     });
+  });
+
+  it("preserves cached instances and pauses Cloud reads until the native cooldown expires", async () => {
+    vi.useFakeTimers();
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const availableStatus = {
+      available: true,
+      restoring: false,
+      phase: "connected",
+      running: true,
+      authorizing: false,
+      signed_in: true,
+      gateway_ready: true,
+      auto_start_enabled: true,
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:54321",
+      message: "Remote access is on.",
+      last_error: null,
+      retry_after_seconds: null,
+    };
+    const outageStatus = {
+      ...availableStatus,
+      message: "Hecate Cloud is temporarily unavailable. Hecate will try again shortly.",
+      retry_after_seconds: 2,
+    };
+    const productionRuntime = {
+      id: "runtime_online",
+      kind: "hosted_runtime",
+      org_id: "org_1",
+      project_id: "project_1",
+      name: "Production",
+      status: "online",
+      reachable: true,
+      can_start: false,
+      remote_enabled: false,
+      version: "0.8.0",
+      capabilities: [],
+      last_seen_at: "2026-09-29T12:00:00Z",
+    };
+    let statusReads = 0;
+    let connectionReads = 0;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        statusReads += 1;
+        if (statusReads <= 2) return Promise.resolve(availableStatus);
+        if (statusReads === 3) return Promise.resolve(outageStatus);
+        if (statusReads === 4) {
+          return Promise.resolve({ ...outageStatus, retry_after_seconds: 1 });
+        }
+        return Promise.resolve(availableStatus);
+      }
+      if (command === "cloud_runtime_connections") {
+        connectionReads += 1;
+        return Promise.resolve([productionRuntime]);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    const accountSection = screen.getByTestId("desktop-cloud-connection");
+    const runtimeSection = screen.getByTestId("desktop-cloud-runtimes");
+    expect(within(runtimeSection).getByText("Production")).toBeTruthy();
+    expect(statusReads).toBe(2);
+    expect(connectionReads).toBe(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(statusReads).toBe(3);
+    expect(connectionReads).toBe(2);
+    expect(
+      within(accountSection).getByText(
+        "Hecate Cloud is temporarily unavailable. Hecate will try again shortly.",
+      ),
+    ).toBeTruthy();
+    expect(within(accountSection).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(within(runtimeSection).getByText("Production")).toBeTruthy();
+    expect(within(runtimeSection).queryByRole("alert")).toBeNull();
+    const refresh = within(runtimeSection).getByRole("button", { name: "Refresh" });
+    expect(refresh).toBeDisabled();
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    fireEvent.click(refresh);
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(statusReads).toBe(4);
+    expect(connectionReads).toBe(2);
+    expect(within(runtimeSection).getByText("Production")).toBeTruthy();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(statusReads).toBe(6);
+    expect(connectionReads).toBe(3);
+    expect(
+      within(accountSection).queryByText(
+        "Hecate Cloud is temporarily unavailable. Hecate will try again shortly.",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(14_999);
+      await Promise.resolve();
+    });
+    expect(connectionReads).toBe(3);
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(connectionReads).toBe(4);
   });
 });
 

@@ -138,6 +138,17 @@ What works:
   does not launch or install a second Hecate app. Chats, Tasks, and Projects
   created there remain owned by that selected runtime; opening it is remote
   supervision, not process, workspace, or session migration.
+- If Cloud is temporarily unavailable (`503`) or limiting requests (`429`),
+  sign-in polling and connection-list/readiness checks honor its `Retry-After`
+  waiting period. Settings shows the temporary condition, keeps the signed-in
+  account and the last connection list, and resumes checks automatically.
+  Refresh and foregrounding the app do not bypass the waiting period. Pending
+  browser approval still expires at its original deadline and can be cancelled.
+  Missing or invalid guidance uses 30 seconds; accepted seconds or HTTP-date
+  values are bounded to 1 second–24 hours. Starting a runtime, opening a runtime
+  browser session, and registering this computer are not automatically replayed
+  after a failed request. An actual expired-session response (`401`) still
+  requires sign-in again.
 - A remote runtime window is incognito and receives no Tauri command
   capability. The native layer keeps the Cloud account bearer, one-time
   bootstrap URL, desktop relay ticket, and server-authored navigation paths out

@@ -5,6 +5,7 @@
 //! the first mobile slice: it is never returned to the webview, written to
 //! disk, or placed in logs, and is lost when the app process exits.
 
+use crate::cloud_retry::{CloudRetry, CloudRetryGate};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use futures_util::{stream, StreamExt};
@@ -189,6 +190,7 @@ impl Drop for MobileConnectionStartGuard {
 #[derive(Debug)]
 struct MobileSession {
     generation: u64,
+    retry_gate: CloudRetryGate,
     phase: MobilePhase,
     token: Option<String>,
     /// Kept native-only so the authorization transaction never enters the webview.
@@ -205,6 +207,7 @@ impl Default for MobileSession {
     fn default() -> Self {
         Self {
             generation: 0,
+            retry_gate: CloudRetryGate::default(),
             phase: MobilePhase::SignedOut,
             token: None,
             approval_url: None,
@@ -342,6 +345,8 @@ struct MobileStatus {
     cloud_url: String,
     message: String,
     last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after_seconds: Option<u64>,
     /// Explicitly surfaced to the shell so the first-slice limitation cannot
     /// be mistaken for secure persistent credential storage.
     session_storage: &'static str,
@@ -467,12 +472,14 @@ struct PushDevice {
 struct CloudAPIError {
     status: Option<u16>,
     message: String,
+    retry: Option<CloudRetry>,
 }
 
 impl CloudAPIError {
     fn network(error: reqwest::Error) -> Self {
         Self {
             status: error.status().map(|status| status.as_u16()),
+            retry: None,
             message: if error.is_timeout() {
                 "Hecate Cloud did not respond in time.".to_string()
             } else {
@@ -528,6 +535,7 @@ impl MobileCloud {
                 cloud_url: self.inner.cloud_url.clone(),
                 message: "The mobile session is unavailable.".to_string(),
                 last_error: Some("Restart Hecate and try again.".to_string()),
+                retry_after_seconds: None,
                 session_storage: SESSION_STORAGE,
                 session_persists_after_exit: false,
             };
@@ -708,6 +716,9 @@ impl MobileCloud {
                 .session
                 .lock()
                 .map_err(|_| "The mobile session is unavailable.".to_string())?;
+            if let Some(wake) = &session.authorization_wake {
+                wake.notify_one();
+            }
             session.generation = session.generation.wrapping_add(1);
             session.phase = MobilePhase::Authorizing;
             session.token = Some(token.clone());
@@ -737,6 +748,7 @@ impl MobileCloud {
             CloudAPIError {
                 status: Some(200),
                 message,
+                retry: None,
             }
         })
     }
@@ -840,10 +852,39 @@ impl MobileCloud {
             let Some((token, deadline, wake)) = self.pending_authorization(generation) else {
                 return;
             };
-            match self
-                .request_data::<CloudActor>(reqwest::Method::GET, "/api/v1/me", &token, None)
-                .await
-            {
+            if tokio::time::Instant::now() >= deadline {
+                self.fail_authorization(generation, "Sign-in was not completed. Try again.", None);
+                return;
+            }
+            let retry_delay = self
+                .inner
+                .session
+                .lock()
+                .ok()
+                .and_then(|session| session.retry_gate.remaining(generation));
+            if let Some(delay) = retry_delay {
+                // A callback is only a hint: after every wake, re-check both
+                // generation and cooldown before another authenticated GET.
+                tokio::select! {
+                    _ = tokio::time::sleep_until((tokio::time::Instant::now() + delay).min(deadline)) => {}
+                    _ = wake.notified() => {}
+                }
+                continue;
+            }
+            let result = tokio::time::timeout_at(
+                deadline,
+                self.request_data::<CloudActor>(reqwest::Method::GET, "/api/v1/me", &token, None),
+            )
+            .await;
+            let Ok(result) = result else {
+                self.fail_authorization(generation, "Sign-in was not completed. Try again.", None);
+                return;
+            };
+            if tokio::time::Instant::now() >= deadline {
+                self.fail_authorization(generation, "Sign-in was not completed. Try again.", None);
+                return;
+            }
+            match result {
                 Ok(actor) => {
                     self.complete_authorization(generation, actor.email);
                     return;
@@ -871,7 +912,7 @@ impl MobileCloud {
                 }
             }
             tokio::select! {
-                _ = tokio::time::sleep(LOGIN_POLL_INTERVAL) => {}
+                _ = tokio::time::sleep_until((tokio::time::Instant::now() + LOGIN_POLL_INTERVAL).min(deadline)) => {}
                 _ = wake.notified() => {}
             }
         }
@@ -1265,9 +1306,18 @@ impl MobileCloud {
             tokio::time::sleep(PUSH_POLL_INTERVAL).await;
         }
 
-        let Ok((_generation, token)) = self.authorized_snapshot() else {
+        let Ok((generation, token)) = self.authorized_snapshot() else {
             return;
         };
+        if self
+            .inner
+            .session
+            .lock()
+            .map(|session| session.retry_gate.remaining(generation).is_some())
+            .unwrap_or(true)
+        {
+            return;
+        }
         let (requested, authorization, stale_device) = self
             .inner
             .notifications
@@ -1674,6 +1724,7 @@ impl MobileCloud {
             return Err(CloudAPIError {
                 status: None,
                 message: "The stored Cloud push-device id is invalid.".to_string(),
+                retry: None,
             });
         }
         let path = format!("{PUSH_DEVICES_PATH}/{device_id}");
@@ -1716,6 +1767,9 @@ impl MobileCloud {
             .lock()
             .map_err(|_| "The mobile session is unavailable.".to_string())?;
         let token = session.token.take();
+        if let Some(wake) = &session.authorization_wake {
+            wake.notify_one();
+        }
         session.generation = session.generation.wrapping_add(1);
         session.phase = MobilePhase::SignedOut;
         session.approval_url = None;
@@ -1768,6 +1822,7 @@ impl MobileCloud {
             .map_err(|error| CloudAPIError {
                 status: Some(200),
                 message: format!("Hecate Cloud returned an invalid response: {error}"),
+                retry: None,
             })
     }
 
@@ -1786,6 +1841,7 @@ impl MobileCloud {
             .map_err(|error| CloudAPIError {
                 status: Some(200),
                 message: format!("Hecate Cloud returned an invalid response: {error}"),
+                retry: None,
             })
     }
 
@@ -1819,10 +1875,36 @@ impl MobileCloud {
         body: Option<serde_json::Value>,
         timeout: Duration,
     ) -> Result<Vec<u8>, CloudAPIError> {
+        // The native gate covers every authenticated read, including reads
+        // reached through manual refresh or after an explicit mutation. A
+        // cooldown never authorizes replay of POST or DELETE requests.
+        let generation = {
+            let session = self.inner.session.lock().map_err(|_| CloudAPIError {
+                status: None,
+                message: "The mobile session is unavailable.".to_string(),
+                retry: None,
+            })?;
+            let generation = token
+                .filter(|token| session.token.as_deref() == Some(*token))
+                .map(|_| session.generation);
+            if method == reqwest::Method::GET {
+                if let Some(message) =
+                    generation.and_then(|owner| session.retry_gate.message(owner))
+                {
+                    return Err(CloudAPIError {
+                        status: None,
+                        message: message.to_string(),
+                        retry: None,
+                    });
+                }
+            }
+            generation
+        };
         let url = resolve_same_origin_url(&self.inner.cloud_url, path).map_err(|message| {
             CloudAPIError {
                 status: None,
                 message,
+                retry: None,
             }
         })?;
         let mut request = self
@@ -1839,6 +1921,19 @@ impl MobileCloud {
         }
         let response = request.send().await.map_err(CloudAPIError::network)?;
         let status = response.status();
+        if let Some(retry) = CloudRetry::from_response(status.as_u16(), response.headers()) {
+            // Transient failure bodies may contain infrastructure details.
+            // Only fixed public copy and a bounded delay leave this boundary.
+            let error = CloudAPIError {
+                status: Some(status.as_u16()),
+                message: retry.message().to_string(),
+                retry: Some(retry),
+            };
+            if let (Some(generation), Some(retry)) = (generation, error.retry) {
+                self.record_retry(generation, retry);
+            }
+            return Err(error);
+        }
         let payload = response
             .bytes()
             .await
@@ -1855,7 +1950,16 @@ impl MobileCloud {
         Err(CloudAPIError {
             status: Some(status.as_u16()),
             message,
+            retry: None,
         })
+    }
+
+    fn record_retry(&self, generation: u64, retry: CloudRetry) {
+        if let Ok(mut session) = self.inner.session.lock() {
+            if session.generation == generation && session.token.is_some() {
+                session.retry_gate.record(generation, retry);
+            }
+        }
     }
 }
 
@@ -1884,6 +1988,11 @@ fn push_registration_response_is_current(
 }
 
 fn status_from_session(session: &MobileSession, cloud_url: &str) -> MobileStatus {
+    let retry_gate = if session.token.is_some() {
+        session.retry_gate
+    } else {
+        CloudRetryGate::default()
+    };
     MobileStatus {
         available: true,
         phase: session.phase.as_str().to_string(),
@@ -1893,8 +2002,15 @@ fn status_from_session(session: &MobileSession, cloud_url: &str) -> MobileStatus
             && session.approval_url.is_some(),
         account_email: session.account_email.clone(),
         cloud_url: cloud_url.to_string(),
-        message: session.message.clone(),
-        last_error: session.last_error.clone(),
+        message: retry_gate
+            .message(session.generation)
+            .map(str::to_string)
+            .unwrap_or_else(|| session.message.clone()),
+        last_error: retry_gate
+            .message(session.generation)
+            .map(str::to_string)
+            .or_else(|| session.last_error.clone()),
+        retry_after_seconds: retry_gate.retry_after_seconds(session.generation),
         session_storage: SESSION_STORAGE,
         session_persists_after_exit: false,
     }
@@ -2699,6 +2815,245 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    async fn retry_test_cloud(
+        replies: Vec<(u16, &'static str, &'static str)>,
+    ) -> (
+        MobileCloud,
+        Arc<std::sync::atomic::AtomicUsize>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = count.clone();
+        let server = tokio::spawn(async move {
+            for (status, retry_after, body) in replies {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buffer = [0; 4096];
+                stream.read(&mut buffer).await.unwrap();
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                stream.write_all(format!(
+                    "HTTP/1.1 {status} Reply\r\nRetry-After: {retry_after}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()
+                ).as_bytes()).await.unwrap();
+            }
+        });
+        let cloud = MobileCloud::with_cloud_url(&format!("http://{address}")).unwrap();
+        (cloud, count, server)
+    }
+
+    fn test_retry(seconds: &str) -> CloudRetry {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, seconds.parse().unwrap());
+        CloudRetry::from_response(503, &headers).unwrap()
+    }
+
+    #[tokio::test]
+    async fn transient_response_preserves_session_blocks_reads_and_recovers() {
+        for status in [429, 503] {
+            let (cloud, requests, server) = retry_test_cloud(vec![
+                (
+                    status,
+                    "30",
+                    r#"{"error":{"message":"private database hostname and credential"}}"#,
+                ),
+                (200, "", r#"{"data":[]}"#),
+                (401, "30", r#"{"error":{"message":"Session expired"}}"#),
+            ])
+            .await;
+            let (generation, token) = cloud.begin_sign_in().unwrap();
+            cloud.complete_authorization(generation, "operator@example.test".to_string());
+            let error = cloud
+                .request_data::<Vec<MobileConnection>>(
+                    reqwest::Method::GET,
+                    CONNECTIONS_PATH,
+                    &token,
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.status, Some(status));
+            assert_eq!(error.retry.unwrap().delay(), Duration::from_secs(30));
+            assert!(!error.to_string().contains("private"));
+            let snapshot = cloud.status();
+            assert!(snapshot.signed_in);
+            assert_eq!(
+                snapshot.account_email.as_deref(),
+                Some("operator@example.test")
+            );
+            assert!(snapshot
+                .retry_after_seconds
+                .is_some_and(|seconds| (1..=30).contains(&seconds)));
+            assert!(snapshot
+                .last_error
+                .as_deref()
+                .unwrap()
+                .contains("Wait before trying again"));
+            assert!(!serde_json::to_string(&snapshot).unwrap().contains(&token));
+            assert!(cloud.connections().await.is_err());
+            assert!(cloud
+                .request_data::<serde_json::Value>(
+                    reqwest::Method::GET,
+                    "/api/v1/runtimes/runtime_1/readiness",
+                    &token,
+                    None,
+                )
+                .await
+                .is_err());
+            assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(cloud.authorized_snapshot().unwrap(), (generation, token));
+
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(30)).await;
+            tokio::time::resume();
+            assert!(cloud.connections().await.unwrap().is_empty());
+            assert!(cloud.status().signed_in);
+            assert!(cloud.status().retry_after_seconds.is_none());
+            assert!(cloud.connections().await.is_err());
+            assert!(!cloud.status().signed_in);
+            assert!(cloud.inner.session.lock().unwrap().token.is_none());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn authorization_cooldown_honors_deadline_and_callback_cannot_bypass_it() {
+        let cloud = MobileCloud::with_cloud_url("http://127.0.0.1:9").unwrap();
+        let (generation, _) = cloud.begin_sign_in().unwrap();
+        {
+            let mut session = cloud.inner.session.lock().unwrap();
+            session.authorization_deadline =
+                Some(tokio::time::Instant::now() + Duration::from_secs(5));
+            session.approval_url = Some("https://console.hecatehq.com/desktop-login".to_string());
+        }
+        cloud.record_retry(generation, test_retry("30"));
+        let worker_cloud = cloud.clone();
+        let worker = tokio::spawn(async move {
+            worker_cloud.poll_authorization(generation).await;
+        });
+        tokio::task::yield_now().await;
+        cloud.note_authorization_callback();
+        tokio::task::yield_now().await;
+        assert!(cloud.status().authorizing);
+        assert!(cloud.status().message.contains("temporarily unavailable"));
+        assert!(!worker.is_finished());
+        tokio::time::advance(Duration::from_secs(5)).await;
+        worker.await.unwrap();
+        assert_eq!(
+            cloud.inner.session.lock().unwrap().phase,
+            MobilePhase::Error
+        );
+        assert!(cloud.inner.session.lock().unwrap().token.is_none());
+        assert!(cloud.status().retry_after_seconds.is_none());
+        assert_eq!(
+            cloud.status().message,
+            "Sign-in was not completed. Try again."
+        );
+    }
+
+    #[tokio::test]
+    async fn readiness_outage_preserves_connection_rows_and_blocks_followup_reads() {
+        let (cloud, requests, server) = retry_test_cloud(vec![
+            (200, "", r#"{"data":[{"id":"runtime_1","kind":"hosted_runtime","org_id":"org_1","name":"My runtime","status":"starting","reachable":false,"readiness_path":"/api/v1/app/runtimes/runtime_1/readiness"}]}"#),
+            (503, "30", r#"{"error":{"message":"private database failure"}}"#),
+        ]).await;
+        let (generation, _) = cloud.begin_sign_in().unwrap();
+        cloud.complete_authorization(generation, "operator@example.test".to_string());
+        let connections = cloud.connections().await.unwrap();
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].name, "My runtime");
+        assert_eq!(connections[0].status, "starting");
+        assert!(cloud.status().signed_in);
+        assert!(cloud.status().retry_after_seconds.is_some());
+        assert!(cloud.connections().await.is_err());
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 2);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn late_transient_response_cannot_delay_a_replacement_mobile_session() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cloud =
+            MobileCloud::with_cloud_url(&format!("http://{}", listener.local_addr().unwrap()))
+                .unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 4096];
+            stream.read(&mut buffer).await.unwrap();
+            started_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            stream.write_all(b"HTTP/1.1 503 Unavailable\r\nRetry-After: 30\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let (old_generation, _) = cloud.begin_sign_in().unwrap();
+        cloud.complete_authorization(old_generation, "old@example.test".to_string());
+        let request_cloud = cloud.clone();
+        let pending = tokio::spawn(async move { request_cloud.connections().await });
+        started_rx.await.unwrap();
+        cloud.clear_for_sign_out().unwrap();
+        let (generation, _) = cloud.begin_sign_in().unwrap();
+        cloud.complete_authorization(generation, "new@example.test".to_string());
+        release_tx.send(()).unwrap();
+        assert!(pending.await.unwrap().is_err());
+        server.await.unwrap();
+        assert!(cloud.status().signed_in);
+        assert!(cloud.status().retry_after_seconds.is_none());
+        assert_eq!(
+            cloud.status().account_email.as_deref(),
+            Some("new@example.test")
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_mutation_is_not_replayed_and_gates_followup_reads() {
+        let (cloud, requests, server) = retry_test_cloud(vec![(
+            503,
+            "30",
+            r#"{"error":{"message":"private infrastructure"}}"#,
+        )])
+        .await;
+        let (generation, token) = cloud.begin_sign_in().unwrap();
+        cloud.complete_authorization(generation, "operator@example.test".to_string());
+        let error = cloud
+            .request_data::<serde_json::Value>(
+                reqwest::Method::POST,
+                "/api/v1/runtimes/runtime_1/start",
+                &token,
+                Some(serde_json::json!({})),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.retry.unwrap().delay(), Duration::from_secs(30));
+        assert!(cloud.connections().await.is_err());
+        server.await.unwrap();
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(cloud.status().signed_in);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn signout_cancels_the_cooldown_worker_and_stale_failures_do_not_gate_a_new_account() {
+        let cloud = MobileCloud::with_cloud_url("http://127.0.0.1:9").unwrap();
+        let (generation, _) = cloud.begin_sign_in().unwrap();
+        cloud.inner.session.lock().unwrap().authorization_deadline =
+            Some(tokio::time::Instant::now() + Duration::from_secs(120));
+        cloud.record_retry(generation, test_retry("60"));
+        let worker_cloud = cloud.clone();
+        let worker = tokio::spawn(async move {
+            worker_cloud.poll_authorization(generation).await;
+        });
+        tokio::task::yield_now().await;
+        cloud.clear_for_sign_out().unwrap();
+        worker.await.unwrap();
+        assert!(cloud.status().retry_after_seconds.is_none());
+        let (replacement, _) = cloud.begin_sign_in().unwrap();
+        cloud.complete_authorization(replacement, "new@example.test".to_string());
+        cloud.record_retry(generation, test_retry("60"));
+        assert!(cloud.status().retry_after_seconds.is_none());
+        assert!(cloud.status().signed_in);
+    }
+
     fn authorization_expiry_after(duration: Duration) -> String {
         chrono::DateTime::<chrono::Utc>::from(SystemTime::now() + duration)
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -2793,6 +3148,9 @@ mod tests {
         }
 
         cloud.clear_for_sign_out().unwrap();
+        // Cancellation retains a wake even if the worker was between its
+        // request and sleep. Drain that signal before checking callbacks.
+        generation_wake.notified().await;
         cloud.begin_sign_in().unwrap();
         {
             let mut session = cloud.inner.session.lock().unwrap();
@@ -2825,6 +3183,7 @@ mod tests {
         );
 
         cloud.clear_for_sign_out().unwrap();
+        replacement_wake.notified().await;
         let signed_out_wake = replacement_wake.notified();
         cloud.note_authorization_callback();
         assert!(

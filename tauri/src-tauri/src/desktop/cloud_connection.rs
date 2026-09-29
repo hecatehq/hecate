@@ -1,3 +1,4 @@
+use crate::cloud_retry::{CloudRetry, CloudRetryGate};
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use futures_util::{stream, SinkExt, StreamExt};
@@ -76,6 +77,7 @@ pub struct CloudConnectionStatus {
     pub base_url: Option<String>,
     pub message: String,
     pub last_error: Option<String>,
+    pub retry_after_seconds: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -182,6 +184,7 @@ struct ConnectionState {
     cancel: Option<watch::Sender<bool>>,
     generation: u64,
     availability_error: Option<String>,
+    cloud_retry: CloudRetryGate,
     session_token: Option<Zeroizing<String>>,
     host_token: Option<Zeroizing<String>>,
     startup_restore: StartupRestoreState,
@@ -358,6 +361,7 @@ impl CloudConnectionSupervisor {
                     cancel: None,
                     generation: 0,
                     availability_error,
+                    cloud_retry: CloudRetryGate::default(),
                     session_token: None,
                     host_token: None,
                     startup_restore: StartupRestoreState::Pending,
@@ -546,8 +550,12 @@ impl CloudConnectionSupervisor {
 
         state.startup_auto_start_claimed = true;
         cancel_current(state);
+        let previous_generation = state.generation;
         state.generation = state.generation.wrapping_add(1);
         let generation = state.generation;
+        state
+            .cloud_retry
+            .carry_to_generation(previous_generation, generation);
         state.startup_restore = StartupRestoreState::Ready { generation };
         let (cancel_tx, cancel_rx) = watch::channel(false);
         state.cancel = Some(cancel_tx);
@@ -648,12 +656,23 @@ impl CloudConnectionSupervisor {
             if let Some(error) = state.availability_error.as_ref() {
                 return Err(error.clone());
             }
+            if let Some(message) = state.cloud_retry.message(state.generation) {
+                return Err(message.to_string());
+            }
         }
 
         match self.session_token_for_explicit_action()? {
             Some(token) => {
                 let generation = self.begin_account_verification()?;
                 let client = self.client();
+                if let Err(message) = self.ensure_cloud_read_ready(generation) {
+                    self.set_error_if_current(
+                        generation,
+                        "Hecate Cloud sign-in could not be verified.",
+                        Some(message.clone()),
+                    );
+                    return Err(message);
+                }
                 match client.me(&token).await {
                     Ok(actor) => self.complete_account_sign_in_if_current(generation, &actor),
                     Err(err) if err.status == Some(401) => {
@@ -665,6 +684,7 @@ impl CloudConnectionSupervisor {
                         return Err("Your Hecate Cloud session expired. Sign in again.".to_string());
                     }
                     Err(err) => {
+                        self.record_cloud_retry(generation, &err);
                         self.set_error_if_current(
                             generation,
                             "Hecate Cloud sign-in could not be verified.",
@@ -773,7 +793,7 @@ impl CloudConnectionSupervisor {
                 )
                 .await
                 .map_err(|error| {
-                    self.expire_if_unauthorized(generation, &error);
+                    self.handle_cloud_error(generation, &error);
                     error.to_string()
                 })?;
             validate_connection_summary(&started)?;
@@ -842,7 +862,7 @@ impl CloudConnectionSupervisor {
                         )
                         .await
                         .map_err(|error| {
-                            self.expire_if_unauthorized(generation, &error);
+                            self.handle_cloud_error(generation, &error);
                             error.to_string()
                         })?;
                     if browser_session.expires_at.trim().is_empty() {
@@ -885,7 +905,7 @@ impl CloudConnectionSupervisor {
                         )
                         .await
                         .map_err(|error| {
-                            self.expire_if_unauthorized(generation, &error);
+                            self.handle_cloud_error(generation, &error);
                             error.to_string()
                         })?;
                     if !browser_session
@@ -1071,6 +1091,7 @@ impl CloudConnectionSupervisor {
         generation: u64,
         token: &str,
     ) -> Result<Vec<CloudRuntimeConnection>, String> {
+        self.ensure_cloud_read_ready(generation)?;
         let connections = self
             .client()
             .request::<Vec<CloudRuntimeConnection>, ()>(
@@ -1081,7 +1102,7 @@ impl CloudConnectionSupervisor {
             )
             .await
             .map_err(|error| {
-                self.expire_if_unauthorized(generation, &error);
+                self.handle_cloud_error(generation, &error);
                 error.to_string()
             })?;
         for connection in &connections {
@@ -1097,6 +1118,7 @@ impl CloudConnectionSupervisor {
         token: &str,
         connection: &CloudRuntimeConnection,
     ) -> Result<CloudRuntimeConnection, String> {
+        self.ensure_cloud_read_ready(generation)?;
         let expected_path = format!("/api/v1/app/runtimes/{}/readiness", connection.id);
         let path = validated_server_path(
             connection.readiness_path.as_deref(),
@@ -1108,7 +1130,7 @@ impl CloudConnectionSupervisor {
             .request::<CloudRuntimeConnection, ()>(reqwest::Method::GET, &path, token, None)
             .await
             .map_err(|error| {
-                self.expire_if_unauthorized(generation, &error);
+                self.handle_cloud_error(generation, &error);
                 error.to_string()
             })?;
         validate_connection_summary(&refreshed)?;
@@ -1132,7 +1154,8 @@ impl CloudConnectionSupervisor {
         })
     }
 
-    fn expire_if_unauthorized(&self, generation: u64, error: &CloudAPIError) {
+    fn handle_cloud_error(&self, generation: u64, error: &CloudAPIError) {
+        self.record_cloud_retry(generation, error);
         if error.status == Some(401) {
             self.expire_account_if_current(
                 generation,
@@ -1140,6 +1163,61 @@ impl CloudConnectionSupervisor {
                 CredentialReadMode::NonInteractive,
             );
         }
+    }
+
+    fn record_cloud_retry(&self, generation: u64, error: &CloudAPIError) {
+        if let Some(retry) = error.retry {
+            if let Ok(mut state) = self.inner.state.lock() {
+                if state.generation == generation && !state.signing_out {
+                    state.cloud_retry.record(generation, retry);
+                }
+            }
+        }
+    }
+
+    fn ensure_cloud_read_ready(&self, generation: u64) -> Result<(), String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        if state.generation != generation || state.signing_out {
+            return Err(
+                "Your Hecate Cloud session changed while connections were loading.".to_string(),
+            );
+        }
+        if let Some(message) = state.cloud_retry.message(generation) {
+            return Err(message.to_string());
+        }
+        Ok(())
+    }
+
+    fn cloud_retry_remaining(&self, generation: u64) -> Option<Duration> {
+        self.inner
+            .state
+            .lock()
+            .ok()?
+            .cloud_retry
+            .remaining(generation)
+    }
+
+    fn cloud_read_delay_if_current(
+        &self,
+        generation: u64,
+    ) -> Result<Option<Duration>, CloudAPIError> {
+        let state = self.inner.state.lock().map_err(|_| CloudAPIError {
+            status: Some(400),
+            message: "Hecate Cloud account state is unavailable.".to_string(),
+            retry: None,
+        })?;
+        if state.generation != generation || state.signing_out {
+            return Err(CloudAPIError {
+                status: Some(400),
+                message: REMOTE_ACCESS_CANCELLED.to_string(),
+                retry: None,
+            });
+        }
+        Ok(state.cloud_retry.remaining(generation))
     }
 
     pub fn pending_approval_url(&self) -> Option<String> {
@@ -1161,7 +1239,14 @@ impl CloudConnectionSupervisor {
             state.phase == ConnectionPhase::Authorizing && !state.signed_in;
         cancel_current(&mut state);
         supersede_startup_restore(&mut state);
+        let previous_generation = state.generation;
         state.generation = state.generation.wrapping_add(1);
+        let generation = state.generation;
+        if !clear_pending_credential {
+            state
+                .cloud_retry
+                .carry_to_generation(previous_generation, generation);
+        }
         state.preferences.auto_start_enabled = false;
         if base_url.is_some() {
             state.base_url = base_url;
@@ -1307,8 +1392,13 @@ impl CloudConnectionSupervisor {
             .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
         cancel_current(&mut state);
         supersede_startup_restore(&mut state);
+        let previous_generation = state.generation;
         state.generation = state.generation.wrapping_add(1);
         state.phase = ConnectionPhase::Authorizing;
+        let generation = state.generation;
+        state
+            .cloud_retry
+            .carry_to_generation(previous_generation, generation);
         state.signed_in = false;
         state.approval_url = None;
         state.last_error = None;
@@ -1482,8 +1572,16 @@ impl CloudConnectionSupervisor {
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
             cancel_current(&mut state);
             supersede_startup_restore(&mut state);
+            let previous_generation = state.generation;
+            let same_session = state.session_token.as_deref().map(|token| token.as_str())
+                == Some(session_token.as_str());
             state.generation = state.generation.wrapping_add(1);
             let generation = state.generation;
+            if same_session {
+                state
+                    .cloud_retry
+                    .carry_to_generation(previous_generation, generation);
+            }
             let (cancel_tx, cancel_rx) = watch::channel(false);
             state.cancel = Some(cancel_tx);
             if persist_auto_start {
@@ -1521,10 +1619,45 @@ impl CloudConnectionSupervisor {
         let client = self.client();
         let deadline = tokio::time::Instant::now() + expires_in;
         loop {
-            if *cancel_rx.borrow() {
+            if *cancel_rx.borrow() || !self.is_current(generation) {
                 return;
             }
-            match client.me(&token).await {
+            if tokio::time::Instant::now() >= deadline {
+                self.fail_authorization_if_current(
+                    generation,
+                    "This sign-in request expired. Try again.",
+                    None,
+                );
+                return;
+            }
+            if let Some(delay) = self.cloud_retry_remaining(generation) {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(std::cmp::min(deadline, tokio::time::Instant::now() + delay)) => {}
+                    _ = cancel_rx.changed() => { return; }
+                }
+                continue;
+            }
+            let result = tokio::select! {
+                result = client.me(&token) => result,
+                _ = tokio::time::sleep_until(deadline) => {
+                    self.fail_authorization_if_current(generation, "This sign-in request expired. Try again.", None);
+                    return;
+                }
+                _ = cancel_rx.changed() => { return; }
+            };
+            if *cancel_rx.borrow() || !self.is_current(generation) {
+                return;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                self.fail_authorization_if_current(
+                    generation,
+                    "This sign-in request expired. Try again.",
+                    None,
+                );
+                return;
+            }
+            let mut delay = LOGIN_POLL_INTERVAL;
+            match result {
                 Ok(actor) => {
                     match mode {
                         AuthorizationMode::AccountOnly => {
@@ -1550,11 +1683,25 @@ impl CloudConnectionSupervisor {
                     }
                     return;
                 }
-                Err(err) if err.status == Some(401) && tokio::time::Instant::now() < deadline => {}
-                Err(err) if tokio::time::Instant::now() < deadline => {
+                Err(err) if err.status == Some(401) && tokio::time::Instant::now() < deadline => {
                     self.update_message_if_current(
                         generation,
                         "Waiting for browser approval.",
+                        None,
+                    );
+                }
+                Err(err) if tokio::time::Instant::now() < deadline => {
+                    self.handle_cloud_error(generation, &err);
+                    if let Some(retry) = err.retry {
+                        delay = std::cmp::max(delay, retry.delay());
+                    }
+                    self.update_message_if_current(
+                        generation,
+                        if err.retry.is_some() {
+                            "Cloud checks are paused temporarily."
+                        } else {
+                            "Checking browser approval. Hecate Cloud could not be reached."
+                        },
                         Some(err.to_string()),
                     );
                 }
@@ -1568,7 +1715,7 @@ impl CloudConnectionSupervisor {
                 }
             }
             tokio::select! {
-                _ = tokio::time::sleep(LOGIN_POLL_INTERVAL) => {}
+                _ = tokio::time::sleep_until(std::cmp::min(deadline, tokio::time::Instant::now() + delay)) => {}
                 result = cancel_rx.changed() => {
                     if result.is_err() || *cancel_rx.borrow() { return; }
                 }
@@ -1599,6 +1746,7 @@ impl CloudConnectionSupervisor {
             &mut cancel_rx,
             || self.is_current(generation),
             |err, _| {
+                self.handle_cloud_error(generation, err);
                 self.set_phase_if_current(
                     generation,
                     ConnectionPhase::Reconnecting,
@@ -1606,7 +1754,14 @@ impl CloudConnectionSupervisor {
                     Some(err.to_string()),
                 );
             },
-            || client.me(&session_token),
+            || async {
+                // A concurrent connection/readiness check can extend the same
+                // account's cooldown while bootstrap is already backing off.
+                while let Some(delay) = self.cloud_read_delay_if_current(generation)? {
+                    tokio::time::sleep(delay).await;
+                }
+                client.me(&session_token).await
+            },
         )
         .await
         {
@@ -1827,26 +1982,18 @@ impl CloudConnectionSupervisor {
         }
 
         let host_name = default_host_name();
-        let created = retry_cloud_bootstrap_request(
-            "host_registration",
-            AUTHENTICATED_BOOTSTRAP_RETRY_INITIAL,
-            AUTHENTICATED_BOOTSTRAP_RETRY_MAX,
-            cancel_rx,
-            || self.is_current(generation),
-            |err, _| {
-                self.set_phase_if_current(
-                    generation,
-                    ConnectionPhase::Reconnecting,
-                    "Hecate Cloud is temporarily unavailable. Reconnecting...",
-                    Some(err.to_string()),
-                );
-            },
-            || client.create_host(session_token, &actor.org_id, &host_name),
-        )
-        .await
-        .map_err(|err| match err {
-            CloudBootstrapRequestError::Cancelled => HostBootstrapError::Cancelled,
-            CloudBootstrapRequestError::Terminal(err) => HostBootstrapError::TerminalCloud(err),
+        if *cancel_rx.borrow() || !self.is_current(generation) {
+            return Err(HostBootstrapError::Cancelled);
+        }
+        // Registration is a mutation without an idempotency key. An ambiguous
+        // response must not silently create another host on an automatic retry.
+        let created = tokio::select! {
+            result = client.create_host(session_token, &actor.org_id, &host_name) => result,
+            _ = cancel_rx.changed() => return Err(HostBootstrapError::Cancelled),
+        }
+        .map_err(|err| {
+            self.record_cloud_retry(generation, &err);
+            HostBootstrapError::TerminalCloud(err)
         })?;
         if created.host.id.trim().is_empty() || created.host_token.trim().is_empty() {
             return Err(HostBootstrapError::Local(
@@ -1989,6 +2136,9 @@ impl CloudConnectionSupervisor {
         state.message = message.to_string();
         state.approval_url = None;
         state.cancel = None;
+        // Expiry is terminal for this pending authorization, not an outage
+        // that will recover automatically after its previous cooldown.
+        state.cloud_retry = CloudRetryGate::default();
         state.last_error = error;
         if let Err(err) = self.persist_preferences(&state.preferences) {
             append_warning(&mut state.last_error, err);
@@ -2070,8 +2220,15 @@ fn status_from_state(state: &ConnectionState, cloud_url: &str) -> CloudConnectio
         account_email: state.preferences.account_email.clone(),
         cloud_url: cloud_url.to_string(),
         base_url: state.base_url.clone(),
-        message: state.message.clone(),
+        message: state
+            .cloud_retry
+            .message(state.generation)
+            .map(|message| {
+                format!("{message} Automatic checks will resume after the waiting period.")
+            })
+            .unwrap_or_else(|| state.message.clone()),
         last_error: state.last_error.clone(),
+        retry_after_seconds: state.cloud_retry.retry_after_seconds(state.generation),
     }
 }
 
@@ -2090,6 +2247,7 @@ fn unavailable_status(base_url: Option<String>, cloud_url: &str) -> CloudConnect
         base_url,
         message: "Remote access state is unavailable.".to_string(),
         last_error: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -2787,6 +2945,7 @@ impl CloudClient {
             resolve_same_origin_url(&self.base_url, path).map_err(|message| CloudAPIError {
                 status: None,
                 message,
+                retry: None,
             })?;
         let mut request = self
             .http
@@ -2806,6 +2965,13 @@ impl CloudClient {
     {
         let response = request.send().await.map_err(CloudAPIError::network)?;
         let status = response.status();
+        if let Some(retry) = CloudRetry::from_response(status.as_u16(), response.headers()) {
+            return Err(CloudAPIError {
+                status: Some(status.as_u16()),
+                message: retry.message().to_string(),
+                retry: Some(retry),
+            });
+        }
         let payload = response.bytes().await.map_err(CloudAPIError::network)?;
         if !status.is_success() {
             let message = serde_json::from_slice::<CloudErrorEnvelope>(&payload)
@@ -2816,6 +2982,7 @@ impl CloudClient {
             return Err(CloudAPIError {
                 status: Some(status.as_u16()),
                 message,
+                retry: None,
             });
         }
         serde_json::from_slice::<CloudEnvelope<T>>(&payload)
@@ -2823,6 +2990,7 @@ impl CloudClient {
             .map_err(|err| CloudAPIError {
                 status: Some(status.as_u16()),
                 message: format!("Hecate Cloud returned an invalid response: {err}"),
+                retry: None,
             })
     }
 }
@@ -2831,12 +2999,14 @@ impl CloudClient {
 struct CloudAPIError {
     status: Option<u16>,
     message: String,
+    retry: Option<CloudRetry>,
 }
 
 impl CloudAPIError {
     fn network(error: reqwest::Error) -> Self {
         Self {
             status: error.status().map(|status| status.as_u16()),
+            retry: None,
             message: if error.is_timeout() {
                 "Hecate Cloud did not respond in time.".to_string()
             } else {
@@ -2912,19 +3082,21 @@ where
         match result {
             Ok(value) => return Ok(value),
             Err(err) if err.is_retryable_authenticated_bootstrap() => {
+                let retry_delay =
+                    std::cmp::max(delay, err.retry.map(CloudRetry::delay).unwrap_or_default());
                 let reason = err
                     .authenticated_bootstrap_retry_reason()
                     .expect("retryable errors have a sanitized reason");
                 log::warn!(
                     "remote access bootstrap retry stage={stage} reason={reason} retry_ms={}",
-                    delay.as_millis()
+                    retry_delay.as_millis()
                 );
-                on_retry(&err, delay);
+                on_retry(&err, retry_delay);
                 if *cancel_rx.borrow() || !is_current() {
                     return Err(CloudBootstrapRequestError::Cancelled);
                 }
                 tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = tokio::time::sleep(retry_delay) => {}
                     changed = cancel_rx.changed() => {
                         let _ = changed;
                         return Err(CloudBootstrapRequestError::Cancelled);
@@ -4534,6 +4706,268 @@ mod tests {
         CloudAPIError {
             status,
             message: message.to_string(),
+            retry: None,
+        }
+    }
+
+    fn retry_test_error(status: u16, seconds: u64) -> CloudAPIError {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            seconds.to_string().parse().unwrap(),
+        );
+        let retry = CloudRetry::from_response(status, &headers).unwrap();
+        CloudAPIError {
+            status: Some(status),
+            message: retry.message().to_string(),
+            retry: Some(retry),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn authenticated_bootstrap_respects_server_delay_and_recovers() {
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let started = tokio::time::Instant::now();
+        let mut attempts = Vec::new();
+        let result = retry_cloud_bootstrap_request(
+            "test",
+            Duration::from_secs(1),
+            Duration::from_secs(4),
+            &mut cancel_rx,
+            || true,
+            |_, delay| assert_eq!(delay, Duration::from_secs(45)),
+            || {
+                attempts.push(tokio::time::Instant::now() - started);
+                std::future::ready(if attempts.len() == 1 {
+                    Err(retry_test_error(503, 45))
+                } else {
+                    Ok(())
+                })
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(attempts, [Duration::ZERO, Duration::from_secs(45)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn authenticated_bootstrap_cancels_during_server_delay() {
+        let (cancel_tx, mut cancel_rx) = watch::channel(false);
+        let mut attempts = 0;
+        let retry = retry_cloud_bootstrap_request::<(), _, _, _, _>(
+            "test",
+            Duration::from_secs(1),
+            Duration::from_secs(4),
+            &mut cancel_rx,
+            || true,
+            |_, _| {},
+            || {
+                attempts += 1;
+                std::future::ready(Err(retry_test_error(429, 3600)))
+            },
+        );
+        let cancel = async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            cancel_tx.send(true).unwrap();
+        };
+        let (result, ()) = tokio::join!(retry, cancel);
+        assert!(matches!(result, Err(CloudBootstrapRequestError::Cancelled)));
+        assert_eq!(attempts, 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cloud_cooldown_preserves_credentials_and_rejects_stale_responses() {
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        credentials
+            .set(SESSION_CREDENTIAL, "saved-session")
+            .unwrap();
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(|| {}),
+            no_authenticated_connection_spawner(),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().unwrap();
+            state.generation = 7;
+            state.signed_in = true;
+            state.session_token = Some(Zeroizing::new("saved-session".to_string()));
+        }
+        supervisor.handle_cloud_error(7, &retry_test_error(503, 30));
+        assert!(supervisor.status(None).signed_in);
+        assert_eq!(supervisor.status(None).retry_after_seconds, Some(30));
+        assert!(supervisor.ensure_cloud_read_ready(7).is_err());
+        assert!(supervisor
+            .runtime_connections()
+            .await
+            .unwrap_err()
+            .contains("temporarily unavailable"));
+        assert_eq!(
+            credentials.get(SESSION_CREDENTIAL).unwrap().as_deref(),
+            Some("saved-session")
+        );
+        tokio::time::advance(Duration::from_secs(30)).await;
+        assert!(supervisor.ensure_cloud_read_ready(7).is_ok());
+        assert_eq!(supervisor.status(None).retry_after_seconds, None);
+        supervisor.inner.state.lock().unwrap().generation = 8;
+        supervisor.handle_cloud_error(7, &retry_test_error(429, 3600));
+        assert!(supervisor.ensure_cloud_read_ready(8).is_ok());
+        assert!(supervisor.ensure_cloud_read_ready(7).is_err());
+        assert_eq!(supervisor.status(None).retry_after_seconds, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn same_account_remote_access_toggles_preserve_the_original_cooldown() {
+        let supervisor = startup_test_supervisor(
+            None,
+            Arc::new(MemoryCredentialStore::default()),
+            Arc::new(|| {}),
+            Arc::new(|_, _| {}),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().unwrap();
+            state.generation = 7;
+            state.signed_in = true;
+            state.session_token = Some(Zeroizing::new("saved-session".to_string()));
+        }
+        supervisor.record_cloud_retry(7, &retry_test_error(503, 30));
+        tokio::time::advance(Duration::from_secs(5)).await;
+        assert_eq!(supervisor.stop(None).retry_after_seconds, Some(25));
+        supervisor
+            .launch_authenticated(
+                Some("http://127.0.0.1:8765".to_string()),
+                "saved-session".to_string(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(supervisor.status(None).retry_after_seconds, Some(25));
+        let generation = supervisor.inner.state.lock().unwrap().generation;
+        supervisor.record_cloud_retry(7, &retry_test_error(429, 3600));
+        assert_eq!(supervisor.status(None).retry_after_seconds, Some(25));
+        assert!(supervisor.ensure_cloud_read_ready(generation).is_err());
+        // Saved-token verification is a read too, not an escape from cooldown.
+        supervisor.inner.state.lock().unwrap().signed_in = false;
+        supervisor.inner.state.lock().unwrap().phase = ConnectionPhase::Error;
+        assert!(supervisor
+            .account_sign_in(None)
+            .await
+            .unwrap_err()
+            .contains("temporarily unavailable"));
+        assert_eq!(
+            supervisor.inner.state.lock().unwrap().generation,
+            generation
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn authorization_cooldown_does_not_extend_expiry_and_can_be_cancelled() {
+        for cancel in [false, true] {
+            let credentials = Arc::new(MemoryCredentialStore::default());
+            credentials
+                .set(SESSION_CREDENTIAL, "pending-session")
+                .unwrap();
+            let supervisor = startup_test_supervisor(
+                None,
+                credentials.clone(),
+                Arc::new(|| {}),
+                no_authenticated_connection_spawner(),
+            );
+            let (cancel_tx, cancel_rx) = watch::channel(false);
+            {
+                let mut state = supervisor.inner.state.lock().unwrap();
+                state.generation = 7;
+                state.phase = ConnectionPhase::Authorizing;
+                state.session_token = Some(Zeroizing::new("pending-session".to_string()));
+            }
+            supervisor.record_cloud_retry(7, &retry_test_error(503, 3600));
+            let start = tokio::time::Instant::now();
+            let poll = supervisor.authorize_then_complete(
+                7,
+                AuthorizationMode::AccountOnly,
+                "pending-session".to_string(),
+                Duration::from_secs(5),
+                cancel_rx,
+            );
+            let cancellation = async {
+                if cancel {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    cancel_tx.send(true).unwrap();
+                }
+            };
+            tokio::join!(poll, cancellation);
+            assert_eq!(
+                tokio::time::Instant::now() - start,
+                Duration::from_secs(if cancel { 1 } else { 5 })
+            );
+            if !cancel {
+                assert!(supervisor
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap()
+                    .message
+                    .contains("expired"));
+                assert!(supervisor.status(None).message.contains("expired"));
+                assert_eq!(supervisor.status(None).retry_after_seconds, None);
+                assert_eq!(credentials.get(SESSION_CREDENTIAL).unwrap(), None);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_unavailable_response_uses_fixed_copy_and_host_registration_is_not_replayed() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for status in [429, 503] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).await.unwrap();
+                assert!(
+                    String::from_utf8_lossy(&request[..read]).starts_with("POST /api/v1/hosts ")
+                );
+                let body = "<html>upstream private error</html>";
+                stream.write_all(format!("HTTP/1.1 {status} Unavailable\r\nRetry-After: 45\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                // Leave the listener alive until the caller has returned: a
+                // retry would hang this test's bounded registration call.
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            });
+            let supervisor = startup_test_supervisor(
+                None,
+                Arc::new(MemoryCredentialStore::default()),
+                Arc::new(|| {}),
+                no_authenticated_connection_spawner(),
+            );
+            let actor = CloudActor {
+                id: "actor_1".to_string(),
+                org_id: "org_1".to_string(),
+                email: "test@example.com".to_string(),
+            };
+            let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+            let result = tokio::time::timeout(
+                Duration::from_secs(1),
+                supervisor.ensure_host(
+                    0,
+                    &relay_test_client(address),
+                    "test-session",
+                    &actor,
+                    &mut cancel_rx,
+                    CredentialReadMode::Interactive,
+                ),
+            )
+            .await
+            .expect("registration must not automatically retry");
+            match result {
+                Err(HostBootstrapError::TerminalCloud(error)) => {
+                    assert_eq!(error.status, Some(status));
+                    assert_eq!(error.retry.unwrap().delay(), Duration::from_secs(45));
+                    assert!(!error.message.contains("private"));
+                }
+                other => panic!("expected retry guidance, got {other:?}"),
+            }
+            assert_eq!(supervisor.status(None).retry_after_seconds, Some(45));
+            server.abort();
         }
     }
 

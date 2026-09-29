@@ -201,6 +201,20 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   Do not add a second Hecate route allowlist to `cloud_connection.rs`; every
   relayed API request must acquire remote identity so the canonical Go policy
   applies.
+- Keep native Cloud `429`/`503` retry guidance in the shared `cloud_retry`
+  module, not in JS header parsing. Accept bounded seconds/HTTP dates, fall back
+  to 30 seconds, and use monotonic, generation-owned cooldowns. Fence stale
+  responses before recording guidance; concurrent failures may extend but never
+  shorten the current cooldown. Desktop connection/readiness reads and account
+  polling, and mobile authenticated GETs, must not bypass it through manual
+  refresh, foregrounding, or authorization callbacks. Preserve credentials and
+  cached rows during an outage; only a real `401` expires an established session.
+  Keep pending-authorization cancellation and the original deadline authoritative.
+  Expose only safe fixed copy and optional `retry_after_seconds` through native
+  status IPC; JS may use that hint to schedule checks but Rust remains the gate.
+  Do not automatically replay runtime starts, host registration, or one-time
+  browser-session exchanges. Mobile notification status may inspect local OS
+  state during cooldown, but must defer background Cloud reconciliation.
 - Turning Remote access off cancels the relay and disables reconnect without
   signing the account out. Signing out revokes the registered host and app
   session where possible, removes both keychain entries, and clears local Cloud

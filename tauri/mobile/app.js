@@ -1,4 +1,4 @@
-import { createAutoRefreshLoop, shouldAutoRefresh } from "./auto-refresh.js";
+import { cloudRetryView, createAutoRefreshLoop, refreshMobileCloudData, shouldAutoRefresh } from "./auto-refresh.js";
 import { authorizationView } from "./authorization-view.js";
 import { shouldApplyConnectionsResponse } from "./connection-request.js";
 import { createConnectionStartState } from "./connection-start-state.js";
@@ -157,6 +157,7 @@ import { notificationView } from "./notification-state.js";
     const signedIn = status?.signed_in === true;
     const authorizing = status?.authorizing === true;
     const authorization = authorizationView(status);
+    const retry = cloudRetryView(status);
     if (signedIn && !wasSignedIn) activeScreen = "home";
 
     elements.statusChip.dataset.phase = phase;
@@ -183,14 +184,16 @@ import { notificationView } from "./notification-state.js";
     }
     applyScreen(signedIn);
     applyNotificationStatus(currentNotificationStatus);
-    if (status?.last_error) showError(status.last_error);
+    if (retry.message) showError(retry.message);
+    else if (status?.last_error) showError(status.last_error);
     else clearError();
 
-    scheduleStatusPoll(authorizing);
+    // Status IPC is local and stays responsive while Cloud reads back off.
+    scheduleStatusPoll(authorizing || retry.retryAfterSeconds > 0);
+    connectionRefreshLoop.setRetryAfterSeconds(retry.retryAfterSeconds);
     connectionRefreshLoop.setEnabled(shouldAutoRefresh(status, document.hidden));
     if (signedIn && !wasSignedIn && !document.hidden) {
-      void loadConnections();
-      void refreshNotificationStatus();
+      void connectionRefreshLoop.refreshNow();
     }
     if (!signedIn) {
       invalidateConnectionsRequest();
@@ -301,7 +304,7 @@ import { notificationView } from "./notification-state.js";
       applyStatus(status);
     } catch (error) {
       showError(error);
-      scheduleStatusPoll(currentStatus?.authorizing === true);
+      scheduleStatusPoll(currentStatus?.authorizing === true || cloudRetryView(currentStatus).retryAfterSeconds > 0);
     } finally {
       statusRequestActive = false;
     }
@@ -418,6 +421,11 @@ import { notificationView } from "./notification-state.js";
 
   async function loadConnections() {
     if (activeConnectionsRequestEpoch !== 0 || !currentStatus?.signed_in) return;
+    if (cloudRetryView(currentStatus).retryAfterSeconds > 0) {
+      await refreshStatus();
+      if (cloudRetryView(currentStatus).retryAfterSeconds > 0) return;
+      if (activeConnectionsRequestEpoch !== 0 || !currentStatus?.signed_in) return;
+    }
     const requestEpoch = ++connectionsRequestEpoch;
     activeConnectionsRequestEpoch = requestEpoch;
     clearError();
@@ -432,6 +440,8 @@ import { notificationView } from "./notification-state.js";
         return;
       }
       renderConnections(Array.isArray(connections) ? connections : []);
+      // A partial readiness failure keeps the rows but may start a cooldown.
+      await refreshStatus();
     } catch (error) {
       if (!shouldApplyConnectionsResponse(requestEpoch, connectionsRequestEpoch, currentStatus)) {
         return;
@@ -450,10 +460,21 @@ import { notificationView } from "./notification-state.js";
   }
 
   async function refreshSignedInData() {
+    await refreshMobileCloudData({
+      refreshStatus,
+      shouldRefreshConnections: () => shouldAutoRefresh(currentStatus, document.hidden),
+      loadConnections,
+      refreshNotificationStatus,
+    });
+  }
+
+  async function refreshAfterForeground() {
+    // Local status remains immediate even while the network loop backs off.
     await refreshStatus();
-    await refreshNotificationStatus();
     if (shouldAutoRefresh(currentStatus, document.hidden)) {
-      await loadConnections();
+      connectionRefreshLoop.setEnabled(true, { immediate: true });
+    } else if (!currentStatus?.signed_in) {
+      await refreshNotificationStatus();
     }
   }
 
@@ -513,22 +534,12 @@ import { notificationView } from "./notification-state.js";
   elements.refreshButton.addEventListener("click", loadConnections);
   window.addEventListener("online", () => {
     updateNetworkState();
-    if (shouldAutoRefresh(currentStatus, document.hidden)) {
-      connectionRefreshLoop.setEnabled(true, { immediate: true });
-    } else {
-      void refreshStatus();
-      void refreshNotificationStatus();
-    }
+    void refreshAfterForeground();
   });
   window.addEventListener("offline", updateNetworkState);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      if (shouldAutoRefresh(currentStatus, document.hidden)) {
-        connectionRefreshLoop.setEnabled(true, { immediate: true });
-      } else {
-        void refreshStatus();
-        void refreshNotificationStatus();
-      }
+      void refreshAfterForeground();
     } else {
       scheduleStatusPoll(false);
       connectionRefreshLoop.setEnabled(false);
@@ -536,6 +547,5 @@ import { notificationView } from "./notification-state.js";
   });
 
   updateNetworkState();
-  void refreshStatus();
-  void refreshNotificationStatus();
+  void refreshAfterForeground();
 })();
