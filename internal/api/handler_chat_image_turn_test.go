@@ -1228,13 +1228,6 @@ func TestHecateChatImageTurnRejectsUnknownOrIncapableModelBeforeDispatch(t *test
 			session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
 				`{"agent_id":"hecate","provider":"ollama","model":"llama-vision"}`)
 			attachment := imageTurnTestUpload(t, handler, session.Data.ID, "blocked.png", imageTurnTestPNG(t))
-			admission := apiHandler.chatImageTurnAdmission
-			for range maxConcurrentChatImageTurns {
-				if !admission.TryAcquire() {
-					t.Fatal("failed to hold chat image turn admission permit")
-				}
-				defer admission.Release()
-			}
 			recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost,
 				"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
 				`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"ollama","model":"llama-vision","content":"inspect","attachment_ids":["`+attachment.Data.ID+`"]}`)

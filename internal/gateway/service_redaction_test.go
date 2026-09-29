@@ -56,6 +56,26 @@ func TestRedactSensitiveTextLeavesOrdinaryContent(t *testing.T) {
 	}
 }
 
+func TestCaptureRequestBodyDoesNotRecordTextAttachmentBodies(t *testing.T) {
+	for _, mode := range []string{traceBodyModeMetadata, traceBodyModeRedactedText} {
+		t.Run(mode, func(t *testing.T) {
+			trace := profiler.NewTrace("req-text-file", nil)
+			service := &Service{traceBodyMode: mode, traceBodyMaxBytes: 4096}
+			service.captureRequestBody(trace, types.ChatRequest{Messages: []types.Message{{Role: "user", Content: "review file", ContentBlocks: []types.ContentBlock{
+				{Type: "text", Text: "review file"},
+				{Type: "text", Text: "private-file-sentinel", AttachmentInput: true},
+			}}}})
+			encoded, err := json.Marshal(trace.Events())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "private-file-sentinel") {
+				t.Fatal("trace copied text attachment")
+			}
+		})
+	}
+}
+
 func TestCaptureRequestBodyMetadataModeDoesNotRecordContent(t *testing.T) {
 	t.Parallel()
 

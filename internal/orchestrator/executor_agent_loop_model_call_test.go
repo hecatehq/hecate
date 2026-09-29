@@ -365,6 +365,13 @@ func TestAgentLoopChatRequestLeavesUnknownToolCapabilitiesRoutableWithoutRichInp
 	if !richRequest.Requirements.ToolCalling {
 		t.Fatalf("rich tool request requirements = %+v, want hard tool-capability requirement", richRequest.Requirements)
 	}
+	spec.ChatRequirements.ImageInput = false
+	spec.InputMessage = &types.Message{Role: "user", ContentBlocks: []types.ContentBlock{{Type: "text", Text: "file", AttachmentInput: true}}}
+	textRequest := agentLoopChatRequest(spec, nil, agentToolDefinitions())
+	if !textRequest.Requirements.ToolCalling || textRequest.Requirements.ImageInput {
+		t.Fatalf("text file request requirements = %+v, want tool support without vision", textRequest.Requirements)
+	}
+	spec.InputMessage = nil
 
 	fence := types.ToolCallingVerificationFence{
 		Provider:         "local-runtime",

@@ -776,8 +776,22 @@ bodies. Guard every turn that may hydrate current or historical image bodies wit
 the separate nonblocking, process-wide image-turn gate. Acquire its permit before
 attachment claim, historical `Get`, or base64 expansion; reject saturation with
 the stable typed 429 response before transcript mutation; and hold the permit
-through provider serialization and provider return. Routes that will certainly
-omit every image and ordinary text-only turns must remain outside this gate.
+through provider serialization and provider return. Native UTF-8 text/code
+attachments also use this bounded gate, including eligible historical text.
+Preserve its legacy `chat.image_turn_busy` response contract. Ordinary turns
+with no files and routes that will certainly omit every historical file remain
+outside it. Text/code validation lives in `chatapp`: 32 KiB per file, 64 KiB for
+current plus rehydrated historical text, valid UTF-8, no binary control
+characters other than tab/LF/CR, and no document/archive extraction. Current
+overflow fails before transcript commit; older overflow receives an explicit
+omission marker. Text files do not need `ImageInput`, but retain the same
+provider-generation and no-failover fences. Keep private text in separate
+`AttachmentInput` content blocks with `json:"-"` provenance, not `Message.Content`
+or task prompts. Checkpoint sanitization removes marked bodies; same-input
+resumes rehydrate from `InputRef`. OpenAI text-block flattening belongs only at
+the final wire boundary. Provider error text for such requests must become
+fixed safe copy before gateway logs, health, traces, or task failure artifacts;
+preserve only typed retry/cancellation classification, never the original cause.
 
 External Agent turns may claim the same Hecate-owned attachment records. Carry
 their text and hydrated files through the typed `agentadapters.PromptInput`
@@ -1029,7 +1043,7 @@ When changing this path:
    supported proof as an internal durable request marker; routing and every
    final dispatch must require the exact provider name, model, opaque
    generation, unexpired proof, and no-failover fence. Attachment turns also
-   require explicit image support. Never mutate catalog metadata to make the
+   require explicit image support only when actual images are present. Never mutate catalog metadata to make the
    proof globally routable, and never let it select an Auto route or relax
    image admission. Any automatic verification needs a separate explicit cost,
    consent, cooldown, and operator-control design.

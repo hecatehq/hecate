@@ -253,7 +253,8 @@ func (p *AnthropicProvider) capabilities(ctx context.Context, refresh bool) (Cap
 	)
 }
 
-func (p *AnthropicProvider) Chat(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
+func (p *AnthropicProvider) Chat(ctx context.Context, req types.ChatRequest) (result *types.ChatResponse, resultErr error) {
+	defer func() { resultErr = attachmentSafeError(req, resultErr) }()
 	if !p.supportsResolvedModel(ctx, req.Model) {
 		return nil, fmt.Errorf("model %q is not supported by provider %s", req.Model, p.Name())
 	}
@@ -1104,7 +1105,8 @@ func anthropicToolChoice(choice json.RawMessage) json.RawMessage {
 	return nil
 }
 
-func (p *AnthropicProvider) ChatStream(ctx context.Context, req types.ChatRequest, w io.Writer) error {
+func (p *AnthropicProvider) ChatStream(ctx context.Context, req types.ChatRequest, w io.Writer) (resultErr error) {
+	defer func() { resultErr = attachmentSafeError(req, resultErr) }()
 	if err := p.Validate(); err != nil {
 		return err
 	}

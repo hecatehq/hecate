@@ -767,12 +767,12 @@ func TestChatAttachmentHTTP_RejectsInvalidHecateUploadsAndAcceptsExternalInputs(
 	}{
 		{
 			name:         "unsupported",
-			filename:     "notes.txt",
-			declaredType: "text/plain",
-			data:         []byte("not an image"),
+			filename:     "notes.pdf",
+			declaredType: "application/pdf",
+			data:         []byte("%PDF-1.7\n"),
 			wantStatus:   http.StatusUnprocessableEntity,
 			wantCode:     errCodeAttachmentUnsupported,
-			wantMessage:  "only PNG, JPEG, and WebP",
+			wantMessage:  "UTF-8 text or code",
 		},
 		{
 			name:         "declared type mismatch",

@@ -381,38 +381,51 @@ platform.
 
 Chat attachments have two ownership-specific admission modes:
 
-- A Hecate-owned turn accepts PNG/JPEG/WebP input with Tools on or off, and
+- A Hecate-owned turn accepts UTF-8 text/code and PNG/JPEG/WebP input with Tools
+  on or off. Text does not require image capability; actual images require
   at least one matching routable provider/model route with effective
   `image_input="supported"`. `unknown`, `none`, and support reported only by a
   blocked route fail closed. Tools-on agent loops keep only an opaque input
   reference in task state, hydrate the body immediately before execution, and
-  replace image blocks with a non-sensitive marker in conversation artifacts.
+  replace attachment blocks with a non-sensitive marker in conversation artifacts.
   Same-input approval resumes and retries rehydrate that marker through the
   opaque reference and stay pinned to the admitted provider generation after
   first dispatch; a later chat prompt replaces or clears the reference. A
   failure before dispatch does not make the transcript eligible to rehydrate
-  that image as prior provider context.
+  that file as prior provider context.
 - An External Agent turn accepts arbitrary non-empty files once its normal
   workspace, adapter, and required launch controls are ready. ACP resource links
   are the baseline. Hecate uses an inline image or embedded resource only when
   the live ACP session reports that capability; otherwise it privately stages
   the file and sends a resource link.
 
-The direct-model rule is an explicit Hecate Chat runtime requirement;
+The image-capability rule is an explicit Hecate Chat runtime requirement;
 provider-compatible `/v1` multimodal requests retain upstream passthrough when
 custom-provider discovery cannot prove image support, but image-bearing
 compatibility requests cannot fail over to another provider and revalidate the
 selected provider instance immediately before dispatch. Their encoded JSON body
 is limited to 32 MiB with a 60-second read deadline.
 
-Both chat modes accept at most four files per message. Each upload is limited to
-5 MiB, and the combined files on one message are limited to 12 MiB. Hecate-owned
+Both chat modes accept at most four files per message. Native text/code files
+must be non-empty UTF-8, with no binary control characters other than tab,
+newline, and carriage return. Markdown, JSON, CSV, and source files are treated
+as plain text, not executed or parsed into instructions. Text is limited to
+32 KiB per file and 64 KiB across current and rehydrated historical file bodies.
+Current-message overflow is rejected; older history outside the budget receives
+an explicit omission marker. These byte limits are not a guarantee that every
+model's context window can fit the full conversation. PDF/DOCX extraction, OCR,
+archives, and other binary documents are not supported by native Chat.
+
+Images and External Agent files are limited to 5 MiB per upload; the combined
+files on one message are limited to 12 MiB. Hecate-owned
 images are also limited to 8000 pixels on either axis and 16 megapixels. Hecate
 checks their magic bytes, declared media type, and decoded dimensions, fully
 decodes the bounded image, then records a server-generated id and SHA-256
 digest. External Agent files retain their bounded bytes and declared media type
 without being interpreted as active content by the operator UI. The composer
-supports file selection, drop, and paste. An attachment-bearing draft cannot be
+supports file selection, drop, and browser/webview-provided clipboard files.
+The current Windows/Linux desktop Ctrl+V fallback reads text only; use the file
+picker or drop for file input on those desktop hosts. An attachment-bearing draft cannot be
 queued while the chat is busy. Switching between Hecate Tools modes or into an
 External Agent keeps compatible drafts; switching into a Hecate route that
 cannot accept every selected file remains blocked.
@@ -586,13 +599,13 @@ executor rechecks the generation against the live registry immediately before
 the provider call. A same-name replacement, live alias reassignment,
 normalized-name takeover, or removal therefore fails the turn without
 disclosing bytes to the replacement.
-Image-bearing requests may retry on the selected provider, but Hecate disables
+Attachment-bearing requests may retry on the selected provider, but Hecate disables
 cross-provider failover. If an Auto-routed provider receives bytes and then
 fails, the failed transcript still records that attempted provider/model and
 trace correlation. Context compaction keeps original transcript rows but
 replaces the older model-facing window with the normal context summary.
 
-For tools-on Hecate Chat image turns, the task runtime atomically records the
+For tools-on Hecate Chat attachment turns, the task runtime atomically records the
 exact provider/model/generation on the run at the final gateway dispatch
 boundary, immediately before provider I/O. This distinct final-dispatch marker
 allows the first policy-rewritten model while making later recovery and
@@ -603,12 +616,15 @@ only after a dispatched provider call returns attempted-route metadata. A
 final pre-dispatch validation or durability failure leaves the transcript
 marker empty.
 
-A process-wide two-slot image-turn gate bounds the transient memory held by
+A process-wide two-slot native attachment-turn gate bounds the transient memory held by
 attachment claims, historical body hydration, base64 expansion, provider
-serialization, and in-flight provider calls. A saturated image turn returns
+serialization, and in-flight provider calls. A saturated attachment turn returns
 `429 chat.image_turn_busy` with `Retry-After: 1` before claiming a draft or
-mutating the transcript. Text-only turns and turns whose historical images are
-certain to be omitted do not consume an image-turn slot.
+mutating the transcript. The existing error code also applies to text files.
+Turns without current files and without eligible historical file bodies do not
+consume a slot. Upstream errors on hydrated text-file requests use fixed safe
+wording rather than retaining possible file echoes. Ordinary assistant responses
+may quote file contents and remain part of the conversation; this is not DLP.
 
 A separate process-wide two-slot External file-turn gate bounds attachment
 claim, hydration, private staging, and the synchronous ACP prompt lifetime
@@ -621,24 +637,24 @@ this slot.
 flowchart LR
     Draft["Composer file draft"] -->|"multipart upload"| API["Hecate Chat API"]
     API -->|"snapshot + recheck"| Lifecycle["Per-session lifecycle generation"]
-    Lifecycle -->|"counted binary persistence"| Bodies["Chat attachment store"]
+    Lifecycle -->|"counted file persistence"| Bodies["Chat attachment store"]
     Destructive["Delete or native close"] -->|"advance generation + drain"| Lifecycle
     Draft -->|"message + attachment ids"| API
-    API -->|"Hecate image"| TurnGate["Image-turn admission"]
+    API -->|"Hecate images or text"| TurnGate["Native attachment admission"]
     TurnGate -->|"claim drafts"| Bodies
     API -->|"append metadata, then link bodies"| Transcript["Chat transcript metadata"]
     Transcript --> Hydrate["Direct-model history or agent-input resolver"]
     Bodies -->|"bounded transient hydration"| Hydrate
     Verification["Manual tool verification"] -->|"matching provider, model, generation, expiry"| ToolFence["Durable tools-on task fence"]
     ToolFence -->|"exact route only"| AgentLoop["Task-backed agent loop"]
-    Hydrate -->|"canonical image blocks"| Router["Capability-aware router"]
+    Hydrate -->|"transient text or image blocks"| Router["Capability-aware router"]
     Router -->|"name + opaque generation"| Fence["Live provider fence"]
     Fence -->|"exact instance only"| Provider["Selected provider"]
     TurnGate -. "permit held until provider returns" .-> Provider
     Hydrate -->|"tools-on rich prompt"| AgentLoop
     AgentLoop -->|"atomic final-route record before I/O"| TaskFence["Durable rich-input dispatch fence"]
     TaskFence -->|"exact route on retry"| Provider
-    AgentLoop -->|"artifact marker; no image body"| TaskArtifacts["Task conversation artifacts"]
+    AgentLoop -->|"artifact marker; no file body"| TaskArtifacts["Task conversation artifacts"]
     API -->|"External Agent files"| ExternalGate["External file-turn admission"]
     ExternalGate -->|"claim drafts"| Bodies
     Transcript -->|"External Agent turn"| ACP["Live ACP session capabilities"]

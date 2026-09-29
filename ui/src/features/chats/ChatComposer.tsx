@@ -40,8 +40,9 @@ import {
 import { ChatDictationControl } from "./ChatDictationControl";
 import { ChatNoticeInline } from "./ChatNotice";
 import {
-  appendChatFiles,
+  appendPreparedChatFiles,
   ChatAttachmentDrafts,
+  prepareChatFiles,
   type ChatAttachmentAcceptance,
 } from "./ChatImageAttachments";
 import { mergeAgentConfigOptions } from "./agentConfigOptions";
@@ -182,6 +183,9 @@ export type ChatComposerProps = {
   attachmentAcceptance: ChatAttachmentAcceptance;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string;
+  imageAttachmentsEnabled: boolean;
+  imageAttachmentsDisabledReason: string;
+  attachmentSelectionScopeKey: string;
   selectedModelIssue: SelectedModelIssue | null;
   chatDiagnostic: ReturnType<typeof describeGatewayError>;
 
@@ -280,6 +284,9 @@ export function ChatComposer(props: ChatComposerProps) {
     attachmentAcceptance,
     attachmentsEnabled,
     attachmentsDisabledReason,
+    imageAttachmentsEnabled,
+    imageAttachmentsDisabledReason,
+    attachmentSelectionScopeKey,
     selectedModelIssue,
     chatDiagnostic,
     hecateAgentModelLocked,
@@ -387,6 +394,28 @@ export function ChatComposer(props: ChatComposerProps) {
   const commandListboxID = useId();
   const workspaceModeStatusID = useId();
   const [attachmentSelectionError, setAttachmentSelectionError] = useState("");
+  const attachmentSelectionSequenceRef = useRef(0);
+  const attachmentSelectionGenerationRef = useRef(0);
+  const attachmentSelectionMountedRef = useRef(true);
+  const attachmentSelectionContextKey = JSON.stringify([
+    chatTarget,
+    activeSessionID,
+    attachmentAcceptance,
+    attachmentsEnabled,
+    imageAttachmentsEnabled,
+    imageAttachmentsDisabledReason,
+    chat.state.providerFilter,
+    chat.state.model,
+    chat.state.agentAdapterID,
+    hecateChatProviderValue,
+    hecateChatModelValue,
+    attachmentSelectionScopeKey,
+  ]);
+  const attachmentSelectionContextKeyRef = useRef(attachmentSelectionContextKey);
+  if (attachmentSelectionContextKeyRef.current !== attachmentSelectionContextKey) {
+    attachmentSelectionContextKeyRef.current = attachmentSelectionContextKey;
+    attachmentSelectionGenerationRef.current += 1;
+  }
   const previousPendingAttachmentCountRef = useRef(chat.state.pendingChatAttachments.length);
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
@@ -463,6 +492,18 @@ export function ChatComposer(props: ChatComposerProps) {
     setCommandPickerDismissed(false);
     setActiveCommandIndex(0);
   }, [activeSessionID, commandQuery]);
+
+  useEffect(() => {
+    attachmentSelectionMountedRef.current = true;
+    return () => {
+      attachmentSelectionMountedRef.current = false;
+      attachmentSelectionGenerationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    setAttachmentSelectionError("");
+  }, [attachmentSelectionContextKey]);
 
   useEffect(() => {
     setActiveCommandIndex((current) =>
@@ -550,7 +591,7 @@ export function ChatComposer(props: ChatComposerProps) {
     onNavigate?.("connections");
   }
 
-  function addPendingFiles(files: File[]) {
+  async function addPendingFiles(files: File[]) {
     if (chat.actions.isChatOwnershipMutationInFlight()) {
       setAttachmentSelectionError(
         "Wait for the current chat ownership change to finish before attaching files.",
@@ -558,9 +599,35 @@ export function ChatComposer(props: ChatComposerProps) {
       return;
     }
     if (!attachmentsEnabled || files.length === 0) return;
-    const result = appendChatFiles(chat.state.pendingChatAttachments, files, attachmentAcceptance);
-    chat.actions.setPendingChatAttachments(result.attachments);
-    setAttachmentSelectionError(result.error);
+    const selectionSequence = ++attachmentSelectionSequenceRef.current;
+    const selectionGeneration = attachmentSelectionGenerationRef.current;
+    const prepared = await prepareChatFiles(files, attachmentAcceptance, {
+      imageInputEnabled: imageAttachmentsEnabled,
+      imageInputDisabledReason: imageAttachmentsDisabledReason,
+    });
+    if (
+      !attachmentSelectionMountedRef.current ||
+      selectionGeneration !== attachmentSelectionGenerationRef.current
+    ) {
+      return;
+    }
+    if (chat.actions.isChatOwnershipMutationInFlight()) {
+      if (selectionSequence === attachmentSelectionSequenceRef.current) {
+        setAttachmentSelectionError(
+          "Wait for the current chat ownership change to finish before attaching files.",
+        );
+      }
+      return;
+    }
+    let selectionError = prepared.error;
+    chat.actions.setPendingChatAttachments((current) => {
+      const result = appendPreparedChatFiles(current, prepared, attachmentAcceptance);
+      selectionError = result.error;
+      return result.attachments;
+    });
+    if (selectionSequence === attachmentSelectionSequenceRef.current) {
+      setAttachmentSelectionError(selectionError);
+    }
   }
 
   function removePendingFile(id: string) {
@@ -707,6 +774,7 @@ export function ChatComposer(props: ChatComposerProps) {
       e.preventDefault();
       return;
     }
+    attachmentSelectionGenerationRef.current += 1;
     const hecateCommand = parseHecateMessageCommand(message);
     if (
       chat.state.pendingChatAttachments.length === 0 &&
@@ -1274,7 +1342,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 onKeyDown={handleKeyDown}
                 onPaste={(event) => {
                   const files = Array.from(event.clipboardData.files);
-                  if (files.length > 0) addPendingFiles(files);
+                  if (files.length > 0) void addPendingFiles(files);
                 }}
                 placeholder={
                   compactLayout
@@ -1313,7 +1381,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 describedBy={workspaceModePending ? workspaceModeStatusID : undefined}
                 error={attachmentSelectionError}
                 compact
-                onAddFiles={addPendingFiles}
+                onAddFiles={(files) => void addPendingFiles(files)}
                 onRemove={removePendingFile}
               />
               <ChatDictationControl

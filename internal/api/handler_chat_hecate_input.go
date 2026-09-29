@@ -15,10 +15,10 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-// resolveHecateAgentInput hydrates a Hecate Chat image at the last responsible
-// moment. Task state carries only run.InputRef; the binary body remains owned
-// by chatattachments and is integrity-checked against immutable transcript
-// metadata before it can cross the provider boundary.
+// resolveHecateAgentInput hydrates Hecate Chat files at the last responsible
+// moment. Task state carries only run.InputRef; attachment bodies remain owned
+// by chatattachments and are integrity-checked against immutable transcript
+// metadata before they can cross the provider boundary.
 func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, run types.TaskRun) (orchestrator.AgentInput, error) {
 	if task.OriginKind != "chat" || strings.TrimSpace(task.OriginID) == "" {
 		return orchestrator.AgentInput{}, fmt.Errorf("rich task input is only available to chat-origin runs")
@@ -60,35 +60,43 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 		provider = messageProvider
 	}
 	if provider != "" && messageProvider != "" && provider != messageProvider {
-		return orchestrator.AgentInput{}, fmt.Errorf("image provider does not match the admitted input route")
+		return orchestrator.AgentInput{}, fmt.Errorf("attachment provider does not match the admitted input route")
 	}
 	providerInstance := run.InputProviderInstance
 	if inputMessage.ProviderInstance.Valid() {
 		if providerInstance.Valid() && providerInstance != inputMessage.ProviderInstance {
-			return orchestrator.AgentInput{}, fmt.Errorf("image provider instance does not match the admitted input route")
+			return orchestrator.AgentInput{}, fmt.Errorf("attachment provider instance does not match the admitted input route")
 		}
 		providerInstance = inputMessage.ProviderInstance
 	}
 	if provider != "" && !providerInstance.Valid() {
-		return orchestrator.AgentInput{}, fmt.Errorf("image provider instance fence is missing")
+		return orchestrator.AgentInput{}, fmt.Errorf("attachment provider instance fence is missing")
 	}
 	model := strings.TrimSpace(run.Model)
 	route, err := h.modelApplication().ResolveProviderRoute(ctx, provider, model)
 	if err != nil {
-		return orchestrator.AgentInput{}, fmt.Errorf("resolve image provider: %w", err)
+		return orchestrator.AgentInput{}, fmt.Errorf("resolve attachment provider: %w", err)
 	}
 	if route.Name != "" && route.Name != provider {
-		return orchestrator.AgentInput{}, fmt.Errorf("image provider route changed before execution")
+		return orchestrator.AgentInput{}, fmt.Errorf("attachment provider route changed before execution")
 	}
 	if providerInstance.Valid() && route.Instance != providerInstance {
-		return orchestrator.AgentInput{}, fmt.Errorf("image provider instance changed before execution")
+		return orchestrator.AgentInput{}, fmt.Errorf("attachment provider instance changed before execution")
 	}
-	imageCapable, err := h.modelApplication().SupportsImageInput(ctx, provider, model)
-	if err != nil {
-		return orchestrator.AgentInput{}, fmt.Errorf("resolve image capability: %w", err)
+	hasImages := false
+	for _, metadata := range inputMessage.Attachments {
+		if metadata.MediaType != "text/plain" {
+			hasImages = true
+		}
 	}
-	if !imageCapable {
-		return orchestrator.AgentInput{}, fmt.Errorf("selected model route does not declare image-input support")
+	if hasImages {
+		imageCapable, err := h.modelApplication().SupportsImageInput(ctx, provider, model)
+		if err != nil {
+			return orchestrator.AgentInput{}, fmt.Errorf("resolve image capability: %w", err)
+		}
+		if !imageCapable {
+			return orchestrator.AgentInput{}, fmt.Errorf("selected model route does not declare image-input support")
+		}
 	}
 	capabilities, err := h.resolveModelCapabilities(ctx, provider, model)
 	if err != nil {
@@ -108,7 +116,7 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 		toolCallingVerifiedUntil = capabilities.ToolVerification.ExpiresAt
 	}
 	if h.chatImageTurnAdmission == nil || !h.chatImageTurnAdmission.Acquire(ctx) {
-		return orchestrator.AgentInput{}, fmt.Errorf("image input admission cancelled before execution")
+		return orchestrator.AgentInput{}, fmt.Errorf("attachment input admission cancelled before execution")
 	}
 	release := h.chatImageTurnAdmission.Release
 	releaseOnError := true
@@ -125,22 +133,22 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 			AttachmentID: metadata.ID,
 		})
 		if err != nil {
-			return orchestrator.AgentInput{}, fmt.Errorf("load image attachment: %w", err)
+			return orchestrator.AgentInput{}, fmt.Errorf("load attachment: %w", err)
 		}
 		if err := validateStoredChatAttachmentTranscript(session.ID, metadata, attachment); err != nil {
-			return orchestrator.AgentInput{}, fmt.Errorf("image attachment metadata mismatch")
-		}
-		if err := validateStoredChatImageAttachment(attachment); err != nil {
-			return orchestrator.AgentInput{}, fmt.Errorf("stored image attachment failed integrity validation")
+			return orchestrator.AgentInput{}, fmt.Errorf("attachment metadata mismatch")
 		}
 		attachments = append(attachments, attachment)
+	}
+	if _, err := validateStoredNativeChatAttachments(attachments); err != nil {
+		return orchestrator.AgentInput{}, fmt.Errorf("stored chat attachment failed integrity validation")
 	}
 
 	releaseOnError = false
 	return orchestrator.AgentInput{
 		Message: chatModelMessageWithAttachments(inputMessage.Content, attachments, nil),
 		Requirements: types.ChatRequestRequirements{
-			ImageInput:               true,
+			ImageInput:               hasImages,
 			ToolCallingVerified:      toolCallingVerified,
 			ToolCallingVerifiedModel: toolCallingVerifiedModel,
 			ToolCallingVerifiedUntil: toolCallingVerifiedUntil,

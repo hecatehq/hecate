@@ -294,12 +294,16 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   item events, and refuse writes until reload. They must never delete a
   same-ID current-generation record owned by a fresh tab.
 - Chat attachment drafts are in-memory `File` values only. Never put `File`,
-  Blob URLs, or base64 into persisted state/localStorage. Hecate-owned Tools-off
-  turns accept only PNG/JPEG/WebP with explicitly supported `image_input`;
+  Blob URLs, or base64 into persisted state/localStorage. Hecate-owned turns
+  accept UTF-8 text/code with Tools on or off, limited to 32 KiB per text file
+  and 64 KiB of text per message. Only actual PNG/JPEG/WebP images require
+  explicitly supported `image_input`; text files do not. Keep text as inert
+  metadata plus Download, never inline HTML or executed code. The server remains
+  authoritative for content sniffing, encoding, controls, and history budgets;
   External Agent turns accept up to four arbitrary non-empty files through the
   ACP resource-block path. Apply the shared 5 MiB per-file and 12 MiB combined
-  limits. Allow drafts to move into an External Agent target, but block Tools-on
-  switching and any move into a Hecate route that cannot accept every selected
+  image/External-file limits. Allow compatible drafts across Tools modes and
+  into an External Agent target, but block any move into a Hecate route that cannot accept every selected
   file. Busy-queue submission and chat-session/project switching remain blocked
   while drafts exist. Register a `beforeunload` warning
   while visible or submitted-but-unsettled memory-only drafts exist, and

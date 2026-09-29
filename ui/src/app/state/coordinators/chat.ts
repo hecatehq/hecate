@@ -68,12 +68,15 @@ import {
   toChatSegmentViewModel,
 } from "../../../features/chats/chatTurnViewModels";
 import {
+  CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES,
   type ChatExecutionMode,
   type ChatTarget,
+  type PendingChatAttachment,
   type QueuedChatDeliveryErrorCode,
   type QueuedChatDeliveryState,
   type QueuedChatMessage,
   chatTargetToExecutionMode,
+  pendingChatAttachmentKind,
 } from "../_shared";
 import { useApprovals } from "../approvals";
 import {
@@ -201,7 +204,20 @@ const definiteHecateServerRejectionCodes = new Set([
 ]);
 const attachmentDraftCleanupAttempts = 2;
 const chatStopSettlementPollIntervalMS = 100;
-const directModelImageMediaTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function chatAttachmentUploadFile(attachment: PendingChatAttachment, externalAgent: boolean): File {
+  if (externalAgent) return attachment.file;
+  const canonicalMediaType = attachment.canonicalMediaType;
+  if (!canonicalMediaType || attachment.file.type === canonicalMediaType) return attachment.file;
+  // Browsers assign misleading types to some source files (for example,
+  // TypeScript may be video/mp2t). Content-aware selection records the native
+  // wire type while preserving the exact filename and bytes for server
+  // revalidation.
+  return new File([attachment.file], attachment.file.name, {
+    lastModified: attachment.file.lastModified,
+    type: canonicalMediaType,
+  });
+}
 
 type ChatSessionAfterCancellation = {
   session: ChatSessionRecord;
@@ -1364,13 +1380,24 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function pendingFilesHecateBlockReason(): string {
     if (
-      pendingChatAttachments.some((attachment) => {
-        const mediaType = attachment.file.type.trim().toLowerCase();
-        return !mediaType || !directModelImageMediaTypes.has(mediaType);
-      })
+      pendingChatAttachments.some(
+        (attachment) => pendingChatAttachmentKind(attachment) === "opaque",
+      )
     ) {
-      return "Remove files without a declared PNG, JPEG, or WebP type before switching to Hecate Chat.";
+      return "Remove files that are not UTF-8 text/code or PNG, JPEG, or WebP before switching to Hecate Chat.";
     }
+    const textBytes = pendingChatAttachments.reduce(
+      (total, attachment) =>
+        total + (pendingChatAttachmentKind(attachment) === "text" ? attachment.file.size : 0),
+      0,
+    );
+    if (textBytes > CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES) {
+      return "Keep text and code files at or below 64 KiB total before switching to Hecate Chat.";
+    }
+    const hasImages = pendingChatAttachments.some(
+      (attachment) => pendingChatAttachmentKind(attachment) === "image",
+    );
+    if (!hasImages) return "";
     const imageCapability = modelSelectionImageInputCapability({
       models,
       providerFilter,
@@ -2363,7 +2390,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       for (const attachment of attachmentDrafts) {
         try {
           uploadedAttachments.push(
-            await uploadChatAttachmentRequest(sessionID, attachment.file, preAdmissionAbort.signal),
+            await uploadChatAttachmentRequest(
+              sessionID,
+              chatAttachmentUploadFile(attachment, isExternalAgent),
+              preAdmissionAbort.signal,
+            ),
           );
           if (preAdmissionCancelled) throw preAdmissionCancellation;
         } catch (error) {

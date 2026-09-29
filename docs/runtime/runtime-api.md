@@ -1565,9 +1565,9 @@ snapshot exposes only guarantees shared by routable matching routes; completed
 direct turns replace it with the actual route's provider/model capability
 snapshot.
 
-Hecate attachment turns set an internal image-input requirement. The router
+Hecate image-bearing attachment turns set an internal image-input requirement. The router
 admits only an initial route with explicit support. Any request that actually
-contains hydrated image bytes is bound to that provider name and opaque
+contains hydrated file bytes (images or UTF-8 text) is bound to that provider name and opaque
 configuration generation: same-instance retries remain available, but
 cross-provider failover is disabled. The executor revalidates both values
 against the live registry immediately before dispatch, so removal, alias
@@ -1580,7 +1580,7 @@ the provider received the request.
 For every task-backed Hecate Chat tools-on turn, a current
 `tool_verification.status` of `supported` can satisfy an otherwise-unknown tool
 requirement only through the same exact provider/model/generation fence before
-the proof expires. An attachment turn still independently requires image
+the proof expires. An image-bearing turn still independently requires image
 support. The proof does not permit a different provider, make an Auto route
 eligible, or survive a policy model rewrite. Hecate rechecks those fences at
 every final dispatch, including a queued run, retry, or delayed stream.
@@ -5660,9 +5660,14 @@ Stages one file for a future message. Send `multipart/form-data` with exactly
 one part named `file`. Uploading does not append a transcript message or contact
 a provider or External Agent.
 
-Hecate-owned chats accept PNG, JPEG, and WebP for Tools-off direct-model turns.
-External Agent chats also accept arbitrary file media types. Every file is
-limited to 5 MiB. Direct-model rasters are additionally limited to 8000 pixels
+Hecate-owned chats accept PNG, JPEG, WebP, and UTF-8 text/code for both Tools-off
+and Tools-on turns. Text/code is canonicalized to `text/plain`, limited to
+32 KiB per file, and must have no binary control characters except tab, newline,
+and carriage return. The server validates the entire byte payload rather than
+trusting a filename or MIME declaration. Recognized binary formats, PDF/DOCX,
+and archives are unsupported; no extraction or execution occurs.
+External Agent chats also accept arbitrary file media types. Images and
+External Agent files are limited to 5 MiB. Native rasters are additionally limited to 8000 pixels
 per axis and 16 megapixels and are fully decoded before storage. A supported
 raster uploaded to an External Agent chat receives image treatment only when
 that bounded decode succeeds; malformed or over-dimension image-like bytes are
@@ -5890,11 +5895,15 @@ the user message and assistant output.
   rows.
 - `attachment_ids` — up to four ids returned by the staging endpoint. The ids
   must belong to this session and total no more than 12 MiB. Hecate-owned
-  turns accept supported raster images with tools on or off and require a
-  currently routable matching route whose effective capability is
-  `image_input="supported"`. A tools-on Task Run persists only an opaque input
+  turns accept UTF-8 text/code and supported raster images with tools on or off.
+  Text files require no vision support and total at most 64 KiB per model request
+  including eligible historical files, with a 32 KiB per-file limit. Current
+  text overflow is rejected; older text outside the history budget receives
+  explicit omission markers. These are byte limits, not a model context-window
+  guarantee. Actual images require a currently routable matching route whose
+  effective capability is `image_input="supported"`. A tools-on Task Run persists only an opaque input
   reference, hydrates the body immediately before agent-loop execution, and
-  replaces image blocks with omission markers in its conversation artifact.
+  replaces attachment blocks with omission markers in its conversation artifact.
   A matching manual tool-support verification can satisfy only an otherwise
   unknown tool requirement on the exact pinned route, including a tools-on
   Task Run without an attachment; it never substitutes for image support or
@@ -5912,8 +5921,8 @@ the user message and assistant output.
   serialized rich-block copies, and prompt text that exceeds the budget fails
   before ACP dispatch. The 12 MiB combined attachment limit remains available through
   this staged fallback and is not an inline-payload allowance.
-  Image-bearing requests may retry on that provider but never fail over to a
-  different provider. Historical images are included only when the active
+  Attachment-bearing requests may retry on that provider but never fail over to a
+  different provider. Historical files are included only when the active
   configured provider name and opaque generation match the route recorded on
   their original user message; legacy rows without a generation, provider
   switches, recreated runtime-only providers, and unresolved Auto boundaries
@@ -5925,15 +5934,21 @@ the user message and assistant output.
   is not part of this API's response schema. An attempted provider/model and
   trace remain on a failed Auto-routed turn when that provider received the
   request.
-  Each Hecate process admits at most two image-bearing direct-model turns at a
+  Each Hecate process admits at most two attachment-bearing direct-model turns at a
   time. The permit covers attachment claim, historical body reads, base64
   expansion, provider serialization, and the provider call. Saturation fails
   before attachment claim or transcript mutation with
   `429 chat.image_turn_busy`, `Retry-After: 1`, and
   `max_concurrent_image_turns` plus `retry_after_seconds` error fields. Turns
-  that cannot send current or historical image bodies do not use this gate.
-  An oversized combination returns `413 chat.attachment_too_large` with
-  `max_message_attachment_bytes`.
+  that cannot send current or historical file bodies do not use this gate.
+  The legacy `chat.image_turn_busy` code applies to native text files too.
+  Hydrated text-file calls suppress provider error details that could echo file
+  contents; status and retry classification remain available. Model-generated
+  answers and tool output can still quote the supplied text.
+  Exceeding the overall 12 MiB message limit returns
+  `413 chat.attachment_too_large` with `max_message_attachment_bytes`.
+  Exceeding the native text-file limits uses the same status and code with a
+  message identifying the 32 KiB per-file or 64 KiB combined text limit.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator

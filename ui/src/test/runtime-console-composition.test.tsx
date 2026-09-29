@@ -251,32 +251,54 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("agent");
   });
 
-  it("keeps image drafts when enabling Hecate tools or switching to External Agent mode", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
-    const { result } = renderRuntimeConsoleHook();
-    await waitFor(() => expect(result.current.state.loading).toBe(false));
-    const file = new File(["image"], "map.png", { type: "image/png" });
+  it.each([
+    {
+      label: "text",
+      body: "const answer = 42;",
+      name: "answer.ts",
+      type: "video/mp2t",
+      kind: "text" as const,
+      canonicalMediaType: "text/plain",
+    },
+    {
+      label: "image",
+      body: "image",
+      name: "map.png",
+      type: "image/png",
+      kind: "image" as const,
+      canonicalMediaType: "image/png",
+    },
+  ])(
+    "keeps $label drafts when enabling Hecate tools or switching to External Agent mode",
+    async ({ body, name, type, kind, canonicalMediaType }) => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const file = new File([body], name, { type });
 
-    act(() => {
-      result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
-    });
-    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
+      act(() => {
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file, kind, canonicalMediaType },
+        ]);
+      });
+      await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
 
-    act(() => result.current.actions.setChatToolsEnabled(true));
-    expect(result.current.state.defaultChatToolsEnabled).toBe(true);
-    expect(result.current.state.pendingChatAttachments).toHaveLength(1);
-    expect(result.current.state.notice).toBeNull();
+      act(() => result.current.actions.setChatToolsEnabled(true));
+      expect(result.current.state.defaultChatToolsEnabled).toBe(true);
+      expect(result.current.state.pendingChatAttachments).toHaveLength(1);
+      expect(result.current.state.notice).toBeNull();
 
-    act(() => result.current.actions.setChatTarget("external_agent"));
-    expect(result.current.state.chatTarget).toBe("external_agent");
-    expect(result.current.state.pendingChatAttachments).toHaveLength(1);
-  });
+      act(() => result.current.actions.setChatTarget("external_agent"));
+      expect(result.current.state.chatTarget).toBe("external_agent");
+      expect(result.current.state.pendingChatAttachments).toHaveLength(1);
+    },
+  );
 
   it.each([
-    { label: "a declared non-image file", name: "report.pdf", type: "application/pdf" },
-    { label: "a file with no declared type", name: "unknown.bin", type: "" },
-  ])("blocks carrying $label into Hecate image mode", async ({ name, type }) => {
+    { label: "a PDF", name: "report.pdf", type: "application/pdf" },
+    { label: "an opaque file", name: "unknown.bin", type: "" },
+  ])("blocks carrying $label into Hecate Chat", async ({ name, type }) => {
     const file = new File(["content"], name, { type });
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.chatToolsEnabled", "false");
@@ -284,15 +306,79 @@ describe("useRuntimeConsole", () => {
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     act(() => {
-      result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      result.current.actions.setPendingChatAttachments([{ id: "draft-1", file, kind: "opaque" }]);
     });
     await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
     act(() => result.current.actions.setChatTarget("agent"));
 
     expect(result.current.state.chatTarget).toBe("external_agent");
-    expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+    expect(result.current.state.pendingChatAttachments).toEqual([
+      { id: "draft-1", file, kind: "opaque" },
+    ]);
     expect(result.current.state.notice?.message).toBe(
-      "Remove files without a declared PNG, JPEG, or WebP type before switching to Hecate Chat.",
+      "Remove files that are not UTF-8 text/code or PNG, JPEG, or WebP before switching to Hecate Chat.",
+    );
+  });
+
+  it("carries a classified text draft into Hecate Chat without requiring image support", async () => {
+    const file = new File(["package main"], "main.go", { type: "text/plain" });
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    act(() => {
+      result.current.actions.setPendingChatAttachments([
+        { id: "draft-1", file, kind: "text", canonicalMediaType: "text/plain" },
+      ]);
+    });
+    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
+    act(() => result.current.actions.setChatTarget("agent"));
+
+    expect(result.current.state.chatTarget).toBe("agent");
+    expect(result.current.state.pendingChatAttachments).toEqual([
+      { id: "draft-1", file, kind: "text", canonicalMediaType: "text/plain" },
+    ]);
+    expect(result.current.state.notice).toBeNull();
+  });
+
+  it("keeps a classified image draft on External Agent when Hecate vision is unconfirmed", async () => {
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    act(() => {
+      result.current.actions.setPendingChatAttachments([
+        { id: "draft-1", file, kind: "image", canonicalMediaType: "image/png" },
+      ]);
+    });
+    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
+    act(() => result.current.actions.setChatTarget("agent"));
+
+    expect(result.current.state.chatTarget).toBe("external_agent");
+    expect(result.current.state.notice?.message).toBe(
+      "Remove attached files or choose a Hecate model with confirmed image input before switching.",
+    );
+  });
+
+  it("blocks External Agent text drafts above Hecate's combined text budget", async () => {
+    const files = ["one", "two", "three"].map((name) => {
+      const file = new File([name], `${name}.txt`, { type: "text/plain" });
+      Object.defineProperty(file, "size", { value: 30 * 1024 });
+      return { id: `draft-${name}`, file, kind: "text" as const };
+    });
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    act(() => result.current.actions.setPendingChatAttachments(files));
+    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(3));
+    act(() => result.current.actions.setChatTarget("agent"));
+
+    expect(result.current.state.chatTarget).toBe("external_agent");
+    expect(result.current.state.pendingChatAttachments).toEqual(files);
+    expect(result.current.state.notice?.message).toBe(
+      "Keep text and code files at or below 64 KiB total before switching to Hecate Chat.",
     );
   });
 
@@ -9050,7 +9136,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.chat.state.chatTurnActive).toBe(false);
     });
 
-    it("stops a delayed image upload locally before any message dispatch", async () => {
+    it("stops a delayed text upload locally and restores its exact draft", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatToolsEnabled", "false");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
@@ -9138,10 +9224,18 @@ describe("useRuntimeConsole", () => {
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
-      const file = new File(["image"], "map.png", { type: "image/png" });
+      const file = new File(["export const value = 1;"], "source.ts", {
+        type: "video/mp2t",
+      });
+      const pendingAttachment = {
+        id: "draft-1",
+        file,
+        kind: "text" as const,
+        canonicalMediaType: "text/plain",
+      };
       act(() => {
-        result.current.actions.setMessage("inspect the map");
-        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+        result.current.actions.setMessage("inspect the source");
+        result.current.actions.setPendingChatAttachments([pendingAttachment]);
       });
 
       let submission!: Promise<void>;
@@ -9165,9 +9259,9 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "attachment-stable-id",
               session_id: "a1",
-              filename: "map.png",
-              media_type: "image/png",
-              size_bytes: 5,
+              filename: "source.ts",
+              media_type: "text/plain",
+              size_bytes: 23,
               sha256: "abc",
               created_at: "2026-07-13T10:00:00Z",
               content_url: "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id/content",
@@ -9180,8 +9274,8 @@ describe("useRuntimeConsole", () => {
       expect(messagePostCount).toBe(0);
       expect(cancelRequestCount).toBe(0);
       expect(attachmentCleanupCount).toBe(1);
-      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
-      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.pendingChatAttachments).toEqual([pendingAttachment]);
+      expect(result.current.state.message).toBe("inspect the source");
       expect(result.current.state.chatLoading).toBe(false);
       expect(result.current.state.chatCancelling).toBe(false);
       expect(result.current.state.chatError).toBe("");
@@ -9530,6 +9624,133 @@ describe("useRuntimeConsole", () => {
         ]),
       );
     });
+
+    it.each([false, true])(
+      "uploads native text attachments with Hecate tools enabled=%s",
+      async (toolsEnabled) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatToolsEnabled", String(toolsEnabled));
+        window.localStorage.setItem("hecate.chatSessionID", "native-text");
+        window.localStorage.setItem("hecate.providerFilter", "openai");
+        window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+        let uploadedFile: File | null = null;
+        let messagePayload: Record<string, unknown> | null = null;
+        const attachment = {
+          id: "attachment-source",
+          session_id: "native-text",
+          filename: "source.ts",
+          media_type: "text/plain",
+          size_bytes: 24,
+          sha256: "abc",
+          created_at: "2026-09-29T10:00:00Z",
+          content_url: "/hecate/v1/chat/sessions/native-text/attachments/attachment-source/content",
+        };
+        const session = (messages: unknown[] = []) => ({
+          id: "native-text",
+          title: "Native text",
+          agent_id: "hecate",
+          execution_mode: "hecate_task",
+          tools_enabled: toolsEnabled,
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "none" },
+          workspace: toolsEnabled ? "/workspace" : "",
+          messages,
+        });
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/v1/models") {
+            return jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "gpt-4o-mini",
+                  owned_by: "openai",
+                  metadata: {
+                    provider: "openai",
+                    provider_kind: "cloud",
+                    capabilities: { tool_calling: "basic", image_input: "none" },
+                  },
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...session(), message_count: 0 }],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/native-text") {
+            return jsonResponse({ object: "chat_session", data: session() });
+          }
+          if (
+            url === "/hecate/v1/chat/sessions/native-text/attachments" &&
+            init?.method === "POST"
+          ) {
+            uploadedFile = (init.body as FormData).get("file") as File;
+            return jsonResponse({ object: "chat_attachment", data: attachment });
+          }
+          if (url === "/hecate/v1/chat/sessions/native-text/stream") {
+            return emptyStreamResponse();
+          }
+          if (url === "/hecate/v1/chat/sessions/native-text/messages" && init?.method === "POST") {
+            messagePayload = JSON.parse(String(init.body));
+            return jsonResponse({
+              object: "chat_session",
+              data: session([
+                {
+                  id: "user-source",
+                  role: "user",
+                  content: "Review this source",
+                  attachments: [attachment],
+                },
+                {
+                  id: "assistant-source",
+                  role: "assistant",
+                  content: "Reviewed.",
+                  status: "completed",
+                },
+              ]),
+            });
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("native-text"));
+        const file = new File(["export const value = 1;"], "source.ts", {
+          type: "video/mp2t",
+        });
+        act(() => {
+          result.current.actions.setMessage("Review this source");
+          result.current.actions.setPendingChatAttachments([
+            {
+              id: "draft-source",
+              file,
+              kind: "text",
+              canonicalMediaType: "text/plain",
+            },
+          ]);
+        });
+        await act(async () => {
+          await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+
+        expect(uploadedFile).toMatchObject({ name: "source.ts", type: "text/plain" });
+        expect(messagePayload).toMatchObject({
+          content: "Review this source",
+          tools_enabled: toolsEnabled,
+          provider: "openai",
+          model: "gpt-4o-mini",
+          attachment_ids: ["attachment-source"],
+        });
+        expect(messagePayload).not.toHaveProperty("execution_mode");
+        expect(result.current.state.pendingChatAttachments).toEqual([]);
+        expect(result.current.state.chatAttachmentTurnDraftCount).toBe(0);
+      },
+    );
 
     it("atomically consumes image drafts and leaves an unresolved session owner unbound", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -72,9 +73,9 @@ func (g *fixedChatAttachmentTurnAdmission) Release() {
 	<-g.permits
 }
 
-// directModelTurnMayUseImageBodies decides admission without loading a body.
-// Current ids on image-capable routes require a permit because validating them
-// requires a claim.
+// directModelTurnMayUseImageBodies retains its legacy image-helper name but
+// bounds all native attachment hydration. Current ids require a permit because
+// distinguishing a text file from an image requires a claim.
 // Historical metadata mirrors the hydration policy closely enough to leave
 // routes that will certainly omit every image outside the image-turn gate.
 func directModelTurnMayUseImageBodies(
@@ -84,9 +85,6 @@ func directModelTurnMayUseImageBodies(
 	historicalProvider string,
 	historicalProviderInstance types.ProviderInstanceIdentity,
 ) bool {
-	if !includeHistoricalImages {
-		return false
-	}
 	if len(currentAttachmentIDs) > 0 {
 		return true
 	}
@@ -103,6 +101,15 @@ func directModelTurnMayUseImageBodies(
 		}
 		for j := len(message.Attachments) - 1; j >= 0; j-- {
 			attachment := message.Attachments[j]
+			if attachment.MediaType == "text/plain" {
+				if attachment.SizeBytes > 0 && attachment.SizeBytes <= chatapp.MaxNativeTextAttachmentBytes {
+					return true
+				}
+				continue
+			}
+			if !includeHistoricalImages {
+				continue
+			}
 			if attachment.SizeBytes > 0 && attachment.SizeBytes <= agentChatMaxImageHistoryBytes {
 				return true
 			}

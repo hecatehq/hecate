@@ -2901,7 +2901,7 @@ test("Hecate Chat stages and renders an image through the browser attachment flo
       "base64",
     ),
   };
-  const picker = page.getByLabel("Choose images");
+  const picker = page.getByLabel("Choose files");
   await expect(picker).toBeEnabled();
 
   await picker.setInputFiles(image);

@@ -131,7 +131,7 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// explicit tool capability requirement, even without an image: it carries
 	// a private exact-provider/generation/model/expiry fence. Ordinary Task
 	// Runs retain their established optimistic behavior for unknown discovery.
-	requirements.ToolCalling = len(tools) > 0 && (requirements.ImageInput || requirements.ToolCallingVerified)
+	requirements.ToolCalling = len(tools) > 0 && (spec.InputMessage != nil || requirements.ImageInput || requirements.ToolCallingVerified)
 	return types.ChatRequest{
 		RequestID:    spec.RequestID,
 		Model:        spec.Run.Model,
