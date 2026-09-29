@@ -138,7 +138,7 @@ Image input uses the same precedence with a stricter dispatch rule:
 image-bearing turns require `image_input="supported"`; `unknown` and `none`
 are ineligible. Provider-native Fireworks and Ollama metadata win when
 available, with conservative catalog inference for known cloud model families.
-Hecate-owned attachment turns set an explicit internal request requirement, and
+Hecate-owned image-bearing turns set an explicit internal request requirement, and
 the gateway router admits only an explicitly supported initial route. Once
 image bytes are hydrated, dispatch is pinned to the canonical provider name and
 opaque generation resolved during admission. The executor revalidates both
@@ -157,9 +157,12 @@ discovery API does not report image support. Image-bearing compatibility
 requests still disable cross-provider failover, revalidate the selected opaque
 provider instance immediately before dispatch, and use the bounded 32 MiB,
 60-second compatibility ingress contract.
-Hecate-owned Chat accepts staged PNG/JPEG/WebP attachments with Tools off or
-with task-backed Tools on. The task-backed path persists only an opaque input
-reference and hydrates the image immediately before its fenced agent-loop
+Hecate-owned Chat accepts staged PNG/JPEG/WebP and UTF-8 text/code attachments
+with Tools off or task-backed Tools on. Text files do not require image support;
+they retain the same no-failover and provider-generation disclosure boundaries.
+Text is bounded to 32 KiB per file and 64 KiB per model request including eligible
+history, without document extraction. The task-backed path persists only an opaque input
+reference and hydrates the file immediately before its fenced agent-loop
 dispatch. External Agent/ACP sessions accept bounded arbitrary files and
 resolve them against live ACP image/embedded-resource capabilities, with a
 private per-turn `resource_link` as the baseline fallback; that path does not

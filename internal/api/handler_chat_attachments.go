@@ -225,6 +225,10 @@ func (h *Handler) HandleCreateChatAttachment(w http.ResponseWriter, r *http.Requ
 
 	mediaType, err := validateChatAttachmentUpload(data, declaredMediaType, isExternalChatSession(sessionResult.Session))
 	if err != nil {
+		if errors.Is(err, chatapp.ErrNativeTextAttachmentTooLarge) {
+			WriteError(w, http.StatusRequestEntityTooLarge, errCodeAttachmentTooLarge, err.Error())
+			return
+		}
 		WriteError(w, http.StatusUnprocessableEntity, errCodeAttachmentUnsupported, err.Error())
 		return
 	}
@@ -396,7 +400,17 @@ func validateChatImage(data []byte, declared string) (string, error) {
 
 func validateChatAttachmentUpload(data []byte, declared string, external bool) (string, error) {
 	if !external {
-		return validateChatImage(data, declared)
+		detected, _, _ := mime.ParseMediaType(http.DetectContentType(data))
+		declaredType, _, _ := mime.ParseMediaType(declared)
+		_, detectedImage := supportedChatImageFormats[detected]
+		_, declaredImage := supportedChatImageFormats[strings.ToLower(declaredType)]
+		if detectedImage || declaredImage {
+			return validateChatImage(data, declared)
+		}
+		if err := chatapp.ValidateNativeTextAttachment(data, declared); err != nil {
+			return "", err
+		}
+		return "text/plain", nil
 	}
 	detected, _, detectedErr := mime.ParseMediaType(http.DetectContentType(data))
 	if detectedErr != nil || detected == "" {

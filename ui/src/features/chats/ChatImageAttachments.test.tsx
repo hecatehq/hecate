@@ -6,13 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getChatAttachmentContentBlob } from "../../lib/api";
 import {
   appendChatFiles,
-  appendChatImageFiles,
   ChatAttachmentDrafts,
   ChatAttachmentGallery,
   ChatImageAttachmentDrafts,
   ChatImageAttachmentGallery,
   MAX_CHAT_IMAGE_BYTES,
   MAX_CHAT_IMAGE_MESSAGE_BYTES,
+  MAX_CHAT_TEXT_BYTES,
+  MAX_CHAT_TEXT_MESSAGE_BYTES,
 } from "./ChatImageAttachments";
 
 vi.mock("../../lib/api", async (importOriginal) => {
@@ -34,60 +35,175 @@ afterEach(() => {
   restoreGlobalProperty("IntersectionObserver", originalIntersectionObserver);
 });
 
-describe("chat image attachment selection", () => {
-  it("accepts supported images and reports the first invalid file", () => {
+describe("native chat attachment selection", () => {
+  it("accepts supported images and UTF-8 text without an extension allowlist", async () => {
     const png = imageFile("map.png", "image/png");
-    const svg = imageFile("diagram.svg", "image/svg+xml");
+    const json = new File(['{"answer":42}'], "answer.json", { type: "application/json" });
+    const source = new File(["export const answer = 42;"], "main.ts", {
+      type: "video/mp2t",
+    });
 
-    const result = appendChatImageFiles([], [png, svg]);
+    const result = await appendChatFiles([], [png, json, source], "native", {
+      imageInputEnabled: true,
+    });
 
-    expect(result.attachments).toHaveLength(1);
-    expect(result.attachments[0].file).toBe(png);
-    expect(result.error).toBe("diagram.svg must be PNG, JPEG, or WebP.");
+    expect(result.attachments).toEqual([
+      expect.objectContaining({ file: png, kind: "image", canonicalMediaType: "image/png" }),
+      expect.objectContaining({ file: json, kind: "text", canonicalMediaType: "text/plain" }),
+      expect.objectContaining({ file: source, kind: "text", canonicalMediaType: "text/plain" }),
+    ]);
+    expect(result.error).toBe("");
   });
 
-  it("enforces the per-image size and per-message count limits", () => {
+  it("enforces the per-image size and shared message count limits", async () => {
     const oversized = imageFile("large.webp", "image/webp");
     Object.defineProperty(oversized, "size", {
       value: MAX_CHAT_IMAGE_BYTES + 1,
     });
 
-    expect(appendChatImageFiles([], [oversized]).error).toBe("large.webp exceeds the 5 MiB limit.");
+    await expect(
+      appendChatFiles([], [oversized], "native", { imageInputEnabled: true }),
+    ).resolves.toMatchObject({ error: "large.webp exceeds the 5 MiB image limit." });
 
     const current = ["1", "2", "3", "4"].map((id) => ({
       id,
       file: imageFile(`${id}.png`, "image/png"),
+      kind: "image" as const,
     }));
-    expect(appendChatImageFiles(current, [imageFile("5.png", "image/png")]).error).toBe(
-      "A message can include up to 4 images.",
-    );
+    await expect(
+      appendChatFiles(current, [imageFile("5.png", "image/png")], "native", {
+        imageInputEnabled: true,
+      }),
+    ).resolves.toMatchObject({ error: "A message can include up to 4 files." });
   });
 
-  it("enforces the combined per-message image envelope", () => {
+  it("enforces independent image and text message budgets", async () => {
     const current = ["1", "2"].map((id) => {
       const file = imageFile(`${id}.png`, "image/png");
       Object.defineProperty(file, "size", { value: 5 * 1024 * 1024 });
-      return { id, file };
+      return { id, file, kind: "image" as const };
     });
     const next = imageFile("3.png", "image/png");
     Object.defineProperty(next, "size", {
       value: MAX_CHAT_IMAGE_MESSAGE_BYTES - 10 * 1024 * 1024 + 1,
     });
 
-    const result = appendChatImageFiles(current, [next]);
+    const imageResult = await appendChatFiles(current, [next], "native", {
+      imageInputEnabled: true,
+    });
 
-    expect(result.attachments).toHaveLength(2);
-    expect(result.error).toBe("Images in one message can total up to 12 MiB.");
+    expect(imageResult.attachments).toHaveLength(2);
+    expect(imageResult.error).toBe("Images in one message can total up to 12 MiB.");
+
+    const firstText = new File(["a"], "first.txt", { type: "text/plain" });
+    Object.defineProperty(firstText, "size", { value: MAX_CHAT_TEXT_MESSAGE_BYTES / 2 });
+    const secondText = new File(["b"], "second.txt", { type: "text/plain" });
+    Object.defineProperty(secondText, "size", { value: MAX_CHAT_TEXT_MESSAGE_BYTES / 2 });
+    const extraText = new File(["c"], "extra.txt", { type: "text/plain" });
+    const textResult = await appendChatFiles(
+      [
+        { id: "text-1", file: firstText, kind: "text" },
+        { id: "text-2", file: secondText, kind: "text" },
+      ],
+      [extraText],
+      "native",
+    );
+    expect(textResult.attachments).toHaveLength(2);
+    expect(textResult.error).toBe("Text and code files in one message can total up to 64 KiB.");
+
+    const nearlyFullImage = imageFile("full.png", "image/png");
+    Object.defineProperty(nearlyFullImage, "size", {
+      value: MAX_CHAT_IMAGE_MESSAGE_BYTES,
+    });
+    const mixedResult = await appendChatFiles(
+      [{ id: "image", file: nearlyFullImage, kind: "image" }],
+      [new File(["x"], "note.txt", { type: "text/plain" })],
+      "native",
+      { imageInputEnabled: true },
+    );
+    expect(mixedResult.attachments).toHaveLength(1);
+    expect(mixedResult.error).toBe("Files in one message can total up to 12 MiB.");
   });
 
-  it("lets the server sniff files whose browser MIME declaration is empty", () => {
-    const image = imageFile("clipboard.png", "");
+  it("stops classifying after four accepted candidates", async () => {
+    const unreadable = new File(["ignored"], "fifth.txt", { type: "text/plain" });
+    const slice = vi.fn(() => {
+      throw new Error("must not read beyond the message count bound");
+    });
+    Object.defineProperty(unreadable, "slice", { value: slice });
+    const result = await appendChatFiles(
+      [],
+      [
+        new File(["1"], "1.txt", { type: "text/plain" }),
+        new File(["2"], "2.txt", { type: "text/plain" }),
+        new File(["3"], "3.txt", { type: "text/plain" }),
+        new File(["4"], "4.txt", { type: "text/plain" }),
+        unreadable,
+      ],
+      "native",
+    );
 
-    const result = appendChatImageFiles([], [image]);
+    expect(result.attachments).toHaveLength(4);
+    expect(result.error).toBe("A message can include up to 4 files.");
+    expect(slice).not.toHaveBeenCalled();
+  });
+
+  it("sniffs an image whose browser MIME declaration is empty", async () => {
+    const image = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+      "clipboard.png",
+      { type: "" },
+    );
+
+    const result = await appendChatFiles([], [image], "native", { imageInputEnabled: true });
 
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0].file).toBe(image);
+    expect(result.attachments[0].kind).toBe("image");
     expect(result.error).toBe("");
+  });
+
+  it("rejects invalid UTF-8, control characters, archives, and oversized text", async () => {
+    const invalidUTF8 = new File([new Uint8Array([0xc3, 0x28])], "invalid.txt", {
+      type: "text/plain",
+    });
+    const control = new File([new Uint8Array([0x6f, 0x6b, 0x00])], "control.txt", {
+      type: "text/plain",
+    });
+    const archive = new File(["PK\u0003\u0004"], "source.zip", { type: "application/zip" });
+    const oversized = new File(["x"], "large.ts", { type: "text/plain" });
+    Object.defineProperty(oversized, "size", { value: MAX_CHAT_TEXT_BYTES + 1 });
+
+    await expect(appendChatFiles([], [invalidUTF8], "native")).resolves.toMatchObject({
+      attachments: [],
+      error: "invalid.txt is not valid UTF-8 text or a supported PNG, JPEG, or WebP image.",
+    });
+    await expect(appendChatFiles([], [control], "native")).resolves.toMatchObject({
+      attachments: [],
+      error: "control.txt contains unsupported control characters.",
+    });
+    await expect(appendChatFiles([], [archive], "native")).resolves.toMatchObject({
+      attachments: [],
+      error:
+        "source.zip is not supported in Hecate Chat. Attach UTF-8 text/code or PNG, JPEG, or WebP.",
+    });
+    await expect(appendChatFiles([], [oversized], "native")).resolves.toMatchObject({
+      attachments: [],
+      error: "large.ts exceeds the 32 KiB text/code limit.",
+    });
+  });
+
+  it("accepts text but rejects an image when the selected model lacks vision", async () => {
+    const text = new File(["package main"], "main.go", { type: "text/plain" });
+    const image = imageFile("map.png", "image/png");
+
+    const result = await appendChatFiles([], [text, image], "native", {
+      imageInputEnabled: false,
+      imageInputDisabledReason: "Selected model does not support image input.",
+    });
+
+    expect(result.attachments).toEqual([expect.objectContaining({ file: text, kind: "text" })]);
+    expect(result.error).toBe("Selected model does not support image input.");
   });
 
   it("exposes the disabled reason and keeps the picker keyboard-visible", () => {
@@ -95,15 +211,15 @@ describe("chat image attachment selection", () => {
       <ChatImageAttachmentDrafts
         attachments={[]}
         enabled={false}
-        disabledReason="Turn Tools off to attach images."
+        disabledReason="Wait before attaching files."
         onAddFiles={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("group", { name: "Image attachments" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Image" })).toBeDisabled();
-    expect(screen.getByText("Turn Tools off to attach images.")).toBeVisible();
+    expect(screen.getByRole("group", { name: "File attachments" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Files" })).toBeDisabled();
+    expect(screen.getByText("Wait before attaching files.")).toBeVisible();
   });
 
   it("passes selected files to the composer and removes drafts by accessible name", async () => {
@@ -126,7 +242,7 @@ describe("chat image attachment selection", () => {
       />,
     );
 
-    await user.upload(screen.getByLabelText("Choose images"), file);
+    await user.upload(screen.getByLabelText("Choose files"), file);
     expect(onAddFiles).toHaveBeenCalledWith([file]);
 
     rerender(
@@ -138,13 +254,13 @@ describe("chat image attachment selection", () => {
         onRemove={onRemove}
       />,
     );
-    expect(screen.getByRole("group", { name: "Images ready to attach" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Files ready to attach" })).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent(
-      "street.webp added. 1 image ready to attach.",
+      "street.webp added. 1 file ready to attach.",
     );
     await user.click(screen.getByRole("button", { name: "Remove street.webp" }));
     expect(onRemove).toHaveBeenCalledWith("draft-1");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Image" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Files" })).toHaveFocus());
     rerender(
       <ChatImageAttachmentDrafts
         attachments={[]}
@@ -155,7 +271,7 @@ describe("chat image attachment selection", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "street.webp removed. No images ready to attach.",
+      "street.webp removed. No files ready to attach.",
     );
   });
 
@@ -165,18 +281,18 @@ describe("chat image attachment selection", () => {
         attachments={[]}
         enabled
         disabledReason=""
-        error="diagram.svg must be PNG, JPEG, or WebP."
+        error="source.zip is not supported in Hecate Chat."
         onAddFiles={vi.fn()}
         onRemove={vi.fn()}
       />,
     );
 
-    expect(screen.getByLabelText("Choose images")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Choose images")).toHaveAccessibleDescription(
-      "diagram.svg must be PNG, JPEG, or WebP.",
+    expect(screen.getByLabelText("Choose files")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Choose files")).toHaveAccessibleDescription(
+      "source.zip is not supported in Hecate Chat.",
     );
-    expect(screen.getByRole("button", { name: "Image" })).toHaveAccessibleDescription(
-      "diagram.svg must be PNG, JPEG, or WebP.",
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAccessibleDescription(
+      "source.zip is not supported in Hecate Chat.",
     );
   });
 
@@ -226,7 +342,7 @@ describe("chat image attachment selection", () => {
         <ChatImageAttachmentDrafts
           attachments={attachments}
           enabled={false}
-          disabledReason="Turn Tools off to attach images."
+          disabledReason="Wait before attaching files."
           onAddFiles={vi.fn()}
           onRemove={(id) =>
             setAttachments((current) => current.filter((attachment) => attachment.id !== id))
@@ -238,10 +354,10 @@ describe("chat image attachment selection", () => {
     render(<DisabledDraftHarness />);
     await user.click(screen.getByRole("button", { name: "Remove blocked.png" }));
 
-    await waitFor(() => expect(screen.getByText("Turn Tools off to attach images.")).toHaveFocus());
+    await waitFor(() => expect(screen.getByText("Wait before attaching files.")).toHaveFocus());
   });
 
-  it("accepts image files dropped on the attachment control", () => {
+  it("accepts files dropped on the attachment control", () => {
     const onAddFiles = vi.fn();
     const file = imageFile("aerial.jpg", "image/jpeg");
     const { rerender } = render(
@@ -254,7 +370,7 @@ describe("chat image attachment selection", () => {
       />,
     );
 
-    fireEvent.drop(screen.getByLabelText("Image attachments"), {
+    fireEvent.drop(screen.getByLabelText("File attachments"), {
       dataTransfer: { files: [file], types: ["Files"] },
     });
 
@@ -269,27 +385,41 @@ describe("chat image attachment selection", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "aerial.jpg added. 1 image ready to attach.",
+      "aerial.jpg added. 1 file ready to attach.",
     );
   });
 });
 
 describe("External Agent file attachment selection", () => {
-  it("accepts arbitrary non-empty files while enforcing the shared limits", () => {
+  it("accepts arbitrary non-empty files while enforcing the shared limits", async () => {
     const archive = new File(["archive"], "evidence.zip", { type: "application/zip" });
     const empty = new File([], "empty.txt", { type: "text/plain" });
 
-    const result = appendChatFiles([], [archive, empty], "files");
+    const result = await appendChatFiles([], [archive, empty], "files");
 
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]?.file).toBe(archive);
     expect(result.error).toBe("empty.txt is empty.");
 
+    const source = new File(["export const value = 1;"], "source.ts", {
+      type: "video/mp2t",
+    });
+    await expect(appendChatFiles([], [source], "files")).resolves.toMatchObject({
+      attachments: [
+        expect.objectContaining({
+          file: source,
+          kind: "text",
+          canonicalMediaType: "text/plain",
+        }),
+      ],
+      error: "",
+    });
+
     const oversized = new File(["large"], "large.bin", {
       type: "application/octet-stream",
     });
     Object.defineProperty(oversized, "size", { value: MAX_CHAT_IMAGE_BYTES + 1 });
-    expect(appendChatFiles([], [oversized], "files").error).toBe(
+    expect((await appendChatFiles([], [oversized], "files")).error).toBe(
       "large.bin exceeds the 5 MiB limit.",
     );
 
@@ -304,7 +434,7 @@ describe("External Agent file attachment selection", () => {
     Object.defineProperty(beyondCombinedLimit, "size", {
       value: MAX_CHAT_IMAGE_MESSAGE_BYTES - 10 * 1024 * 1024 + 1,
     });
-    expect(appendChatFiles(combined, [beyondCombinedLimit], "files").error).toBe(
+    expect((await appendChatFiles(combined, [beyondCombinedLimit], "files")).error).toBe(
       "Files in one message can total up to 12 MiB.",
     );
 
@@ -313,10 +443,12 @@ describe("External Agent file attachment selection", () => {
       file: new File([id], `${id}.bin`, { type: "application/octet-stream" }),
     }));
     expect(
-      appendChatFiles(
-        current,
-        [new File(["5"], "5.bin", { type: "application/octet-stream" })],
-        "files",
+      (
+        await appendChatFiles(
+          current,
+          [new File(["5"], "5.bin", { type: "application/octet-stream" })],
+          "files",
+        )
       ).error,
     ).toBe("A message can include up to 4 files.");
   });
@@ -898,7 +1030,15 @@ describe("stored chat file attachments", () => {
 });
 
 function imageFile(name: string, type: string) {
-  return new File(["image"], name, { type });
+  const bytes =
+    type === "image/png"
+      ? [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+      : type === "image/jpeg"
+        ? [0xff, 0xd8, 0xff]
+        : type === "image/webp"
+          ? [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]
+          : [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return new File([new Uint8Array(bytes)], name, { type });
 }
 
 function storedAttachment() {

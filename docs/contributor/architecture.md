@@ -127,12 +127,18 @@ stale-sidecar, and pre-readiness requests fail closed.
 
 ## Chat attachment flow
 
-Chat attachments deliberately split durable binary storage from durable
+Chat attachments deliberately split durable file-body storage from durable
 transcript metadata. The staged upload is session-owned but does not create a
 message. A direct-model or External Agent send references attachment ids; Hecate atomically claims
 the immutable bodies against concurrent deletion, stores only metadata on the
 user message, and links the bodies after that append. Direct-model turns create
-canonical image content blocks transiently for the normal gateway/router path.
+canonical text/image content blocks transiently for the normal gateway/router path.
+UTF-8 text uses a separate internal `AttachmentInput` provenance marker; file
+contents never enter the message's plain `Content` or Task prompt. The marker
+survives live model calls but is replaced with a body-free notice in checkpoints.
+OpenAI-compatible serialization flattens text blocks only at the provider wire
+boundary; Anthropic keeps text blocks. Both paths suppress upstream error text
+for marked file input before health, logs, or telemetry can retain an echo.
 External Agent turns resolve live ACP capabilities and otherwise fall back to a
 private staged resource link; non-image file bytes are never rendered inline by
 the operator UI. A failure before
@@ -161,16 +167,16 @@ sequenceDiagram
     API->>Transcript: append message metadata only
     API->>Bodies: mark claimed bodies linked
     API->>Transcript: append running assistant row
-    alt Hecate direct-model image turn
+    alt Hecate direct-model attachment turn
         API->>Gateway: transient text + image blocks + provider generation
         Gateway->>Gateway: revalidate live name + generation
         Gateway-->>API: provider response
-    else Hecate tools-on image turn
+    else Hecate tools-on attachment turn
         API->>Tasks: persist opaque chat-message input reference
-        API->>Gateway: hydrate transient image blocks at agent-loop execution
-        Gateway->>Gateway: require image capability + no failover; fence known generation
+        API->>Gateway: hydrate transient text/image blocks at agent-loop execution
+        Gateway->>Gateway: require vision only for images; no failover; fence generation
         Gateway-->>API: provider response with tools available
-        API->>API: replace image blocks with artifact omission markers
+        API->>API: replace attachment blocks with artifact omission markers
     else External Agent file turn
         API->>Turn: admit after durable user + running assistant
         opt browser/webview connection closes
@@ -236,9 +242,9 @@ fails, the turn reports an error and preserves the protected identity for retry.
 stage is not a same-OS-user isolation boundary; another operator-owned process
 may change owner-controlled modes or DACLs or inspect a discovered path.
 
-Hecate attachment turns set an explicit internal image-input requirement. The
+Hecate image-bearing turns set an explicit internal image-input requirement. The
 router admits only an initial route with explicit support; unknown support is
-not permission. Once image bytes are hydrated, cross-provider failover is
+not permission. Text attachments do not need that capability. Once file bytes are hydrated, cross-provider failover is
 disabled, while retries may repeat the request on that same provider. A
 provider-bound request requires the exact canonical runtime name and opaque
 provider generation to remain configured. The router carries the generation
@@ -265,7 +271,7 @@ cross-provider failover, while allowing same-provider retries. Their selected
 provider instance is revalidated immediately before both non-streaming and
 streaming dispatch, and their encoded JSON bodies remain subject to the 32 MiB
 / 60-second ingress boundary.
-Binary bodies must not enter transcript JSON, SSE, traces, logs,
+Uploaded bodies must not enter transcript JSON, SSE, traces, logs,
 metrics, or client-side persisted queues.
 Hecate gates the ACP receive loop until a structural SDK diagnostic logger is
 installed. SDK records retain only fixed event names and bounded queue counters;

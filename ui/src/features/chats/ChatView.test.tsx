@@ -250,6 +250,35 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
   return { state, actions };
 }
 
+function pngFile(name: string): File {
+  return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], name, {
+    type: "image/png",
+  });
+}
+
+function deferredTextFile(name: string) {
+  const bytes = new TextEncoder().encode("hello");
+  let releasePrefix: ((value: ArrayBuffer) => void) | undefined;
+  const prefixRead = vi.fn(
+    () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        releasePrefix = resolve;
+      }),
+  );
+  const bodyRead = vi.fn(async () => bytes.buffer);
+  const file = new File([bytes], name, { type: "text/plain" });
+  Object.defineProperty(file, "slice", {
+    value: vi.fn(() => ({ arrayBuffer: prefixRead })),
+  });
+  Object.defineProperty(file, "arrayBuffer", { value: bodyRead });
+  return {
+    file,
+    prefixRead,
+    bodyRead,
+    release: () => releasePrefix?.(bytes.buffer),
+  };
+}
+
 function ChatAttachmentOwnershipTestControls() {
   const chat = useChat();
   const settings = useSettings();
@@ -1005,7 +1034,7 @@ describe("ChatView input", () => {
     });
     expect(send).toBeDisabled();
     expect(send).toHaveAccessibleDescription(/sending and chat settings are paused/i);
-    const attachment = screen.getByRole("button", { name: "Image" });
+    const attachment = screen.getByRole("button", { name: "Files" });
     expect(attachment).toBeDisabled();
     expect(attachment).toHaveAccessibleDescription(/confirming workspace execution/i);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
@@ -1373,13 +1402,13 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    const file = new File(["image"], "map.png", { type: "image/png" });
+    const file = pngFile("map.png");
     fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
       clipboardData: { files: [file] },
     });
 
-    expect(screen.getByRole("button", { name: "Remove map.png" })).toBeVisible();
-    expect(await screen.findByText("map.png added. 1 image ready to attach.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Remove map.png" })).toBeVisible();
+    expect(await screen.findByText("map.png added. 1 file ready to attach.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
@@ -1413,14 +1442,14 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByRole("button", { name: "Image" })).toBeEnabled();
-    const file = new File(["image"], "tools-on.png", { type: "image/png" });
+    expect(screen.getByRole("button", { name: "Files" })).toBeEnabled();
+    const file = pngFile("tools-on.png");
     fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
       clipboardData: { files: [file] },
     });
 
-    expect(screen.getByRole("button", { name: "Remove tools-on.png" })).toBeVisible();
-    expect(await screen.findByText("tools-on.png added. 1 image ready to attach.")).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Remove tools-on.png" })).toBeVisible();
+    expect(await screen.findByText("tools-on.png added. 1 file ready to attach.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
@@ -1461,10 +1490,12 @@ describe("ChatView input", () => {
     );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    fireEvent.change(screen.getByLabelText("Choose images"), {
-      target: { files: [new File(["svg"], "map.svg", { type: "image/svg+xml" })] },
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [new File(["PK\u0003\u0004"], "source.zip", { type: "application/zip" })] },
     });
-    expect(screen.getByRole("alert")).toHaveTextContent("map.svg must be PNG, JPEG, or WebP.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "source.zip is not supported in Hecate Chat.",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(submitChat).toHaveBeenCalledOnce());
@@ -1478,7 +1509,7 @@ describe("ChatView input", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
-  it("enables images when the selected provider id maps to the runtime provider name", () => {
+  it("enables images when the selected provider id maps to the runtime provider name", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       defaultChatToolsEnabled: false,
@@ -1513,18 +1544,18 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    const imageButton = screen.getByRole("button", { name: "Image" });
-    expect(imageButton).toBeEnabled();
+    const filesButton = screen.getByRole("button", { name: "Files" });
+    expect(filesButton).toBeEnabled();
 
-    const file = new File(["image"], "route-alias.png", { type: "image/png" });
+    const file = pngFile("route-alias.png");
     fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
       clipboardData: { files: [file] },
     });
 
-    expect(screen.getByRole("button", { name: "Remove route-alias.png" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Remove route-alias.png" })).toBeVisible();
   });
 
-  it("explains why images stay disabled when model support is unknown", () => {
+  it("keeps text available but explains rejected images when model support is unknown", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       defaultChatToolsEnabled: false,
@@ -1543,11 +1574,22 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByRole("button", { name: "Image" })).toBeDisabled();
-    expect(screen.getByText("Image input has not been confirmed for gpt-4o-mini.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Files" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [new File(["hello"], "notes.txt", { type: "text/plain" })] },
+    });
+    expect(await screen.findByRole("button", { name: "Remove notes.txt" })).toBeVisible();
+
+    fireEvent.drop(screen.getByRole("group", { name: "File attachments" }), {
+      dataTransfer: { files: [pngFile("map.png")], types: ["Files"] },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Image input has not been confirmed for gpt-4o-mini.",
+    );
+    expect(screen.queryByRole("button", { name: "Remove map.png" })).toBeNull();
   });
 
-  it("does not reuse image capability from a previous provider route", () => {
+  it("does not reuse image capability from a previous provider route", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       defaultChatToolsEnabled: false,
@@ -1579,8 +1621,119 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByRole("button", { name: "Image" })).toBeDisabled();
-    expect(screen.getByText("shared-model does not support image input.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Files" })).toBeEnabled();
+    fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
+      clipboardData: { files: [pngFile("map.png")] },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "shared-model does not support image input.",
+    );
+  });
+
+  it("discards file classification after an A-to-B-to-A chat transition", async () => {
+    const setPendingChatAttachments = vi.fn();
+    const slowFile = deferredTextFile("slow.txt");
+    const { state, actions } = setup({}, { setPendingChatAttachments });
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [slowFile.file] },
+    });
+    expect(slowFile.prefixRead).toHaveBeenCalledOnce();
+
+    const otherState = {
+      ...state,
+      activeChatSessionID: "chat_2",
+      activeChatSession: { ...state.activeChatSession!, id: "chat_2" },
+    };
+    view.rerender(withRuntimeConsole(<ChatView />, { state: otherState, actions }));
+    view.rerender(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    slowFile.release();
+    await waitFor(() => expect(slowFile.bodyRead).toHaveBeenCalledOnce());
+    expect(setPendingChatAttachments).not.toHaveBeenCalled();
+  });
+
+  it("discards file classification after an A-to-B-to-A project scope transition", async () => {
+    const project = (id: string, path: string): ProjectRecord => ({
+      id,
+      name: id,
+      roots: [
+        {
+          id: `${id}-root`,
+          path,
+          kind: "workspace",
+          active: true,
+          created_at: "2026-09-29T10:00:00Z",
+          updated_at: "2026-09-29T10:00:00Z",
+        },
+      ],
+      default_root_id: `${id}-root`,
+      created_at: "2026-09-29T10:00:00Z",
+      updated_at: "2026-09-29T10:00:00Z",
+    });
+    const projects = [project("project-a", "/workspace/a"), project("project-b", "/workspace/b")];
+    const setPendingChatAttachments = vi.fn();
+    const slowFile = deferredTextFile("slow.txt");
+    const { state, actions } = setup(
+      {
+        activeChatSessionID: "",
+        activeChatSession: null,
+        activeProjectID: "project-a",
+        agentWorkspace: "",
+        projects,
+      },
+      { setPendingChatAttachments },
+    );
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [slowFile.file] },
+    });
+    const otherState = { ...state, activeProjectID: "project-b" };
+    view.rerender(withRuntimeConsole(<ChatView />, { state: otherState, actions }));
+    view.rerender(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    slowFile.release();
+    await waitFor(() => expect(slowFile.bodyRead).toHaveBeenCalledOnce());
+    expect(setPendingChatAttachments).not.toHaveBeenCalled();
+  });
+
+  it("discards file classification when the operator submits first", async () => {
+    const setPendingChatAttachments = vi.fn();
+    const submitChat = vi.fn(async () => undefined);
+    const slowFile = deferredTextFile("slow.txt");
+    const { state, actions } = setup(
+      { message: "Send before the file finishes loading" },
+      { setPendingChatAttachments, submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [slowFile.file] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submitChat).toHaveBeenCalledOnce();
+
+    slowFile.release();
+    await waitFor(() => expect(slowFile.bodyRead).toHaveBeenCalledOnce());
+    expect(setPendingChatAttachments).not.toHaveBeenCalled();
+  });
+
+  it("does not update attachment state after unmounting during classification", async () => {
+    const setPendingChatAttachments = vi.fn();
+    const slowFile = deferredTextFile("slow.txt");
+    const { state, actions } = setup({}, { setPendingChatAttachments });
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.change(screen.getByLabelText("Choose files"), {
+      target: { files: [slowFile.file] },
+    });
+    view.unmount();
+
+    slowFile.release();
+    await waitFor(() => expect(slowFile.bodyRead).toHaveBeenCalledOnce());
+    expect(setPendingChatAttachments).not.toHaveBeenCalled();
   });
 
   it("accepts arbitrary pasted files for a ready External Agent session", async () => {
@@ -1625,7 +1778,7 @@ describe("ChatView input", () => {
       clipboardData: { files: [file] },
     });
 
-    expect(screen.getByRole("button", { name: "Remove report.pdf" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Remove report.pdf" })).toBeVisible();
     expect(await screen.findByText("report.pdf added. 1 file ready to attach.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });

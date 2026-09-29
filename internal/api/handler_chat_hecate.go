@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
@@ -106,15 +107,6 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 				session.Provider = resolvedRoute.Name
 			}
 			admittedInputProviderInstance = resolvedRoute.Instance
-		}
-		imageCapable, imageErr := h.modelApplication().SupportsImageInput(r.Context(), session.Provider, session.Model)
-		if imageErr != nil {
-			writeAgentChatModelResolutionError(w, imageErr)
-			return
-		}
-		if !imageCapable {
-			writeAgentChatImageCapabilityRequired(w)
-			return
 		}
 	}
 	caps := session.Capabilities
@@ -234,10 +226,6 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		claimRef.AttachmentIDs = make([]string, 0, len(resolvedAttachments))
 		for _, attachment := range resolvedAttachments {
 			claimRef.AttachmentIDs = append(claimRef.AttachmentIDs, attachment.ID)
-			if err := validateStoredChatImageAttachment(attachment); err != nil {
-				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored image attachment failed integrity validation")
-				return
-			}
 		}
 		attachmentClaimPending = true
 		defer func() {
@@ -254,6 +242,26 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 				)
 			}
 		}()
+		hasImages, validationErr := validateStoredNativeChatAttachments(resolvedAttachments)
+		if validationErr != nil {
+			if errors.Is(validationErr, chatapp.ErrNativeTextContextTooLarge) {
+				WriteError(w, http.StatusRequestEntityTooLarge, errCodeAttachmentTooLarge, validationErr.Error())
+			} else {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
+			}
+			return
+		}
+		if hasImages {
+			imageCapable, imageErr := h.modelApplication().SupportsImageInput(r.Context(), session.Provider, session.Model)
+			if imageErr != nil {
+				writeAgentChatModelResolutionError(w, imageErr)
+				return
+			}
+			if !imageCapable {
+				writeAgentChatImageCapabilityRequired(w)
+				return
+			}
+		}
 	}
 	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model) || len(mcpServers) > 0
 	segmentID := hecateAgentSegmentID(session)

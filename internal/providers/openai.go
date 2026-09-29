@@ -401,7 +401,8 @@ func (p *OpenAICompatibleProvider) supportsResolvedModel(ctx context.Context, mo
 	return p.Supports(model)
 }
 
-func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
+func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req types.ChatRequest) (result *types.ChatResponse, resultErr error) {
+	defer func() { resultErr = attachmentSafeError(req, resultErr) }()
 	if !p.supportsResolvedModel(ctx, req.Model) {
 		return nil, fmt.Errorf("model %q is not supported by provider %s", req.Model, p.Name())
 	}
@@ -1052,7 +1053,8 @@ func (p *OpenAICompatibleProvider) chatUpstream(ctx context.Context, req types.C
 	}, nil
 }
 
-func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.ChatRequest, w io.Writer) error {
+func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.ChatRequest, w io.Writer) (resultErr error) {
+	defer func() { resultErr = attachmentSafeError(req, resultErr) }()
 	if err := p.Validate(); err != nil {
 		return err
 	}
@@ -1161,6 +1163,20 @@ func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.Cha
 //     llama.cpp — only accept the string form).
 func buildOpenAIWireContent(msg types.Message) openAIMessageContent {
 	if !messageHasNonTextBlocks(msg) {
+		// Structured text is authoritative when present. Native file input
+		// deliberately keeps private text out of Content, and restored task
+		// checkpoints carry body-free omission notices in these same blocks.
+		// Flatten only at this outbound boundary, retaining string-only wire
+		// compatibility without losing either transient input or notices.
+		var parts []string
+		for _, block := range msg.ContentBlocks {
+			if (block.Type == "text" || block.Type == "") && block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return openAIMessageContent{Text: strings.Join(parts, "\n\n")}
+		}
 		return openAIMessageContent{Text: msg.Content}
 	}
 	blocks := make([]openAIContentBlock, 0, len(msg.ContentBlocks))

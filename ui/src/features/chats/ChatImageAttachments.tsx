@@ -10,15 +10,33 @@ import {
 } from "react";
 
 import { getChatAttachmentContentBlob } from "../../lib/api";
-import type { PendingChatAttachment } from "../../app/state/_shared";
+import {
+  CHAT_ATTACHMENT_MAX_COUNT,
+  CHAT_ATTACHMENT_MAX_IMAGE_BYTES,
+  CHAT_ATTACHMENT_MAX_MESSAGE_BYTES,
+  CHAT_ATTACHMENT_MAX_TEXT_BYTES,
+  CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES,
+  CHAT_RASTER_IMAGE_MEDIA_TYPES,
+  type PendingChatAttachment,
+  type PendingChatAttachmentKind,
+  pendingChatAttachmentKind,
+} from "../../app/state/_shared";
 import type { ChatAttachmentRecord } from "../../types/chat";
 import { Icon, Icons, Modal } from "../shared/ui";
 
-export const MAX_CHAT_IMAGE_ATTACHMENTS = 4;
-export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
-export const MAX_CHAT_IMAGE_MESSAGE_BYTES = 12 * 1024 * 1024;
+export const MAX_CHAT_ATTACHMENTS = CHAT_ATTACHMENT_MAX_COUNT;
+export const MAX_CHAT_IMAGE_BYTES = CHAT_ATTACHMENT_MAX_IMAGE_BYTES;
+export const MAX_CHAT_IMAGE_MESSAGE_BYTES = CHAT_ATTACHMENT_MAX_MESSAGE_BYTES;
+export const MAX_CHAT_TEXT_BYTES = CHAT_ATTACHMENT_MAX_TEXT_BYTES;
+export const MAX_CHAT_TEXT_MESSAGE_BYTES = CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES;
+export const MAX_CHAT_IMAGE_ATTACHMENTS = MAX_CHAT_ATTACHMENTS;
 
-export type ChatAttachmentAcceptance = "images" | "files";
+export type ChatAttachmentAcceptance = "files" | "native";
+
+export type ChatFileSelectionOptions = {
+  imageInputEnabled?: boolean;
+  imageInputDisabledReason?: string;
+};
 
 const STORED_IMAGE_PREVIEW_WIDTH = 132;
 const STORED_IMAGE_PREVIEW_HEIGHT = 96;
@@ -43,66 +61,288 @@ const VISUALLY_HIDDEN_STYLE = {
   border: 0,
 };
 
-export const CHAT_IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const CHAT_IMAGE_MEDIA_TYPES = CHAT_RASTER_IMAGE_MEDIA_TYPES;
 
 export type ChatImageSelectionResult = {
   attachments: PendingChatAttachment[];
   error: string;
 };
 
-export function appendChatImageFiles(
-  current: PendingChatAttachment[],
-  files: Iterable<File>,
-): ChatImageSelectionResult {
-  return appendChatFiles(current, files, "images");
-}
+type PreparedChatFileSelection = {
+  attachments: PendingChatAttachment[];
+  error: string;
+};
 
-export function appendChatFiles(
+export async function appendChatFiles(
   current: PendingChatAttachment[],
   files: Iterable<File>,
   acceptance: ChatAttachmentAcceptance,
-): ChatImageSelectionResult {
-  const attachments = [...current];
+  options: ChatFileSelectionOptions = {},
+): Promise<ChatImageSelectionResult> {
+  const prepared = await prepareChatFiles(files, acceptance, options);
+  return appendPreparedChatFiles(current, prepared, acceptance);
+}
+
+export async function prepareChatFiles(
+  files: Iterable<File>,
+  acceptance: ChatAttachmentAcceptance,
+  options: ChatFileSelectionOptions = {},
+): Promise<PreparedChatFileSelection> {
+  const attachments: PendingChatAttachment[] = [];
   const errors: string[] = [];
-  const subject = acceptance === "files" ? "file" : "image";
+  let inspectedCount = 0;
 
   for (const file of files) {
-    const declaredType = file.type.trim().toLowerCase();
-    if (acceptance === "images" && declaredType && !CHAT_IMAGE_MEDIA_TYPES.has(declaredType)) {
-      errors.push(`${file.name || "Image"} must be PNG, JPEG, or WebP.`);
-      continue;
+    if (inspectedCount >= MAX_CHAT_ATTACHMENTS) {
+      errors.push("A message can include up to 4 files.");
+      break;
     }
+    inspectedCount += 1;
     if (file.size <= 0) {
       errors.push(`${file.name || "File"} is empty.`);
       continue;
     }
-    if (file.size > MAX_CHAT_IMAGE_BYTES) {
-      errors.push(`${file.name || "File"} exceeds the 5 MiB limit.`);
+    if (acceptance === "files") {
+      if (file.size > MAX_CHAT_IMAGE_BYTES) {
+        errors.push(`${file.name || "File"} exceeds the 5 MiB limit.`);
+        continue;
+      }
+      const inspected = await classifyExternalChatFile(file);
+      attachments.push({ id: pendingAttachmentID(), file, ...inspected });
       continue;
     }
-    if (attachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS) {
-      errors.push(`A message can include up to 4 ${subject}s.`);
-      break;
+
+    const inspected = await inspectNativeChatFile(file);
+    if (inspected.error) {
+      errors.push(inspected.error);
+      continue;
     }
-    const combinedBytes = attachments.reduce(
-      (total, attachment) => total + attachment.file.size,
-      0,
-    );
-    if (file.size > MAX_CHAT_IMAGE_MESSAGE_BYTES - combinedBytes) {
+    if (inspected.kind === "image" && options.imageInputEnabled !== true) {
       errors.push(
-        `${acceptance === "files" ? "Files" : "Images"} in one message can total up to 12 MiB.`,
+        options.imageInputDisabledReason ||
+          `${file.name || "This image"} needs a model with confirmed image input.`,
       );
       continue;
     }
-    attachments.push({ id: pendingAttachmentID(), file });
+    attachments.push({
+      id: pendingAttachmentID(),
+      file,
+      kind: inspected.kind,
+      canonicalMediaType: inspected.mediaType,
+    });
   }
 
   return { attachments, error: errors[0] ?? "" };
 }
 
+export function appendPreparedChatFiles(
+  current: PendingChatAttachment[],
+  prepared: PreparedChatFileSelection,
+  acceptance: ChatAttachmentAcceptance,
+): ChatImageSelectionResult {
+  const attachments = [...current];
+  const errors: string[] = [];
+
+  for (const candidate of prepared.attachments) {
+    if (attachments.length >= MAX_CHAT_ATTACHMENTS) {
+      errors.push("A message can include up to 4 files.");
+      break;
+    }
+
+    const combinedBytes = attachments.reduce(
+      (total, attachment) => total + attachment.file.size,
+      0,
+    );
+    if (candidate.file.size > MAX_CHAT_IMAGE_MESSAGE_BYTES - combinedBytes) {
+      const imageOnly =
+        acceptance === "native" &&
+        candidate.kind === "image" &&
+        attachments.every((attachment) => pendingChatAttachmentKind(attachment) === "image");
+      errors.push(`${imageOnly ? "Images" : "Files"} in one message can total up to 12 MiB.`);
+      continue;
+    }
+    if (acceptance === "native" && candidate.kind === "text") {
+      const textBytes = attachments.reduce(
+        (total, attachment) =>
+          total + (pendingChatAttachmentKind(attachment) === "text" ? attachment.file.size : 0),
+        0,
+      );
+      if (candidate.file.size > MAX_CHAT_TEXT_MESSAGE_BYTES - textBytes) {
+        errors.push("Text and code files in one message can total up to 64 KiB.");
+        continue;
+      }
+    }
+    attachments.push(candidate);
+  }
+
+  return { attachments, error: prepared.error || errors[0] || "" };
+}
+
+type NativeChatFileInspection = {
+  kind: "image" | "text";
+  error: string;
+  mediaType: string;
+};
+
+const RESTRICTED_NATIVE_CHAT_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  "application/epub+zip",
+  "application/gzip",
+  "application/java-archive",
+  "application/msword",
+  "application/pdf",
+  "application/vnd.apple.installer+xml",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.rar",
+  "application/x-7z-compressed",
+  "application/x-bzip",
+  "application/x-bzip2",
+  "application/x-rar-compressed",
+  "application/x-tar",
+  "application/zip",
+]);
+
+async function classifyExternalChatFile(
+  file: File,
+): Promise<{ kind: PendingChatAttachmentKind; canonicalMediaType?: string }> {
+  const inspected = await inspectNativeChatFile(file);
+  return inspected.error
+    ? { kind: "opaque" }
+    : { kind: inspected.kind, canonicalMediaType: inspected.mediaType };
+}
+
+async function inspectNativeChatFile(file: File): Promise<NativeChatFileInspection> {
+  const filename = file.name || "File";
+  const declaredType = file.type.trim().toLowerCase();
+
+  let prefix: Uint8Array;
+  try {
+    prefix = await readFileBytes(file.slice(0, 16));
+  } catch {
+    return { kind: "text", error: `${filename} could not be read.`, mediaType: "text/plain" };
+  }
+  const rasterMediaType = supportedRasterSignatureMediaType(prefix);
+  if (rasterMediaType) {
+    return file.size > MAX_CHAT_IMAGE_BYTES
+      ? {
+          kind: "image",
+          error: `${filename} exceeds the 5 MiB image limit.`,
+          mediaType: rasterMediaType,
+        }
+      : { kind: "image", error: "", mediaType: rasterMediaType };
+  }
+  if (
+    declaredType.startsWith("image/") ||
+    restrictedNativeChatMediaType(declaredType) ||
+    hasRestrictedBinarySignature(prefix)
+  ) {
+    return {
+      kind: "text",
+      error: unsupportedNativeChatFileMessage(filename),
+      mediaType: "text/plain",
+    };
+  }
+  if (file.size > MAX_CHAT_TEXT_BYTES) {
+    return {
+      kind: "text",
+      error: `${filename} exceeds the 32 KiB text/code limit.`,
+      mediaType: "text/plain",
+    };
+  }
+
+  let bytes: Uint8Array;
+  try {
+    bytes = await readFileBytes(file);
+  } catch {
+    return { kind: "text", error: `${filename} could not be read.`, mediaType: "text/plain" };
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return {
+      kind: "text",
+      error: `${filename} is not valid UTF-8 text or a supported PNG, JPEG, or WebP image.`,
+      mediaType: "text/plain",
+    };
+  }
+  if (hasUnsupportedTextControls(text)) {
+    return {
+      kind: "text",
+      error: `${filename} contains unsupported control characters.`,
+      mediaType: "text/plain",
+    };
+  }
+  return { kind: "text", error: "", mediaType: "text/plain" };
+}
+
+function hasUnsupportedTextControls(text: string): boolean {
+  for (const character of text) {
+    const code = character.charCodeAt(0);
+    if (
+      (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
+      (code >= 0x7f && code <= 0x9f)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function restrictedNativeChatMediaType(mediaType: string): boolean {
+  if (!mediaType || mediaType === "application/octet-stream") return false;
+  return (
+    RESTRICTED_NATIVE_CHAT_MEDIA_TYPES.has(mediaType) ||
+    mediaType.startsWith("application/vnd.openxmlformats-officedocument")
+  );
+}
+
+function supportedRasterSignatureMediaType(bytes: Uint8Array): string {
+  if (bytesStartWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return "image/png";
+  }
+  if (bytesStartWith(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (
+    bytesStartWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes.length >= 12 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return "";
+}
+
+function hasRestrictedBinarySignature(bytes: Uint8Array): boolean {
+  return (
+    bytesStartWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]) ||
+    bytesStartWith(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
+    bytesStartWith(bytes, [0x50, 0x4b, 0x05, 0x06]) ||
+    bytesStartWith(bytes, [0x50, 0x4b, 0x07, 0x08]) ||
+    bytesStartWith(bytes, [0x1f, 0x8b]) ||
+    bytesStartWith(bytes, [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]) ||
+    bytesStartWith(bytes, [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]) ||
+    bytesStartWith(bytes, [0x7f, 0x45, 0x4c, 0x46])
+  );
+}
+
+function bytesStartWith(bytes: Uint8Array, prefix: number[]): boolean {
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
+async function readFileBytes(blob: Blob): Promise<Uint8Array> {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function unsupportedNativeChatFileMessage(filename: string): string {
+  return `${filename} is not supported in Hecate Chat. Attach UTF-8 text/code or PNG, JPEG, or WebP.`;
+}
+
 export function ChatAttachmentDrafts({
   attachments,
-  acceptance = "images",
+  acceptance = "native",
   enabled,
   disabledReason,
   describedBy,
@@ -131,11 +371,9 @@ export function ChatAttachmentDrafts({
   const [dragging, setDragging] = useState(false);
   const [attachmentAnnouncement, setAttachmentAnnouncement] = useState("");
   const acceptsFiles = acceptance === "files";
-  const atLimit = attachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
+  const atLimit = attachments.length >= MAX_CHAT_ATTACHMENTS;
   const canAdd = enabled && !atLimit;
-  const unavailableReason = atLimit
-    ? `A message can include up to 4 ${acceptsFiles ? "files" : "images"}.`
-    : disabledReason;
+  const unavailableReason = atLimit ? "A message can include up to 4 files." : disabledReason;
   const attachmentDescriptionIDs = [
     describedBy ?? "",
     !canAdd && unavailableReason ? reasonID : "",
@@ -158,7 +396,7 @@ export function ChatAttachmentDrafts({
       const subject =
         added.length === 1
           ? `${added[0]?.file.name || "File"} added.`
-          : `${added.length} ${acceptsFiles ? "files" : "images"} added.`;
+          : `${added.length} files added.`;
       setAttachmentAnnouncement(`${subject} ${countStatus}`);
       return;
     }
@@ -166,13 +404,11 @@ export function ChatAttachmentDrafts({
       const subject =
         removed.length === 1
           ? `${removed[0]?.file.name || "File"} removed.`
-          : `${removed.length} ${acceptsFiles ? "files" : "images"} removed.`;
+          : `${removed.length} files removed.`;
       setAttachmentAnnouncement(`${subject} ${countStatus}`);
       return;
     }
-    setAttachmentAnnouncement(
-      `${acceptsFiles ? "File" : "Image"} attachments updated. ${countStatus}`,
-    );
+    setAttachmentAnnouncement(`File attachments updated. ${countStatus}`);
   }, [acceptance, acceptsFiles, attachments]);
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -215,7 +451,7 @@ export function ChatAttachmentDrafts({
       className="chat-composer-attachments"
       data-has-attachments={attachments.length > 0 || undefined}
       data-needs-attention={dragging || !canAdd || Boolean(error) || undefined}
-      aria-label={acceptsFiles ? "File attachments" : "Image attachments"}
+      aria-label="File attachments"
       role="group"
       onDragEnter={(event) => {
         if (event.dataTransfer.types.includes("Files") && canAdd) setDragging(true);
@@ -242,7 +478,7 @@ export function ChatAttachmentDrafts({
     >
       {attachments.length > 0 && (
         <div
-          aria-label={acceptsFiles ? "Files ready to attach" : "Images ready to attach"}
+          aria-label="Files ready to attach"
           role="group"
           style={{ display: "flex", flexWrap: "wrap", gap: 7 }}
         >
@@ -267,11 +503,10 @@ export function ChatAttachmentDrafts({
         <input
           ref={inputRef}
           type="file"
-          accept={acceptance === "images" ? "image/png,image/jpeg,image/webp" : undefined}
           multiple
           hidden
           disabled={!canAdd}
-          aria-label={acceptsFiles ? "Choose files" : "Choose images"}
+          aria-label="Choose files"
           aria-describedby={attachmentDescriptionIDs || undefined}
           aria-invalid={Boolean(error) || undefined}
           onChange={(event) => {
@@ -289,9 +524,9 @@ export function ChatAttachmentDrafts({
           onClick={() => inputRef.current?.click()}
           title={
             canAdd
-              ? acceptance === "images"
-                ? "Attach PNG, JPEG, or WebP images · 4 images · 5 MiB each · 12 MiB total"
-                : "Attach files · 4 files · 5 MiB each · 12 MiB total"
+              ? acceptsFiles
+                ? "Attach files · 4 files · 5 MiB each · 12 MiB total"
+                : "Attach UTF-8 text/code or PNG, JPEG, WebP images · 4 files · text 32 KiB each/64 KiB total · images 5 MiB each/12 MiB total"
               : unavailableReason
           }
           style={{
@@ -301,7 +536,7 @@ export function ChatAttachmentDrafts({
             gap: 5,
           }}
         >
-          <Icon d={Icons.plus} size={11} /> {acceptsFiles ? "Files" : "Image"}
+          <Icon d={Icons.plus} size={11} /> Files
         </button>
         <span
           className={`chat-composer-attachment-copy${
@@ -322,15 +557,15 @@ export function ChatAttachmentDrafts({
           }}
         >
           {dragging
-            ? `Drop ${acceptsFiles ? "files" : "images"} here`
+            ? "Drop files here"
             : canAdd
               ? compact
-                ? acceptance === "images"
-                  ? "PNG/JPEG/WebP · 4 max"
-                  : "4 files max"
-                : acceptance === "images"
-                  ? "paste, choose, or drop · PNG/JPEG/WebP · 5 MiB each · 12 MiB total"
-                  : "paste, choose, or drop · 4 files · 5 MiB each · 12 MiB total"
+                ? acceptsFiles
+                  ? "4 files max"
+                  : "Text/code or images · 4 max"
+                : acceptsFiles
+                  ? "paste, choose, or drop · 4 files · 5 MiB each · 12 MiB total"
+                  : "paste, choose, or drop · UTF-8 text/code (32 KiB each) or PNG/JPEG/WebP"
               : unavailableReason}
         </span>
       </div>
@@ -905,8 +1140,8 @@ function pendingAttachmentID(): string {
   return randomID ? `pending-file-${randomID}` : `pending-file-${Date.now()}-${Math.random()}`;
 }
 
-function attachmentDraftCountStatus(count: number, acceptance: ChatAttachmentAcceptance): string {
-  const noun = acceptance === "files" ? "file" : "image";
+function attachmentDraftCountStatus(count: number, _acceptance: ChatAttachmentAcceptance): string {
+  const noun = "file";
   if (count === 0) return `No ${noun}s ready to attach.`;
   if (count === 1) return `1 ${noun} ready to attach.`;
   return `${count} ${noun}s ready to attach.`;

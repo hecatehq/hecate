@@ -182,7 +182,7 @@ matters.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Model gateway**    | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | **Connections**      | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, dictation-route readiness, passive External Agent executable measurement and approval, optional diagnostics, and durable action grants.                                                                                                                                                                                                                                                                                                                                                    |
-| **Chats**            | Provider-routed dictation, client-side read aloud through browser-reported local voices, Hecate turns with image attachments, External Agent turns with arbitrary file inputs, Hecate Chat selection of a frozen named runtime preset including additive tool-approval posture, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                                                       |
+| **Chats**            | Provider-routed dictation, client-side read aloud through browser-reported local voices, Hecate turns with image and text/code attachments, External Agent turns with arbitrary file inputs, Hecate Chat selection of a frozen named runtime preset including additive tool-approval posture, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                                         |
 | **Projects**         | Cairnline-backed project identity, roots, context and skill metadata, roles, work items, assignments, handoffs, project memory, review artifacts, and memory candidates, presented through Hecate's native operator cockpit and execution links. Native assignment Tasks freeze and enforce their selected Work policy's tools, writes, network, approval, and browser posture.                                                                                                                                                                                                                                      |
 | **Tasks**            | Native `agent_loop` Runs, globally reusable Work policies, one-time and cron Schedules with durable occurrence history, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-Run recovery, MCP tool/App integration, MCP probe, MCP registry discovery, and a built-in report-only `qa` workflow that records its read-only contract and clearly labels agent-reported findings separately from Hecate-observed posture/evidence.                                                                                                                                            |
 | **Browser tools**    | Optional local tools for Work-policy-backed native Tasks, including standalone Tasks and project assignments. `browser_inspect` captures script-disabled static text; independent `browser_flow` runs one approved exact-origin sequence of 1–6 accessibility click/wait actions with scripts enabled. Every call uses a fresh process/profile and bounded text evidence. No typing, uploads, downloads, screenshots, reusable saved browser state, Hecate Chat, External Agents, QA, or remote runtime. Private-IP controls apply per call. [See the contract.](docs/runtime/agent-runtime.md#browser-capabilities) |
@@ -322,15 +322,22 @@ chat cannot silently switch execution boundaries.
 If the selected model cannot call tools, Hecate keeps the chat usable as direct
 model chat and makes the tools-unavailable state visible.
 
-Image-capable models accept PNG, JPEG, and WebP attachments with tools on or
+Native Hecate Chat accepts UTF-8 text and code files (including Markdown, JSON,
+CSV, and source code) with Tools on or off, without requiring image support.
+Text files are limited to 32 KiB each and 64 KiB of attached text per model
+request, including eligible history. Invalid UTF-8, binary files, PDFs, and
+archives are rejected; there is no extraction, execution, or silent truncation.
+Non-image files appear as metadata with an explicit **Download** action.
+
+Image-capable models also accept PNG, JPEG, and WebP attachments with tools on or
 off, by picker, drag-and-drop, or paste. Hecate stores the image body outside the
 transcript, loads its preview through the normal Hecate-native API path
 (including the runtime-token header when that optional guard is configured),
 and sends it only through an explicitly image-capable provider route.
-Image-bearing requests may retry on that exact provider generation but never
-fail over or follow a same-name replacement. Tools-on turns hydrate images from
+All attachment-bearing requests may retry on that exact provider generation but never
+fail over or follow a same-name replacement. Tools-on turns hydrate files from
 an opaque run input reference immediately before the agent loop starts; task
-conversation artifacts retain an omission marker, never the binary body. Image
+conversation artifacts retain an omission marker, never the uploaded body. Image
 blocks and remote image URLs are not persisted in those artifacts. Same-input
 resume and retry runs rehydrate through the opaque reference. At the final
 provider-dispatch boundary, Hecate atomically records the exact resolved route
@@ -339,7 +346,7 @@ elsewhere; the first model may be policy-rewritten, then every later model call
 stays on that same route and instance. This private may-disclose fence is
 distinct from the transcript marker, which is set only after a dispatched
 provider call reports its route. A pre-dispatch failure does not mark the
-transcript as having disclosed the image. Image drafts never enter the local busy-message queue, and
+transcript as having disclosed the file. File drafts never enter the local busy-message queue, and
 the UI keeps submitted in-memory `File` values owned by their turn until it
 settles.
 

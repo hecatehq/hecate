@@ -267,3 +267,57 @@ func TestAgentLoopConversation_UpsertArtifactPersistsCurrentMessages(t *testing.
 		t.Fatalf("decoded conversation = %+v, want appended assistant message", decoded)
 	}
 }
+
+func TestAgentLoopConversation_TextAttachmentPrivacyAndResume(t *testing.T) {
+	input := types.Message{Role: "user", Content: "inspect", ContentBlocks: []types.ContentBlock{
+		{Type: "text", Text: "inspect"},
+		{Type: "text", Text: "private-filename.go\nprivate-document-body", AttachmentInput: true},
+	}}
+	spec := newAgentLoopSpec(t)
+	spec.InputMessage = &input
+	var saved types.TaskArtifact
+	spec.UpsertArtifact = func(artifact types.TaskArtifact) error { saved = artifact; return nil }
+	conversation := newAgentLoopConversation(spec)
+	conversation.AppendAssistant(types.Message{Role: "assistant", ToolCalls: []types.ToolCall{agentLoopToolCall("call-file", "shell_exec", `{"command":"pwd"}`)}})
+	if _, err := conversation.UpsertArtifact(spec, 1, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(saved.ContentText, "private-") || strings.Contains(saved.ContentText, "attachment_input") || !strings.Contains(saved.ContentText, artifactTextAttachmentOmission) {
+		t.Fatalf("unsafe attachment checkpoint: %s", saved.ContentText)
+	}
+	spec.ResumeCheckpoint = &ResumeCheckpoint{AgentConversation: json.RawMessage(saved.ContentText)}
+	resumed := newAgentLoopConversation(spec)
+	var userCount, hydratedCount int
+	for _, message := range resumed.Messages() {
+		if message.Role == "user" {
+			userCount++
+		}
+		for _, block := range message.ContentBlocks {
+			if block.AttachmentInput && block.Text == input.ContentBlocks[1].Text {
+				hydratedCount++
+			}
+		}
+	}
+	if userCount != 1 || hydratedCount != 1 || len(resumed.PendingToolCallsForResume()) != 1 {
+		t.Fatalf("resume duplicated/lost input or pending work: users=%d hydrated=%d pending=%d", userCount, hydratedCount, len(resumed.PendingToolCallsForResume()))
+	}
+	if _, err := resumed.UpsertArtifact(spec, 1, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(saved.ContentText, "private-") {
+		t.Fatal("resumed persistence leaked attachment body")
+	}
+}
+
+func TestAgentLoopConversation_TextAttachmentResumeRestoresOnlyLatestMatchingInput(t *testing.T) {
+	input := types.Message{Role: "user", Content: "same prompt", ContentBlocks: []types.ContentBlock{{Type: "text", Text: "latest private file", AttachmentInput: true}}}
+	checkpoint := []types.Message{
+		{Role: "user", Content: "same prompt", ContentBlocks: []types.ContentBlock{{Type: "text", Text: artifactTextAttachmentOmission}}},
+		{Role: "assistant", Content: "first answer"},
+		{Role: "user", Content: "same prompt", ContentBlocks: []types.ContentBlock{{Type: "text", Text: artifactTextAttachmentOmission}}},
+	}
+	restoreArtifactInputMessage(checkpoint, input)
+	if checkpoint[0].ContentBlocks[0].Text != artifactTextAttachmentOmission || checkpoint[2].ContentBlocks[0].Text != "latest private file" || !checkpoint[2].ContentBlocks[0].AttachmentInput {
+		t.Fatal("same-input restoration replaced the wrong occurrence")
+	}
+}

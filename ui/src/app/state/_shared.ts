@@ -93,7 +93,35 @@ export type QueuedChatMessage = {
 export type PendingChatAttachment = {
   id: string;
   file: File;
+  // The picker records content-aware classification for the current in-memory
+  // draft. Older test fixtures and a draft already present during hot reload
+  // may omit it, so consumers retain a conservative declared-type fallback.
+  kind?: PendingChatAttachmentKind;
+  canonicalMediaType?: string;
 };
+
+export type PendingChatAttachmentKind = "image" | "opaque" | "text";
+
+export const CHAT_ATTACHMENT_MAX_COUNT = 4;
+export const CHAT_ATTACHMENT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const CHAT_ATTACHMENT_MAX_MESSAGE_BYTES = 12 * 1024 * 1024;
+export const CHAT_ATTACHMENT_MAX_TEXT_BYTES = 32 * 1024;
+export const CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES = 64 * 1024;
+
+export const CHAT_RASTER_IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+export function pendingChatAttachmentKind(
+  attachment: PendingChatAttachment,
+): PendingChatAttachmentKind {
+  if (attachment.kind) return attachment.kind;
+  const mediaType = attachment.file.type.trim().toLowerCase();
+  if (CHAT_RASTER_IMAGE_MEDIA_TYPES.has(mediaType)) return "image";
+  return "opaque";
+}
 
 export const queuedChatMessagesStorageKey = "hecate.queuedChatMessages";
 

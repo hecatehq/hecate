@@ -234,11 +234,18 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   capability repair hint. Ollama models can be enriched from their native
   capability metadata; generic OpenAI-compatible local models often remain
   `unknown` until the provider reports richer metadata.
-- File attachments are available for Hecate-owned image turns with tools on or
-  off, and for External Agent turns. Direct-model and task-backed Hecate inputs
-  remain PNG/JPEG/WebP only and require confirmed model image capability;
+- File attachments are available for Hecate-owned turns with tools on or
+  off, and for External Agent turns. Native Chat accepts UTF-8 text/code files
+  (32 KiB each, 64 KiB across current plus hydrated historical text) and
+  PNG/JPEG/WebP images. Only images require confirmed model image capability.
+  Invalid UTF-8 and binary documents are rejected; PDF/DOCX extraction, OCR,
+  and archives are not implemented. File picking and drag-and-drop work in the
+  web and desktop composer. Clipboard file input depends on the browser/webview;
+  the current Windows/Linux desktop Ctrl+V fallback pastes text only, so use the
+  file picker or drop for attachments there. Oversized current input is rejected, while
+  older history receives explicit omission markers rather than truncation;
   task-backed turns retain only an opaque input reference plus omission markers
-  in conversation artifacts rather than persisting image bytes there.
+  in conversation artifacts rather than persisting uploaded bodies there.
   External Agents accept up to four non-empty files of any type within the same
   5 MiB per-file and 12 MiB combined limits. Two file-bearing External turns
   may run concurrently per Hecate process; later file turns receive a typed

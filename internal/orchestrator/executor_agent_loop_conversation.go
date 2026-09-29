@@ -326,7 +326,7 @@ func conversationArtifactDescription(completedModelCalls int) string {
 	return "Agent loop conversation snapshot before the first model call"
 }
 
-// conversationMessagesForArtifact removes image blocks before a task
+// conversationMessagesForArtifact removes attachment and image blocks before a task
 // conversation snapshot is persisted. This avoids retaining inline bodies or
 // credential-bearing remote URLs. The live executor retains the original
 // blocks for subsequent model calls in the same run. Persisted checkpoints carry an
@@ -341,6 +341,10 @@ func conversationMessagesForArtifact(messages []types.Message) []types.Message {
 		}
 		blocks := make([]types.ContentBlock, 0, len(message.ContentBlocks))
 		for _, block := range message.ContentBlocks {
+			if block.AttachmentInput && block.Image == nil {
+				blocks = append(blocks, types.ContentBlock{Type: "text", Text: artifactTextAttachmentOmission})
+				continue
+			}
 			if block.Image == nil {
 				blocks = append(blocks, block)
 				continue
@@ -362,7 +366,7 @@ func conversationMessagesForArtifact(messages []types.Message) []types.Message {
 func restoreArtifactInputMessage(messages []types.Message, input types.Message) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
-		if message.Role != "user" || strings.TrimSpace(message.Content) != strings.TrimSpace(input.Content) || !hasArtifactImageOmission(message.ContentBlocks) {
+		if message.Role != "user" || strings.TrimSpace(message.Content) != strings.TrimSpace(input.Content) || !hasArtifactInputOmission(message.ContentBlocks) {
 			continue
 		}
 		messages[i] = input
@@ -370,9 +374,11 @@ func restoreArtifactInputMessage(messages []types.Message, input types.Message) 
 	}
 }
 
-func hasArtifactImageOmission(blocks []types.ContentBlock) bool {
+const artifactTextAttachmentOmission = "[Text attachment supplied as Task input; body not retained in Task artifacts]"
+
+func hasArtifactInputOmission(blocks []types.ContentBlock) bool {
 	for _, block := range blocks {
-		if block.Type == "text" && strings.HasSuffix(block.Text, " attachment supplied as Task input; binary body not retained in Task artifacts]") {
+		if block.Type == "text" && (block.Text == artifactTextAttachmentOmission || strings.HasSuffix(block.Text, " attachment supplied as Task input; binary body not retained in Task artifacts]")) {
 			return true
 		}
 	}

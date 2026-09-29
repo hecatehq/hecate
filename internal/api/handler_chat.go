@@ -1786,10 +1786,6 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 	}
-	if len(req.AttachmentIDs) > 0 && !imageCapable {
-		writeAgentChatImageCapabilityRequired(w)
-		return
-	}
 	imageTurnPermitHeld := false
 	if directModelTurnMayUseImageBodies(session, req.AttachmentIDs, imageCapable, historicalProvider, providerInstance) {
 		if h.chatImageTurnAdmission == nil || !h.chatImageTurnAdmission.TryAcquire() {
@@ -1862,6 +1858,19 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 				)
 			}
 		}()
+	}
+	currentHasImages, validationErr := validateStoredNativeChatAttachments(resolvedAttachments)
+	if validationErr != nil {
+		if errors.Is(validationErr, chatapp.ErrNativeTextContextTooLarge) {
+			WriteError(w, http.StatusRequestEntityTooLarge, errCodeAttachmentTooLarge, validationErr.Error())
+		} else {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
+		}
+		return
+	}
+	if currentHasImages && !imageCapable {
+		writeAgentChatImageCapabilityRequired(w)
+		return
 	}
 	content := strings.TrimSpace(req.Content)
 	if compacted, err := h.compactChatSessionForModelTurn(r.Context(), session, provider, model); err != nil {
@@ -1993,7 +2002,8 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		routeProvider = provider
 	}
 	requestProviderInstance := types.ProviderInstanceIdentity{}
-	if requiresImageInput {
+	requiresAttachmentFence := chatMessagesHaveAttachmentBodies(history)
+	if requiresAttachmentFence {
 		requestProviderInstance = providerInstance
 	}
 	chatReq := types.ChatRequest{
@@ -2002,8 +2012,8 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		Messages:  history,
 		Requirements: types.ChatRequestRequirements{
 			ImageInput:         requiresImageInput,
-			NoProviderFailover: requiresImageInput,
-			ExactProvider:      requiresImageInput && routeProvider != "",
+			NoProviderFailover: requiresAttachmentFence,
+			ExactProvider:      requiresAttachmentFence && routeProvider != "",
 			ProviderInstance:   requestProviderInstance,
 		},
 		Scope: requestscope.Build(routeProvider),
@@ -2193,11 +2203,21 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 	selected := make(map[string]struct{})
 	omissionReasons := make(map[string]string)
 	remaining := agentChatMaxImageHistoryBytes
+	remainingText := int64(chatapp.MaxNativeTextContextBytes)
+	requiresImages := false
 	for _, attachment := range current {
-		if err := validateStoredChatImageAttachment(attachment); err != nil {
+		if err := validateStoredNativeChatAttachment(attachment); err != nil {
 			return nil, false, err
 		}
+		if attachment.MediaType == "text/plain" {
+			remainingText -= int64(len(attachment.Data))
+		} else {
+			requiresImages = true
+		}
 		remaining -= int64(len(attachment.Data))
+	}
+	if remainingText < 0 {
+		return nil, false, chatapp.ErrNativeTextContextTooLarge
 	}
 	if remaining < 0 {
 		return nil, false, errors.New("current image attachments exceed the model history limit")
@@ -2213,16 +2233,22 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 		for j := len(message.Attachments) - 1; j >= 0; j-- {
 			attachment := message.Attachments[j]
 			key := chatAttachmentSelectionKey(message.ID, attachment.ID)
+			isText := attachment.MediaType == "text/plain"
 			switch {
-			case !includeHistoricalImages:
+			case !isText && !includeHistoricalImages:
 				omissionReasons[key] = "the active route does not support image input"
 			case historicalProvider == "" || !historicalProviderInstance.Valid() || strings.TrimSpace(message.Provider) != historicalProvider || message.ProviderInstance != historicalProviderInstance:
 				omissionReasons[key] = "the active provider differs from the route that previously received it"
+			case isText && (attachment.SizeBytes <= 0 || attachment.SizeBytes > chatapp.MaxNativeTextAttachmentBytes || attachment.SizeBytes > remainingText):
+				omissionReasons[key] = "the 64 KiB text-attachment context limit was reached"
 			case attachment.SizeBytes <= 0 || attachment.SizeBytes > remaining:
 				omissionReasons[key] = fmt.Sprintf("the %d MiB image-history limit was reached", agentChatMaxImageHistoryBytes>>20)
 			default:
 				selected[key] = struct{}{}
 				remaining -= attachment.SizeBytes
+				if isText {
+					remainingText -= attachment.SizeBytes
+				}
 			}
 		}
 	}
@@ -2253,7 +2279,7 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 		}
 
 		stored := make([]chatattachments.StoredAttachment, 0, len(message.Attachments))
-		omitted := make([]string, 0, len(message.Attachments))
+		omitted := make([]nativeAttachmentOmission, 0, len(message.Attachments))
 		for _, attachment := range message.Attachments {
 			key := chatAttachmentSelectionKey(message.ID, attachment.ID)
 			if _, ok := selected[key]; !ok {
@@ -2261,7 +2287,7 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 				if reason == "" {
 					reason = "it was not selected by the image-history safety policy"
 				}
-				omitted = append(omitted, reason)
+				omitted = append(omitted, nativeAttachmentOmission{MediaType: attachment.MediaType, Reason: reason})
 				continue
 			}
 			item, err := h.chatApplication().GetAttachment(ctx, chatapp.AttachmentCommand{
@@ -2273,18 +2299,21 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 			}
 			if err := validateStoredChatAttachmentTranscript(session.ID, attachment, item); err != nil {
 				delete(selected, key)
-				omitted = append(omitted, err.Error())
+				omitted = append(omitted, nativeAttachmentOmission{MediaType: attachment.MediaType, Reason: err.Error()})
 				continue
 			}
-			if err := validateStoredChatImageAttachment(item); err != nil {
+			if err := validateStoredNativeChatAttachment(item); err != nil {
 				return nil, false, err
+			}
+			if item.MediaType != "text/plain" {
+				requiresImages = true
 			}
 			stored = append(stored, item)
 		}
 		messages = append(messages, chatModelMessageWithAttachments(text, stored, omitted))
 	}
 	messages = append(messages, chatModelMessageWithAttachments(content, current, nil))
-	return messages, len(current) > 0 || len(selected) > 0, nil
+	return messages, requiresImages, nil
 }
 
 func chatSessionHasAttachments(session chat.Session) bool {
@@ -2300,12 +2329,16 @@ func chatAttachmentSelectionKey(messageID, attachmentID string) string {
 	return messageID + "\x00" + attachmentID
 }
 
-func chatModelMessageWithAttachments(text string, attachments []chatattachments.StoredAttachment, omissionReasons []string) types.Message {
+func chatModelMessageWithAttachments(text string, attachments []chatattachments.StoredAttachment, omissionReasons []nativeAttachmentOmission) types.Message {
 	text = strings.TrimSpace(text)
 	if len(omissionReasons) > 0 {
 		markers := make([]string, 0, len(omissionReasons))
-		for _, reason := range omissionReasons {
-			markers = append(markers, "[Earlier image omitted from model context because "+reason+".]")
+		for _, omission := range omissionReasons {
+			subject := "image"
+			if omission.MediaType == "text/plain" {
+				subject = "text attachment"
+			}
+			markers = append(markers, "[Earlier "+subject+" omitted from model context because "+omission.Reason+".]")
 		}
 		if text != "" {
 			text += "\n\n"
@@ -2321,6 +2354,10 @@ func chatModelMessageWithAttachments(text string, attachments []chatattachments.
 		message.ContentBlocks = append(message.ContentBlocks, types.ContentBlock{Type: "text", Text: text})
 	}
 	for _, attachment := range attachments {
+		if attachment.MediaType == "text/plain" {
+			message.ContentBlocks = append(message.ContentBlocks, nativeTextAttachmentBlock(attachment))
+			continue
+		}
 		config, _, _ := image.DecodeConfig(bytes.NewReader(attachment.Data))
 		message.ContentBlocks = append(message.ContentBlocks, types.ContentBlock{
 			Type: "image_url",

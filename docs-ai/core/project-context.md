@@ -181,7 +181,7 @@ Hecate Chat attachments are Hecate runtime state, not Projects
 coordination. Keep session-scoped binary bodies in `internal/chatattachments`
 and immutable metadata in `internal/chat`; never put bytes or base64 in
 transcript JSON, SSE, traces, logs, or the UI's persisted queued prompts.
-Hecate turns accept supported raster images with tools on or off; External
+Hecate turns accept supported raster images and UTF-8 text/code with tools on or off; External
 Agent turns accept files and resolve them into capability-gated ACP
 image/resource blocks or private per-turn resource links. External rich blocks share a cumulative
 768 KiB encoded wire budget so prompt text, JSON escaping, and base64 expansion
@@ -189,9 +189,18 @@ cannot cross the supported adapters' 1 MiB message cap; stage overflow files as
 links, preflight allocations, and reject oversized text before dispatch. A
 separate two-slot process gate bounds file-bearing External turns through ACP
 return, and cancelled turns are rechecked immediately before disclosure.
-Hecate attachment sends set an explicit internal request requirement and must
+Hecate image-bearing sends set an explicit internal request requirement and must
 fail closed unless the selected initial route has effective
-image-input support. Hydrated image requests may retry on that provider but
+image-input support. Text input does not require vision. Native text is bounded
+to 32 KiB per file and 64 KiB across current plus eligible historical bodies;
+reject overflow/invalid UTF-8/binary content rather than truncating or extracting.
+Keep transient text in separately marked `ContentBlock.AttachmentInput` blocks,
+never `Message.Content`, task prompts, transcript JSON, or context packets.
+The internal marker is excluded from JSON; replace it with body-free checkpoint
+notices before serialization and rehydrate only through `InputRef` on same-input
+resume. Suppress provider-error details on these requests before diagnostic
+recording because upstream errors may echo arbitrary file text.
+Hydrated file requests may retry on that provider but
 must not cross-provider fail over. Rehydrate
 historical bytes only for the same configured provider name and opaque
 generation recorded on the original turn; use an omission marker for legacy

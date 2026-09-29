@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChat } from "../../app/state/chat";
+import { pendingChatAttachmentKind } from "../../app/state/_shared";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
 import { useRuntime } from "../../app/state/runtime";
@@ -129,6 +130,7 @@ function chatAttachmentsDisabledReason({
   isExternalAgentChat,
   externalAgentReady,
   agentBusy,
+  requiresImageInput,
   capability,
   model,
 }: {
@@ -137,6 +139,7 @@ function chatAttachmentsDisabledReason({
   isExternalAgentChat: boolean;
   externalAgentReady: boolean;
   agentBusy: boolean;
+  requiresImageInput: boolean;
   capability: ImageInputCapability;
   model: string;
 }): string {
@@ -150,6 +153,11 @@ function chatAttachmentsDisabledReason({
   if (isExternalAgentChat) {
     return externalAgentReady ? "" : "Complete External Agent setup before attaching files.";
   }
+  if (requiresImageInput) return chatImageInputDisabledReason(capability, model);
+  return "";
+}
+
+function chatImageInputDisabledReason(capability: ImageInputCapability, model: string): string {
   if (capability === "none") return `${model || "This model"} does not support image input.`;
   if (capability !== "supported") {
     return `Image input has not been confirmed for ${model || "the selected model"}.`;
@@ -808,7 +816,14 @@ export function ChatView({
       : activeSessionMatchesSelectedImageRoute
         ? normalizeImageInputCapability(state.activeChatSession?.capabilities?.image_input)
         : "unknown";
-  const attachmentAcceptance = isExternalAgentChat ? "files" : "images";
+  const attachmentAcceptance = isExternalAgentChat ? "files" : "native";
+  const attachmentSelectionScopeKey = JSON.stringify([
+    projects.activeProject?.id ?? "",
+    activeWorkspacePath,
+    state.agentWorkspaceMode,
+    chat.state.agentWorkspaceBranch,
+    state.activeChatSession?.project_id ?? "",
+  ]);
   const externalAgentAttachmentsReady =
     isExternalAgentChat &&
     (selectedChatReady || draftExternalAgentReadyForComposer) &&
@@ -819,8 +834,13 @@ export function ChatView({
   const attachmentModeAllowed = isExternalAgentChat
     ? externalAgentAttachmentsReady
     : isHecateChat && state.chatTarget === "agent";
-  const selectedModeAcceptsAttachments =
+  const pendingAttachmentsRequireImageInput = pendingAttachments.some(
+    (attachment) => pendingChatAttachmentKind(attachment) === "image",
+  );
+  const imageAttachmentsEnabled =
     isExternalAgentChat || selectedImageInputCapability === "supported";
+  const selectedModeAcceptsAttachments =
+    isExternalAgentChat || !pendingAttachmentsRequireImageInput || imageAttachmentsEnabled;
   const attachmentsEnabled =
     attachmentModeAllowed &&
     selectedModeAcceptsAttachments &&
@@ -838,9 +858,13 @@ export function ChatView({
         isExternalAgentChat,
         externalAgentReady: externalAgentAttachmentsReady,
         agentBusy: agentBusy || anotherChatTurnActive || chatCreationPending,
+        requiresImageInput: pendingAttachmentsRequireImageInput,
         capability: selectedImageInputCapability,
         model: hecateChatModelValue,
       });
+  const imageAttachmentsDisabledReason = isExternalAgentChat
+    ? ""
+    : chatImageInputDisabledReason(selectedImageInputCapability, hecateChatModelValue);
   const messageSendBlocked =
     !agentBusy &&
     ((isHecateChat && !hecateChatModelReady) ||
@@ -1799,6 +1823,9 @@ export function ChatView({
                 attachmentAcceptance={attachmentAcceptance}
                 attachmentsEnabled={attachmentsEnabled}
                 attachmentsDisabledReason={attachmentsDisabledReason}
+                imageAttachmentsEnabled={imageAttachmentsEnabled}
+                imageAttachmentsDisabledReason={imageAttachmentsDisabledReason}
+                attachmentSelectionScopeKey={attachmentSelectionScopeKey}
                 selectedModelIssue={selectedModelIssue}
                 chatDiagnostic={chatDiagnostic}
                 hecateAgentModelLocked={hecateAgentModelLocked}

@@ -122,11 +122,16 @@ type e2eChatAttachmentMetadata struct {
 
 func e2eUploadChatAttachment(t *testing.T, baseURL, sessionID, filename string, data []byte) (e2eChatAttachmentResponse, []byte) {
 	t.Helper()
+	return e2eUploadChatAttachmentType(t, baseURL, sessionID, filename, "image/png", data)
+}
+
+func e2eUploadChatAttachmentType(t *testing.T, baseURL, sessionID, filename, mediaType string, data []byte) (e2eChatAttachmentResponse, []byte) {
+	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, filename))
-	header.Set("Content-Type", "image/png")
+	header.Set("Content-Type", mediaType)
 	part, err := writer.CreatePart(header)
 	if err != nil {
 		t.Fatalf("create multipart image part: %v", err)
