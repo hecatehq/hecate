@@ -87,3 +87,153 @@ test("sqlite backend disables in-process reset", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Unavailable" })).toBeDisabled();
 });
+
+test("keeps cached Cloud instances visible until native retry guidance clears", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const availableStatus = {
+      available: true,
+      restoring: false,
+      phase: "connected",
+      running: true,
+      authorizing: false,
+      signed_in: true,
+      gateway_ready: true,
+      auto_start_enabled: true,
+      account_email: "operator@example.com",
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:8765",
+      message: "Remote access is on.",
+      last_error: null,
+      retry_after_seconds: null,
+    };
+    const outageMessage =
+      "Hecate Cloud is temporarily unavailable. Automatic checks will resume after the waiting period.";
+    const state = {
+      calls: [] as string[],
+      connectionReads: 0,
+      cooldown: false,
+      recover: false,
+      statusReads: 0,
+    };
+    const connections = [
+      {
+        id: "runtime-production",
+        kind: "hosted_runtime",
+        org_id: "org-1",
+        project_id: "project-1",
+        name: "Production",
+        status: "online",
+        reachable: true,
+        can_start: false,
+        remote_enabled: false,
+        version: "0.8.0",
+        capabilities: [],
+        last_seen_at: "2026-09-29T12:00:00Z",
+      },
+    ];
+    let callbackID = 0;
+    const callbacks = new Map<number, (...args: unknown[]) => unknown>();
+
+    Object.defineProperty(window, "__desktopCloudRetryTest", {
+      configurable: false,
+      value: state,
+    });
+    Object.defineProperty(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+      configurable: false,
+      value: { unregisterListener: () => undefined },
+    });
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: false,
+      value: {
+        invoke: async (command: string) => {
+          state.calls.push(command);
+          if (command === "cloud_connection_status") {
+            state.statusReads += 1;
+            if (state.cooldown && !state.recover) {
+              return {
+                ...availableStatus,
+                message: outageMessage,
+                last_error: "Hecate Cloud is temporarily unavailable.",
+                retry_after_seconds: 60,
+              };
+            }
+            return structuredClone(availableStatus);
+          }
+          if (command === "cloud_runtime_connections") {
+            state.connectionReads += 1;
+            if (state.connectionReads === 1) state.cooldown = true;
+            return structuredClone(connections);
+          }
+          if (command === "plugin:updater|check") return null;
+          if (command === "plugin:event|listen") return 1;
+          if (command === "take_pending_desktop_update_check") return false;
+          if (command === "set_update_badge" || command === "plugin:event|unlisten") return null;
+          throw new Error(`Unexpected native command: ${command}`);
+        },
+        transformCallback: (callback: (...args: unknown[]) => unknown) => {
+          callbackID += 1;
+          callbacks.set(callbackID, callback);
+          return callbackID;
+        },
+        unregisterCallback: (id: number) => callbacks.delete(id),
+      },
+    });
+  });
+
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+  await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
+
+  const account = page.getByTestId("desktop-cloud-connection");
+  const runtimes = page.getByTestId("desktop-cloud-runtimes");
+  const outageMessage =
+    "Hecate Cloud is temporarily unavailable. Automatic checks will resume after the waiting period.";
+  await expect(account.getByText("operator@example.com")).toBeVisible();
+  await expect(account.getByText(outageMessage)).toBeVisible();
+  await expect(account.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  await expect(runtimes.getByRole("button", { name: "Open Production" })).toBeVisible();
+  const refresh = runtimes.getByRole("button", { name: "Refresh" });
+  await expect(refresh).toBeDisabled();
+
+  const pausedConnectionReads = await page.evaluate(() => {
+    const testWindow = window as typeof window & {
+      __desktopCloudRetryTest: { connectionReads: number };
+    };
+    return testWindow.__desktopCloudRetryTest.connectionReads;
+  });
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await refresh.evaluate((button: HTMLButtonElement) => button.click());
+  await page.waitForTimeout(100);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __desktopCloudRetryTest: { connectionReads: number };
+        };
+        return testWindow.__desktopCloudRetryTest.connectionReads;
+      }),
+    )
+    .toBe(pausedConnectionReads);
+
+  await page.evaluate(() => {
+    const testWindow = window as typeof window & {
+      __desktopCloudRetryTest: { recover: boolean };
+    };
+    testWindow.__desktopCloudRetryTest.recover = true;
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const testWindow = window as typeof window & {
+          __desktopCloudRetryTest: { connectionReads: number };
+        };
+        return testWindow.__desktopCloudRetryTest.connectionReads;
+      }),
+    )
+    .toBe(pausedConnectionReads + 1);
+  await expect(account.getByText(outageMessage)).toHaveCount(0);
+  await expect(runtimes.getByRole("button", { name: "Open Production" })).toBeVisible();
+  await expect(refresh).toBeEnabled();
+});

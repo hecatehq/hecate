@@ -74,6 +74,18 @@ the matching transaction and one-time browser ticket before enabling the app
 session. The native client then polls Cloud with the bearer token, but the
 browser and local HTML/JavaScript shell never receive that token.
 
+If Cloud returns temporary unavailability (`503`) or rate limiting (`429`),
+the native client honors `Retry-After` before further authenticated reads.
+The chooser shows the temporary condition, retains its last connection list
+and the in-memory sign-in, and resumes automatic checks after the waiting
+period. Manual refresh, returning to the foreground, and the browser-approval
+callback cannot bypass that pause. Pending sign-in remains cancellable and
+keeps its original expiry. An actual expired-session response (`401`) still
+clears sign-in. Retry guidance accepts seconds and HTTP dates, bounded to
+1 second–24 hours, with a 30-second fallback for missing or invalid values.
+Runtime starts and one-time browser sessions are never automatically replayed;
+background push-registration reconciliation is also paused during the cooldown.
+
 When a hosted runtime is opened, the native layer requests a 60-second,
 single-use continuation bound to the app session, actor, organization, target
 path, and a durable nonce. The app navigates its own WebView to that

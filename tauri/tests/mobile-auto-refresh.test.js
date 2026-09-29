@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createAutoRefreshLoop, shouldAutoRefresh } from "../mobile/auto-refresh.js";
+import { cloudRetryView, createAutoRefreshLoop, refreshMobileCloudData, shouldAutoRefresh } from "../mobile/auto-refresh.js";
 
 function createTimerHarness() {
   let nextId = 1;
@@ -36,6 +36,108 @@ function deferred() {
 }
 
 describe("mobile auto refresh loop", () => {
+  it("lets connection recovery run before optional cleanup can renew the cooldown", async () => {
+    const timers = createTimerHarness();
+    let now = 0;
+    const operations = [];
+    const loop = createAutoRefreshLoop({
+      refresh: () => refreshMobileCloudData({
+        refreshStatus: async () => { operations.push("local status"); },
+        shouldRefreshConnections: () => true,
+        loadConnections: async () => { operations.push("connections"); },
+        refreshNotificationStatus: async () => {
+          operations.push("optional cleanup");
+          loop.setRetryAfterSeconds(30); // persistent push endpoint 503
+        },
+      }),
+      intervalMs: 10_000,
+      nowFn: () => now,
+      ...timers,
+    });
+    loop.setEnabled(true);
+    await loop.refreshNow();
+    expect(operations).toEqual(["local status", "connections", "optional cleanup"]);
+    loop.setEnabled(true, { immediate: true });
+    await expect(loop.refreshNow()).resolves.toBe(false);
+    expect(operations).toHaveLength(3);
+    now = 30_000;
+    await loop.refreshNow();
+    expect(operations).toEqual([
+      "local status", "connections", "optional cleanup",
+      "local status", "connections", "optional cleanup",
+    ]);
+  });
+
+  it("rechecks sign-in after local status before reading connections", async () => {
+    const operations = [];
+    let signedIn = true;
+    await refreshMobileCloudData({
+      refreshStatus: async () => { signedIn = false; operations.push("local status"); },
+      shouldRefreshConnections: () => signedIn,
+      loadConnections: async () => { operations.push("connections"); },
+      refreshNotificationStatus: async () => { operations.push("notification status"); },
+    });
+    expect(operations).toEqual(["local status", "notification status"]);
+  });
+
+  it("bounds retry guidance and keeps the signed-in outage distinct from sign-out", () => {
+    const status = { signed_in: true, retry_after_seconds: 30, message: "Cloud is busy." };
+    expect(shouldAutoRefresh(status, false)).toBe(true);
+    expect(cloudRetryView(status)).toEqual({
+      retryAfterSeconds: 30,
+      message: "Cloud is busy. Retrying in 30s.",
+    });
+    for (const value of [undefined, null, "30", -1, NaN, Infinity, 0]) {
+      expect(cloudRetryView({ retry_after_seconds: value })).toEqual({ retryAfterSeconds: 0, message: "" });
+    }
+    expect(cloudRetryView({ retry_after_seconds: 90_000 }).retryAfterSeconds).toBe(86_400);
+  });
+
+  it("does not let foreground or manual refresh bypass a Cloud cooldown", async () => {
+    const timers = createTimerHarness();
+    let now = 0;
+    let refreshCount = 0;
+    const loop = createAutoRefreshLoop({
+      refresh: async () => { refreshCount += 1; },
+      intervalMs: 10_000,
+      nowFn: () => now,
+      ...timers,
+    });
+    loop.setEnabled(true);
+    loop.setRetryAfterSeconds(30);
+    expect(timers.scheduled[0].delay).toBe(30_000);
+    loop.setEnabled(true, { immediate: true });
+    await expect(loop.refreshNow()).resolves.toBe(false);
+    expect(refreshCount).toBe(0);
+    now = 15_000;
+    loop.setRetryAfterSeconds(15); // fresh local status does not restart a 30s wait
+    expect(timers.scheduled[0].delay).toBe(15_000);
+    now = 30_000;
+    timers.runNext();
+    await Promise.resolve();
+    expect(refreshCount).toBe(1);
+    expect(timers.scheduled[0].delay).toBe(10_000);
+  });
+
+  it("clears a prior account cooldown and cancels a backgrounded retry", async () => {
+    const timers = createTimerHarness();
+    let refreshCount = 0;
+    const loop = createAutoRefreshLoop({
+      refresh: async () => { refreshCount += 1; },
+      intervalMs: 10_000,
+      nowFn: () => 0,
+      ...timers,
+    });
+    loop.setEnabled(true);
+    loop.setRetryAfterSeconds(30);
+    loop.setEnabled(false);
+    expect(timers.scheduled).toHaveLength(0);
+    loop.setRetryAfterSeconds(0); // signed-out native status has no cooldown
+    loop.setEnabled(true, { immediate: true });
+    await Promise.resolve();
+    expect(refreshCount).toBe(1);
+  });
+
   it("runs only for a signed-in session on a visible page", () => {
     expect(shouldAutoRefresh({ signed_in: true }, false)).toBe(true);
     expect(shouldAutoRefresh({ signed_in: false }, false)).toBe(false);

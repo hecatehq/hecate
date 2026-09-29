@@ -65,6 +65,7 @@ security-framework-sys = "2"
 keyring = { version = "3", features = ["windows-native"] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 # Release CI uses the same verifier as tauri-plugin-updater to prove each
 # generated payload and `.sig` pair match before either is published.
 minisign-verify = "0.2.5"

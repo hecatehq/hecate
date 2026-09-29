@@ -29,6 +29,7 @@ function DesktopCloudConnectionSettings() {
   const statusRequestGenerationRef = useRef(0);
   const statusRequestInFlightRef = useRef<Promise<void> | null>(null);
   const statusMutationInFlightRef = useRef(false);
+  const cloudReadPaused = (status?.retry_after_seconds ?? 0) > 0;
 
   const loadStatus = useCallback((showLoading = false) => {
     if (statusMutationInFlightRef.current) return Promise.resolve();
@@ -77,7 +78,9 @@ function DesktopCloudConnectionSettings() {
   useEffect(() => {
     if (
       !status ||
-      (!status.restoring && !["authorizing", "connecting", "reconnecting"].includes(status.phase))
+      (!cloudReadPaused &&
+        !status.restoring &&
+        !["authorizing", "connecting", "reconnecting"].includes(status.phase))
     )
       return;
     const interval = window.setInterval(() => {
@@ -85,7 +88,7 @@ function DesktopCloudConnectionSettings() {
       void loadStatus();
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [loadStatus, status?.phase, status?.restoring]);
+  }, [cloudReadPaused, loadStatus, status?.phase, status?.restoring]);
 
   function beginStatusMutation(action: "signin" | "connect" | "disconnect" | "signout") {
     statusMutationInFlightRef.current = true;
@@ -149,6 +152,7 @@ function DesktopCloudConnectionSettings() {
   const accessOn = Boolean(status?.auto_start_enabled);
   const unavailable = !loading && (!status || !status.available);
   const actionDisabled = loading || status?.restoring || busy !== null || !status?.available;
+  const statusError = cloudReadPaused ? null : status?.last_error;
   const connectionLabel = status?.running
     ? "Connected"
     : status?.phase === "connecting"
@@ -191,8 +195,8 @@ function DesktopCloudConnectionSettings() {
                   {unavailable
                     ? status?.message ||
                       "Hecate Cloud status could not be read. Check the desktop configuration and try again."
-                    : authorizing
-                      ? "Approve the sign-in request in your browser. This window updates automatically."
+                    : authorizing || cloudReadPaused
+                      ? status?.message || "Approve the sign-in request in your browser."
                       : "Sign in to open Cloud runtimes and other computers. Remote access to this computer stays off until you enable it."}
                 </div>
               </div>
@@ -289,11 +293,12 @@ function DesktopCloudConnectionSettings() {
                     Agent work may use this computer&apos;s configured CLI sign-ins; credentials
                     stay here.
                   </div>
-                  {status?.phase !== "disconnected" && !status?.running && (
-                    <div style={{ marginTop: 5, color: "var(--t3)", fontSize: 11 }}>
-                      {status?.message}
-                    </div>
-                  )}
+                  {status &&
+                    (cloudReadPaused || (status.phase !== "disconnected" && !status.running)) && (
+                      <div role="status" style={{ marginTop: 5, color: "var(--t3)", fontSize: 11 }}>
+                        {status?.message}
+                      </div>
+                    )}
                 </div>
                 <Toggle
                   ariaLabel="Remote access for this computer"
@@ -304,23 +309,28 @@ function DesktopCloudConnectionSettings() {
               </div>
             </>
           )}
-          {(error || status?.last_error) && (
+          {(error || statusError) && (
             <div style={{ padding: "0 20px 16px" }}>
-              <InlineError message={error || status?.last_error || "Hecate Cloud failed."} />
+              <InlineError message={error || statusError || "Hecate Cloud failed."} />
             </div>
           )}
         </div>
       </section>
       {signedIn && (
-        <DesktopCloudRuntimeSettings onAccountStatusRefresh={refreshStatusAfterCurrent} />
+        <DesktopCloudRuntimeSettings
+          cloudReadPaused={cloudReadPaused}
+          onAccountStatusRefresh={refreshStatusAfterCurrent}
+        />
       )}
     </>
   );
 }
 
 function DesktopCloudRuntimeSettings({
+  cloudReadPaused,
   onAccountStatusRefresh,
 }: {
+  cloudReadPaused: boolean;
   onAccountStatusRefresh: () => Promise<void>;
 }) {
   const [connections, setConnections] = useState<DesktopCloudRuntimeConnection[]>([]);
@@ -332,26 +342,43 @@ function DesktopCloudRuntimeSettings({
   const requestGenerationRef = useRef(0);
   const requestInFlightRef = useRef<Promise<void> | null>(null);
   const mutationInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const cloudReadPausedRef = useRef(cloudReadPaused);
+  const connectionReadAttemptedRef = useRef(false);
+  cloudReadPausedRef.current = cloudReadPaused;
 
   const loadConnections = useCallback(
     (background = false) => {
+      if (!mountedRef.current) return Promise.resolve();
+      if (cloudReadPausedRef.current) return Promise.resolve();
       if (mutationInFlightRef.current) return Promise.resolve();
       if (requestInFlightRef.current) return requestInFlightRef.current;
+      connectionReadAttemptedRef.current = true;
       const requestGeneration = ++requestGenerationRef.current;
       if (!background) setLoading(true);
       const request = getDesktopCloudRuntimeConnections()
-        .then((nextConnections) => {
-          if (requestGeneration !== requestGenerationRef.current) return;
+        .then(async (nextConnections) => {
+          if (!mountedRef.current || requestGeneration !== requestGenerationRef.current) return;
           setConnections(nextConnections);
           setError("");
+          // Readiness checks can retain a cached runtime row while the native
+          // layer records a retry window. Re-read only the local native status
+          // so that cooldown becomes visible without issuing another Cloud GET.
+          await onAccountStatusRefresh();
         })
         .catch(async (err) => {
-          if (requestGeneration !== requestGenerationRef.current) return;
+          if (!mountedRef.current || requestGeneration !== requestGenerationRef.current) return;
           setError(err instanceof Error ? err.message : "Cloud instances could not be loaded.");
           await onAccountStatusRefresh();
         })
         .finally(() => {
-          if (!background && requestGeneration === requestGenerationRef.current) setLoading(false);
+          if (
+            mountedRef.current &&
+            !background &&
+            requestGeneration === requestGenerationRef.current
+          ) {
+            setLoading(false);
+          }
           if (requestInFlightRef.current === request) requestInFlightRef.current = null;
         });
       requestInFlightRef.current = request;
@@ -361,11 +388,20 @@ function DesktopCloudRuntimeSettings({
   );
 
   useEffect(() => {
-    void loadConnections();
+    if (cloudReadPaused) {
+      setError("");
+      if (!connectionReadAttemptedRef.current) setLoading(false);
+      return;
+    }
+    void loadConnections(connectionReadAttemptedRef.current);
+  }, [cloudReadPaused, loadConnections]);
+
+  useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      requestGenerationRef.current += 1;
+      mountedRef.current = false;
     };
-  }, [loadConnections]);
+  }, []);
 
   useEffect(() => {
     if (connections.some((connection) => connection.id === selectedConnectionID)) return;
@@ -376,6 +412,7 @@ function DesktopCloudRuntimeSettings({
     (connection) => connection.kind === "hosted_runtime" && connection.status === "starting",
   );
   useEffect(() => {
+    if (cloudReadPaused) return;
     const refreshIfVisible = () => {
       if (document.visibilityState === "visible") void loadConnections(true);
     };
@@ -385,7 +422,7 @@ function DesktopCloudRuntimeSettings({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshIfVisible);
     };
-  }, [hasStartingConnection, loadConnections]);
+  }, [cloudReadPaused, hasStartingConnection, loadConnections]);
 
   async function startConnection(connection: DesktopCloudRuntimeConnection) {
     mutationInFlightRef.current = true;
@@ -473,11 +510,15 @@ function DesktopCloudRuntimeSettings({
       <SectionHeader
         title="Open another Hecate"
         description="Choose a runtime Hecate can open now or start for you. Each opens in its own Hecate window."
-        meta={loading ? undefined : `${connections.length} available`}
+        meta={
+          loading || (cloudReadPaused && connections.length === 0)
+            ? undefined
+            : `${connections.length} available`
+        }
         actions={
           <button
             className="btn btn-ghost btn-sm"
-            disabled={loading || busy !== null}
+            disabled={cloudReadPaused || loading || busy !== null}
             onClick={() => void loadConnections()}
           >
             <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
@@ -487,6 +528,10 @@ function DesktopCloudRuntimeSettings({
       <div className="card" style={{ overflow: "hidden" }}>
         {loading ? (
           <CloudMessage>Loading controllable Hecate instances…</CloudMessage>
+        ) : cloudReadPaused && connections.length === 0 ? (
+          <CloudMessage>
+            Connection refresh is paused. Hecate will try again automatically.
+          </CloudMessage>
         ) : connections.length === 0 && !error ? (
           <CloudMessage>
             No reachable computers or startable hosted runtimes are available for this account.

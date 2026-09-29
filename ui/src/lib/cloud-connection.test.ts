@@ -39,6 +39,7 @@ function connectionStatus(overrides: Record<string, unknown> = {}) {
     base_url: "http://127.0.0.1:54321",
     message: "Remote access is off.",
     last_error: null,
+    retry_after_seconds: null,
     ...overrides,
   };
 }
@@ -80,6 +81,7 @@ describe("desktop cloud connection bridge", () => {
       base_url: "http://127.0.0.1:54321",
       message: "Remote access is on.",
       last_error: null,
+      retry_after_seconds: null,
     });
     expect(invokeMock).toHaveBeenCalledWith("cloud_connection_status", undefined);
   });
@@ -149,6 +151,18 @@ describe("desktop cloud connection bridge", () => {
     invokeMock.mockResolvedValueOnce({ available: true, phase: "surprise" });
 
     await expect(getDesktopCloudConnectionStatus()).rejects.toThrow("invalid status");
+  });
+
+  it("normalizes a bounded Cloud retry delay and rejects unsafe values", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock
+      .mockResolvedValueOnce(connectionStatus({ retry_after_seconds: 37 }))
+      .mockResolvedValueOnce(connectionStatus({ retry_after_seconds: 86_401 }));
+
+    await expect(getDesktopCloudConnectionStatus()).resolves.toMatchObject({
+      retry_after_seconds: 37,
+    });
+    await expect(getDesktopCloudConnectionStatus()).rejects.toThrow("safe retry delay");
   });
 });
 

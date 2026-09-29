@@ -14,6 +14,7 @@ export type DesktopCloudConnectionStatus = {
   base_url: string | null;
   message: string;
   last_error: string | null;
+  retry_after_seconds: number | null;
 };
 
 export type DesktopCloudRuntimeConnection = {
@@ -149,6 +150,7 @@ function normalizeStatus(value: unknown): DesktopCloudConnectionStatus {
     base_url: requireNullableString(record.base_url),
     message: requireNonEmptyString(record.message),
     last_error: requireNullableString(record.last_error),
+    retry_after_seconds: requireNullableRetryAfterSeconds(record.retry_after_seconds),
   };
 }
 
@@ -240,6 +242,14 @@ function requireNonEmptyString(value: unknown): string {
 function requireNullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return requireNonEmptyString(value);
+}
+
+function requireNullableRetryAfterSeconds(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 86_400) {
+    throw new Error("Expected a safe retry delay.");
+  }
+  return value;
 }
 
 function requireConnectionID(value: string): string {
