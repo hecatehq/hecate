@@ -157,6 +157,7 @@ export type ChatComposerProps = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
+  hecateChatToolsEnabled: boolean;
   hecateTaskToolsAvailable: boolean;
   activeTurnKind: ChatTurnKind;
   activeSessionID: string;
@@ -263,6 +264,7 @@ export function ChatComposer(props: ChatComposerProps) {
     isAgentChat,
     isHecateChat,
     isExternalAgentChat,
+    hecateChatToolsEnabled,
     hecateTaskToolsAvailable,
     activeTurnKind,
     activeSessionID,
@@ -1381,6 +1383,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 describedBy={workspaceModePending ? workspaceModeStatusID : undefined}
                 error={attachmentSelectionError}
                 compact
+                nativeTextToolsEnabled={isHecateChat && hecateChatToolsEnabled}
                 onAddFiles={(files) => void addPendingFiles(files)}
                 onRemove={removePendingFile}
               />

@@ -295,8 +295,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   same-ID current-generation record owned by a fresh tab.
 - Chat attachment drafts are in-memory `File` values only. Never put `File`,
   Blob URLs, or base64 into persisted state/localStorage. Hecate-owned turns
-  accept UTF-8 text/code with Tools on or off, limited to 32 KiB per text file
-  and 64 KiB of text per message. Only actual PNG/JPEG/WebP images require
+  accept UTF-8 text/code with Tools on or off within the shared 5 MiB per-file
+  and 12 MiB message limits. Tools-on reads/searches private files on demand;
+  Tools-off has a server-authoritative model-aware inline budget. Preserve drafts
+  on `chat.text_context_too_large` and show enable-Tools/excerpt guidance, never
+  silently truncate. Only actual PNG/JPEG/WebP images require
   explicitly supported `image_input`; text files do not. Keep text as inert
   metadata plus Download, never inline HTML or executed code. The server remains
   authoritative for content sniffing, encoding, controls, and history budgets;

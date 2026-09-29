@@ -192,13 +192,19 @@ return, and cancelled turns are rechecked immediately before disclosure.
 Hecate image-bearing sends set an explicit internal request requirement and must
 fail closed unless the selected initial route has effective
 image-input support. Text input does not require vision. Native text is bounded
-to 32 KiB per file and 64 KiB across current plus eligible historical bodies;
-reject overflow/invalid UTF-8/binary content rather than truncating or extracting.
+to the shared 5 MiB per-file / 12 MiB message storage envelope. Tools-off uses
+a conservative model-aware inline budget (unknown window: 64 KiB before ordinary
+conversation overhead), rejecting current overflow with Tools-on/excerpt guidance.
+Tools-on exposes only current-input private read/search tools, never workspace
+copies, with bounded pages and explicit omission of older retained excerpts.
+Reject invalid UTF-8/binary content rather than truncating or extracting.
 Keep transient text in separately marked `ContentBlock.AttachmentInput` blocks,
 never `Message.Content`, task prompts, transcript JSON, or context packets.
 The internal marker is excluded from JSON; replace it with body-free checkpoint
-notices before serialization and rehydrate only through `InputRef` on same-input
-resume. Suppress provider-error details on these requests before diagnostic
+notices before serialization and revalidate only through `InputRef` on same-input
+resume; completed reads are not replayed. Body-free file metadata can persist.
+Model-generated answers/search queries/tool arguments follow ordinary persistence,
+not DLP. Suppress provider-error details on these requests before diagnostic
 recording because upstream errors may echo arbitrary file text.
 Hydrated file requests may retry on that provider but
 must not cross-provider fail over. Rehydrate

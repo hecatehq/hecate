@@ -324,8 +324,12 @@ model chat and makes the tools-unavailable state visible.
 
 Native Hecate Chat accepts UTF-8 text and code files (including Markdown, JSON,
 CSV, and source code) with Tools on or off, without requiring image support.
-Text files are limited to 32 KiB each and 64 KiB of attached text per model
-request, including eligible history. Invalid UTF-8, binary files, PDFs, and
+All files share the four-file, 5 MiB per-file, and 12 MiB per-message limits.
+With Tools on, the model receives file references and reads/searches private
+text in bounded parts. With Tools off, text must fit a conservative budget based
+on the model's advertised context window; overflow asks you to enable Tools or
+attach an excerpt. Unknown context windows use a 64 KiB inline allowance minus
+ordinary conversation overhead. Invalid UTF-8, binary files, PDFs, and
 archives are rejected; there is no extraction, execution, or silent truncation.
 Non-image files appear as metadata with an explicit **Download** action.
 
@@ -335,11 +339,13 @@ transcript, loads its preview through the normal Hecate-native API path
 (including the runtime-token header when that optional guard is configured),
 and sends it only through an explicitly image-capable provider route.
 All attachment-bearing requests may retry on that exact provider generation but never
-fail over or follow a same-name replacement. Tools-on turns hydrate files from
-an opaque run input reference immediately before the agent loop starts; task
-conversation artifacts retain an omission marker, never the uploaded body. Image
+fail over or follow a same-name replacement. Tools-on turns resolve an opaque
+run input reference immediately before the agent loop starts; text stays behind
+scoped read/search tools, while images hydrate inline. Task conversation
+artifacts retain metadata and omission markers, never raw private excerpts. Image
 blocks and remote image URLs are not persisted in those artifacts. Same-input
-resume and retry runs rehydrate through the opaque reference. At the final
+resume and retry runs revalidate access through the opaque reference; completed
+text reads are not replayed automatically. At the final
 provider-dispatch boundary, Hecate atomically records the exact resolved route
 on the run before provider I/O, so a worker restart cannot Auto-route the image
 elsewhere; the first model may be policy-rewritten, then every later model call

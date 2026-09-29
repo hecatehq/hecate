@@ -26,6 +26,7 @@ import (
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/requestscope"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -1861,11 +1862,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	currentHasImages, validationErr := validateStoredNativeChatAttachments(resolvedAttachments)
 	if validationErr != nil {
-		if errors.Is(validationErr, chatapp.ErrNativeTextContextTooLarge) {
-			WriteError(w, http.StatusRequestEntityTooLarge, errCodeAttachmentTooLarge, validationErr.Error())
-		} else {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
-		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
 		return
 	}
 	if currentHasImages && !imageCapable {
@@ -1883,11 +1880,30 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		session = compacted
 	}
 	effectiveSystemPrompt := h.hecateChatEffectiveSystemPrompt(r.Context(), session, req.SystemPrompt)
+	imageCount := 0
+	for _, attachment := range resolvedAttachments {
+		if attachment.MediaType != "text/plain" {
+			imageCount++
+		}
+	}
+	textBudget := nativeChatInlineTextBudget(caps, agentChatModelHistory(session, effectiveSystemPrompt, content), imageCount)
 	history, requiresImageInput, err := h.agentChatModelHistoryWithAttachments(
-		r.Context(), session, effectiveSystemPrompt, content, resolvedAttachments, imageCapable, historicalProvider, providerInstance,
+		r.Context(), session, effectiveSystemPrompt, content, resolvedAttachments, imageCapable, historicalProvider, providerInstance, textBudget,
 	)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to prepare chat image context")
+		if errors.Is(err, chatapp.ErrNativeTextContextTooLarge) {
+			writeNativeTextContextTooLarge(w, textBudget)
+		} else {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to prepare chat attachment context")
+		}
+		return
+	}
+	// Selection uses metadata estimates. Recheck the prepared context, including
+	// omission notices and escaped filenames, before committing the user row.
+	ordinaryBytes, inlineTextBytes := nativeInlineAttachmentCosts(history)
+	preparedTextBudget := chatapp.NativeTextContextBudget(caps.MaxContextTokens, ordinaryBytes)
+	if inlineTextBytes > preparedTextBudget {
+		writeNativeTextContextTooLarge(w, preparedTextBudget)
 		return
 	}
 	segmentID := modelSegmentID(session, provider, model)
@@ -2018,7 +2034,8 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		},
 		Scope: requestscope.Build(routeProvider),
 	}
-	result, runErr := h.service.HandleChatWithTrace(runCtx, chatReq, trace)
+	dispatchCtx := providerdispatch.WithAttemptRecorder(runCtx, h.nativeTextDispatchBudgetCheck(runCtx, history))
+	result, runErr := h.service.HandleChatWithTrace(dispatchCtx, chatReq, trace)
 	// Drop the handler's references to both binary and expanded image bodies
 	// before admitting another image turn. Providers own any copies they retain
 	// after their synchronous call returns.
@@ -2195,6 +2212,7 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 	includeHistoricalImages bool,
 	historicalProvider string,
 	historicalProviderInstance types.ProviderInstanceIdentity,
+	textBudgetOpt ...int,
 ) ([]types.Message, bool, error) {
 	if len(current) == 0 && !chatSessionHasAttachments(session) {
 		return agentChatModelHistory(session, systemPrompt, content), false, nil
@@ -2203,14 +2221,20 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 	selected := make(map[string]struct{})
 	omissionReasons := make(map[string]string)
 	remaining := agentChatMaxImageHistoryBytes
-	remainingText := int64(chatapp.MaxNativeTextContextBytes)
+	textBudget := chatapp.DefaultNativeTextContextBytes
+	if len(textBudgetOpt) > 0 {
+		textBudget = max(0, textBudgetOpt[0])
+	}
+	remainingText := int64(textBudget)
 	requiresImages := false
+	hasCurrentText := false
 	for _, attachment := range current {
 		if err := validateStoredNativeChatAttachment(attachment); err != nil {
 			return nil, false, err
 		}
 		if attachment.MediaType == "text/plain" {
-			remainingText -= int64(len(attachment.Data))
+			hasCurrentText = true
+			remainingText -= int64(len(attachment.Data) + 256)
 		} else {
 			requiresImages = true
 		}
@@ -2225,29 +2249,42 @@ func (h *Handler) agentChatModelHistoryWithAttachments(
 
 	skipThroughIndex := compactedTranscriptMessageIndex(session.Messages, session.ContextSummary.ThroughMessageID)
 	historicalProvider = strings.TrimSpace(historicalProvider)
-	for i := len(session.Messages) - 1; i > skipThroughIndex; i-- {
-		message := session.Messages[i]
-		if message.Role != "user" {
-			continue
-		}
-		for j := len(message.Attachments) - 1; j >= 0; j-- {
-			attachment := message.Attachments[j]
-			key := chatAttachmentSelectionKey(message.ID, attachment.ID)
-			isText := attachment.MediaType == "text/plain"
-			switch {
-			case !isText && !includeHistoricalImages:
-				omissionReasons[key] = "the active route does not support image input"
-			case historicalProvider == "" || !historicalProviderInstance.Valid() || strings.TrimSpace(message.Provider) != historicalProvider || message.ProviderInstance != historicalProviderInstance:
-				omissionReasons[key] = "the active provider differs from the route that previously received it"
-			case isText && (attachment.SizeBytes <= 0 || attachment.SizeBytes > chatapp.MaxNativeTextAttachmentBytes || attachment.SizeBytes > remainingText):
-				omissionReasons[key] = "the 64 KiB text-attachment context limit was reached"
-			case attachment.SizeBytes <= 0 || attachment.SizeBytes > remaining:
-				omissionReasons[key] = fmt.Sprintf("the %d MiB image-history limit was reached", agentChatMaxImageHistoryBytes>>20)
-			default:
-				selected[key] = struct{}{}
-				remaining -= attachment.SizeBytes
-				if isText {
-					remainingText -= attachment.SizeBytes
+	// Current files have priority. Account for eligible historical images before
+	// selecting any historical text, regardless of transcript order. Image-only
+	// history keeps its existing byte envelope; the inline allowance limits older
+	// images only when needed to preserve the current text's reserved context.
+	for _, selectText := range []bool{false, true} {
+		for i := len(session.Messages) - 1; i > skipThroughIndex; i-- {
+			message := session.Messages[i]
+			if message.Role != "user" {
+				continue
+			}
+			for j := len(message.Attachments) - 1; j >= 0; j-- {
+				attachment := message.Attachments[j]
+				isText := attachment.MediaType == "text/plain"
+				if isText != selectText {
+					continue
+				}
+				key := chatAttachmentSelectionKey(message.ID, attachment.ID)
+				switch {
+				case !isText && !includeHistoricalImages:
+					omissionReasons[key] = "the active route does not support image input"
+				case historicalProvider == "" || !historicalProviderInstance.Valid() || strings.TrimSpace(message.Provider) != historicalProvider || message.ProviderInstance != historicalProviderInstance:
+					omissionReasons[key] = "the active provider differs from the route that previously received it"
+				case isText && (attachment.SizeBytes <= 0 || attachment.SizeBytes > chatapp.MaxNativeTextAttachmentBytes || attachment.SizeBytes+256 > remainingText):
+					omissionReasons[key] = "the selected model's inline text context budget was reached"
+				case !isText && hasCurrentText && remainingText < nativeChatImageContextBytes:
+					omissionReasons[key] = "the selected model's inline attachment context budget was reached"
+				case attachment.SizeBytes <= 0 || attachment.SizeBytes > remaining:
+					omissionReasons[key] = fmt.Sprintf("the %d MiB image-history limit was reached", agentChatMaxImageHistoryBytes>>20)
+				default:
+					selected[key] = struct{}{}
+					remaining -= attachment.SizeBytes
+					if isText {
+						remainingText -= attachment.SizeBytes + 256
+					} else {
+						remainingText = max(0, remainingText-nativeChatImageContextBytes)
+					}
 				}
 			}
 		}

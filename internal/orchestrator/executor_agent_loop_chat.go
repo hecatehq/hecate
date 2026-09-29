@@ -18,6 +18,15 @@ type agentLoopModelCall struct {
 }
 
 func (e *AgentLoopExecutor) runModelCall(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, modelCall int, startedAt time.Time) (agentLoopModelCall, *ExecutionResult, error) {
+	if conversation.hasPrivateAttachmentToolResults() {
+		budget, err := resolvedAttachmentContextBudget(ctx, spec)
+		if err != nil {
+			failed, failureErr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt,
+				"Attachment context could not be validated for the current provider route; no model request was sent.")
+			return agentLoopModelCall{}, runState.attachAccounting(failed), failureErr
+		}
+		conversation.pruneAttachmentToolResults(budget)
+	}
 	messages := conversation.Messages()
 	req := agentLoopChatRequest(spec, messages, tools)
 	runState.fenceProviderBoundRequest(&req)
@@ -131,7 +140,7 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// explicit tool capability requirement, even without an image: it carries
 	// a private exact-provider/generation/model/expiry fence. Ordinary Task
 	// Runs retain their established optimistic behavior for unknown discovery.
-	requirements.ToolCalling = len(tools) > 0 && (spec.InputMessage != nil || requirements.ImageInput || requirements.ToolCallingVerified)
+	requirements.ToolCalling = len(tools) > 0 && (spec.InputMessage != nil || spec.AttachmentReader != nil || requirements.ImageInput || requirements.ToolCallingVerified)
 	return types.ChatRequest{
 		RequestID:    spec.RequestID,
 		Model:        spec.Run.Model,

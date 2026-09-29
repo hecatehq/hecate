@@ -1797,6 +1797,7 @@ export function ChatView({
                 isAgentChat={isAgentChat}
                 isHecateChat={isHecateChat}
                 isExternalAgentChat={isExternalAgentChat}
+                hecateChatToolsEnabled={hecateChatToolsEnabled}
                 hecateTaskToolsAvailable={hecateTaskToolsAvailable}
                 activeTurnKind={activeTurnKind}
                 activeSessionID={activeSessionID}

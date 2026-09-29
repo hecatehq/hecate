@@ -780,18 +780,32 @@ through provider serialization and provider return. Native UTF-8 text/code
 attachments also use this bounded gate, including eligible historical text.
 Preserve its legacy `chat.image_turn_busy` response contract. Ordinary turns
 with no files and routes that will certainly omit every historical file remain
-outside it. Text/code validation lives in `chatapp`: 32 KiB per file, 64 KiB for
-current plus rehydrated historical text, valid UTF-8, no binary control
+outside it. Text/code validation lives in `chatapp`: 5 MiB per file within the
+shared 12 MiB message envelope, valid UTF-8, no binary control
 characters other than tab/LF/CR, and no document/archive extraction. Current
-overflow fails before transcript commit; older overflow receives an explicit
-omission marker. Text files do not need `ImageInput`, but retain the same
+inline overflow fails at early admission before transcript commit against a
+conservative model-aware budget, with Tools-on/excerpt guidance; older overflow receives an
+explicit omission marker. Tools-on uses a typed execution-scoped private
+attachment reader: current InputRef only, immutable metadata/digest/claim and
+provider-generation revalidation, bounded UTF-8 pages/literal search, no path
+arguments or workspace copies. Retain at most a quarter of the advertised
+context window, capped at 64 KiB (also the unknown-window fallback), in private
+tool-result bytes; omit oldest results explicitly. Metadata-only steps/artifacts
+must never copy raw read/search output. Body-free file manifests can persist;
+model-generated search arguments/answers retain ordinary task semantics, not
+DLP. Text files do not need `ImageInput`, but retain the same
 provider-generation and no-failover fences. Keep private text in separate
 `AttachmentInput` content blocks with `json:"-"` provenance, not `Message.Content`
 or task prompts. Checkpoint sanitization removes marked bodies; same-input
-resumes rehydrate from `InputRef`. OpenAI text-block flattening belongs only at
+resumes revalidate from `InputRef` without replaying completed reads. OpenAI text-block flattening belongs only at
 the final wire boundary. Provider error text for such requests must become
 fixed safe copy before gateway logs, health, traces, or task failure artifacts;
 preserve only typed retry/cancellation classification, never the original cause.
+Recheck direct text costs at final dispatch using the exact resolved model and
+provider generation; a late policy-rewrite overflow settles the committed turn
+as failed without file disclosure, rather than releasing linked attachments.
+Tools-on readers refresh the final-model excerpt budget, and the orchestrator
+clamps it against admission before accepting or sending private tool results.
 
 External Agent turns may claim the same Hecate-owned attachment records. Carry
 their text and hydrated files through the typed `agentadapters.PromptInput`

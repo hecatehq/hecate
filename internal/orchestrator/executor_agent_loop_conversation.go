@@ -46,6 +46,13 @@ func (c *agentLoopConversation) AppendToolResult(toolCallID, text string, toolEr
 	})
 }
 
+func (c *agentLoopConversation) AppendPrivateAttachmentToolResult(toolCallID, text string, toolError bool) {
+	c.messages = append(c.messages, types.Message{
+		Role: "tool", ToolCallID: toolCallID, ToolError: toolError,
+		ContentBlocks: []types.ContentBlock{{Type: "text", Text: text, AttachmentInput: true}},
+	})
+}
+
 func (c *agentLoopConversation) HasDeferredContinuation() bool {
 	return c.deferredContinuation != nil
 }
@@ -342,7 +349,11 @@ func conversationMessagesForArtifact(messages []types.Message) []types.Message {
 		blocks := make([]types.ContentBlock, 0, len(message.ContentBlocks))
 		for _, block := range message.ContentBlocks {
 			if block.AttachmentInput && block.Image == nil {
-				blocks = append(blocks, types.ContentBlock{Type: "text", Text: artifactTextAttachmentOmission})
+				omission := artifactTextAttachmentOmission
+				if message.Role == "tool" {
+					omission = artifactAttachmentToolResultOmission
+				}
+				blocks = append(blocks, types.ContentBlock{Type: "text", Text: omission})
 				continue
 			}
 			if block.Image == nil {

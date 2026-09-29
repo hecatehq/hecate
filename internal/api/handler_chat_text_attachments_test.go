@@ -16,6 +16,7 @@ import (
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestNativeTextAttachmentUploadAndInertDownload(t *testing.T) {
@@ -181,7 +182,12 @@ func TestNativeTextAttachmentTurnsKeepBodiesTransientAndFenceDisclosure(t *testi
 					t.Fatalf("incorrect attachment requirements: %+v", request.Requirements)
 				}
 				message := imageTurnFindUserMessage(t, request.Messages, "Inspect attached input")
-				if len(message.ContentBlocks) < 2 || !message.ContentBlocks[1].AttachmentInput || !strings.Contains(message.ContentBlocks[1].Text, private) || !strings.Contains(message.ContentBlocks[1].Text, "example.go") || strings.Contains(message.Content, private) {
+				if tools {
+					encoded, _ := json.Marshal(message)
+					if strings.Contains(string(encoded), private) || !strings.Contains(string(encoded), "example.go") || !strings.Contains(string(encoded), text.Data.ID) {
+						t.Fatalf("tools input must contain scoped metadata only: %+v", message)
+					}
+				} else if len(message.ContentBlocks) < 2 || !message.ContentBlocks[1].AttachmentInput || !strings.Contains(message.ContentBlocks[1].Text, private) || !strings.Contains(message.ContentBlocks[1].Text, "example.go") || strings.Contains(message.Content, private) {
 					t.Fatalf("attachment provenance not preserved: %+v", message)
 				}
 				serialized, _ := json.Marshal(response)
@@ -210,12 +216,68 @@ func TestNativeTextAttachmentTurnsKeepBodiesTransientAndFenceDisclosure(t *testi
 					if err != nil {
 						t.Fatal(err)
 					}
-					if strings.Contains(string(requestJSON), "private_text_body_73") || !strings.Contains(string(requestJSON), "Text attachment supplied as Task input; body not retained in Task artifacts") {
-						t.Fatal("continued task rehydrated previous text instead of retaining its explicit omission")
+					if strings.Contains(string(requestJSON), "private_text_body_73") {
+						t.Fatal("continued task rehydrated previous text")
+					}
+					for _, tool := range provider.LastRequest().Tools {
+						if tool.Function.Name == "read_attachment" || tool.Function.Name == "search_attachment" {
+							t.Fatal("continuation advertised access to previous input attachments")
+						}
 					}
 				}
 			})
 		}
+	}
+}
+
+func TestNativeTextAttachmentInlineModelBudget(t *testing.T) {
+	for _, tt := range []struct {
+		name                 string
+		filename             string
+		window, size, status int
+	}{
+		{"large model accepts source over old limits", "source.go", 200000, 100 << 10, http.StatusOK},
+		{"small model rejects before disclosure", "source.go", 8192, 20 << 10, http.StatusRequestEntityTooLarge},
+		{"unknown context uses conservative fallback", "source.go", 0, 100 << 10, http.StatusRequestEntityTooLarge},
+		{"escaped filename framing rejects before commit", strings.Repeat("\"", 128), 8192, 450, http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := imageTurnTestProvider(modelcaps.ImageInputNone)
+			caps := provider.capabilities.ModelCapabilities["llama-vision"]
+			caps.MaxContextTokens = tt.window
+			provider.capabilities.ModelCapabilities["llama-vision"] = caps
+			h := imageTurnTestHandler(provider)
+			handler := NewServer(imageTurnTestLogger(), h)
+			client := newTaskTestClient(t, handler)
+			session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"agent_id":"hecate","provider":"ollama","model":"llama-vision"}`)
+			body := strings.Repeat("a", tt.size)
+			upload := imageTurnTestUpload(t, handler, session.Data.ID, tt.filename, []byte(body))
+			client.mustRequestStatus(tt.status, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages", fmt.Sprintf(`{"tools_enabled":false,"content":"Review source","attachment_ids":[%q]}`, upload.Data.ID))
+			if tt.status != http.StatusOK {
+				if provider.CallCount() != 0 {
+					t.Fatal("overflow disclosed attachment")
+				}
+				stored, _, _ := h.agentChat.Get(t.Context(), session.Data.ID)
+				if len(stored.Messages) != 0 {
+					t.Fatal("overflow committed transcript")
+				}
+				client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/chat/sessions/"+session.Data.ID+"/attachments/"+upload.Data.ID, "")
+			} else {
+				message := imageTurnFindUserMessage(t, provider.LastRequest().Messages, "Review source")
+				if len(message.ContentBlocks) < 2 || !strings.Contains(message.ContentBlocks[1].Text, body) {
+					t.Fatal("large text was silently truncated")
+				}
+			}
+		})
+	}
+}
+
+func TestNativeChatInlineTextBudgetAccountsForConversation(t *testing.T) {
+	caps := types.ModelCapabilities{MaxContextTokens: 200000}
+	before := nativeChatInlineTextBudget(caps, []types.Message{{Role: "user", Content: "hello"}}, 0)
+	after := nativeChatInlineTextBudget(caps, []types.Message{{Role: "user", Content: strings.Repeat("a", 10005)}}, 1)
+	if before-after != 10000+8192 {
+		t.Fatalf("ordinary history/image budget mismatch: %d %d", before, after)
 	}
 }
 
@@ -232,7 +294,7 @@ func TestNativeTextAttachmentCombinedLimitReleasesClaims(t *testing.T) {
 			session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"provider":"ollama","model":"llama-vision"}`, t.TempDir()))
 			var ids []string
 			for range 3 {
-				ids = append(ids, imageTurnTestUpload(t, handler, session.Data.ID, "large.txt", []byte(strings.Repeat("a", chatapp.MaxNativeTextAttachmentBytes))).Data.ID)
+				ids = append(ids, imageTurnTestUpload(t, handler, session.Data.ID, "large.txt", []byte(strings.Repeat("a", 5<<20))).Data.ID)
 			}
 			encoded, _ := json.Marshal(ids)
 			client.mustRequestStatus(http.StatusRequestEntityTooLarge, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages", fmt.Sprintf(`{"tools_enabled":%t,"content":"Inspect","attachment_ids":%s}`, tools, encoded))
@@ -262,7 +324,7 @@ func TestNativeTextAttachmentHistoryUsesSharedBudgetAndProviderFence(t *testing.
 	}
 	var current []chatattachments.StoredAttachment
 	for i := range 3 {
-		upload := imageTurnTestUpload(t, handler, session.Data.ID, "notes.txt", []byte(strings.Repeat(string(rune('a'+i)), chatapp.MaxNativeTextAttachmentBytes)))
+		upload := imageTurnTestUpload(t, handler, session.Data.ID, "notes.txt", []byte(strings.Repeat(string(rune('a'+i)), 30<<10)))
 		stored, _, err := h.chatAttachments.Get(t.Context(), session.Data.ID, upload.Data.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -284,7 +346,7 @@ func TestNativeTextAttachmentHistoryUsesSharedBudgetAndProviderFence(t *testing.
 		wantBodies     bool
 	}{
 		{"same provider", "ollama", nil, "", true},
-		{"budget", "ollama", current, "64 KiB text-attachment context limit", false},
+		{"budget", "ollama", current, "inline text context budget", false},
 		{"other provider", "other", nil, "active provider differs", false},
 		{"Auto", "", nil, "active provider differs", false},
 	} {
@@ -298,6 +360,95 @@ func TestNativeTextAttachmentHistoryUsesSharedBudgetAndProviderFence(t *testing.
 			}
 			if test.wantReason != "" && !strings.Contains(history[0].Content, test.wantReason) {
 				t.Fatalf("missing omission reason: %q", history[0].Content)
+			}
+		})
+	}
+}
+
+func TestNativeTextAttachmentHistoryAccountsForHistoricalImages(t *testing.T) {
+	for _, tt := range []struct {
+		name                                 string
+		budget, currentBytes                 int
+		historicalText, staleImageGeneration bool
+		otherImageProvider                   bool
+		wantImage, wantHistoricalText        bool
+		wantReason                           string
+	}{
+		{name: "current text wins", budget: 6000, currentBytes: 5000, wantReason: "inline attachment context budget"},
+		{name: "images charged before newer historical text", budget: 9000, historicalText: true, wantImage: true, wantReason: "inline text context budget"},
+		{name: "historical image and text fit", budget: 11000, historicalText: true, wantImage: true, wantHistoricalText: true},
+		{name: "image only keeps existing envelope", budget: 0, wantImage: true},
+		{name: "other provider image does not consume context", budget: 3000, historicalText: true, otherImageProvider: true, wantHistoricalText: true, wantReason: "active provider differs"},
+		{name: "stale generation image does not consume context", budget: 3000, historicalText: true, staleImageGeneration: true, wantHistoricalText: true, wantReason: "active provider differs"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+			h := imageTurnTestHandler(provider)
+			handler := NewServer(imageTurnTestLogger(), h)
+			client := newTaskTestClient(t, handler)
+			created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"agent_id":"hecate","provider":"ollama","model":"llama-vision"}`)
+			route, err := h.modelApplication().ResolveProviderRoute(t.Context(), "ollama", "llama-vision")
+			if err != nil {
+				t.Fatal(err)
+			}
+			upload := func(filename string, data []byte) chatattachments.StoredAttachment {
+				t.Helper()
+				item := imageTurnTestUpload(t, handler, created.Data.ID, filename, data)
+				stored, ok, err := h.chatAttachments.Get(t.Context(), created.Data.ID, item.Data.ID)
+				if err != nil || !ok {
+					t.Fatalf("load attachment: found=%t err=%v", ok, err)
+				}
+				return stored
+			}
+			image := upload("earlier.png", imageTurnTestPNG(t))
+			imageMessage := chat.Message{ID: "earlier-image", Role: "user", Content: "Earlier image", Provider: "ollama", ProviderInstance: route.Instance, Attachments: chatMessageAttachments([]chatattachments.StoredAttachment{image})}
+			if tt.otherImageProvider {
+				imageMessage.Provider = "another-provider"
+			}
+			if tt.staleImageGeneration {
+				imageMessage.ProviderInstance.ID += "-stale"
+			}
+			session := chat.Session{ID: created.Data.ID, Messages: []chat.Message{imageMessage}}
+			historicalBody := strings.Repeat("h", 2000)
+			if tt.historicalText {
+				text := upload("earlier.txt", []byte(historicalBody))
+				// Newer text would be selected first by a single reverse-history
+				// pass; image context must nevertheless be reserved before it.
+				session.Messages = append(session.Messages, chat.Message{ID: "later-text", Role: "user", Content: "Earlier text", Provider: "ollama", ProviderInstance: route.Instance, Attachments: chatMessageAttachments([]chatattachments.StoredAttachment{text})})
+			}
+			var current []chatattachments.StoredAttachment
+			currentBody := strings.Repeat("c", tt.currentBytes)
+			if tt.currentBytes > 0 {
+				current = []chatattachments.StoredAttachment{upload("current.txt", []byte(currentBody))}
+			}
+			history, images, err := h.agentChatModelHistoryWithAttachments(t.Context(), session, "", "Now", current, true, "ollama", route.Instance, tt.budget)
+			if err != nil || images != tt.wantImage {
+				t.Fatalf("history images=%t want=%t err=%v", images, tt.wantImage, err)
+			}
+			imageCount := 0
+			historicalTextFound, currentTextFound := false, false
+			for _, message := range history {
+				for _, block := range message.ContentBlocks {
+					if block.Image != nil {
+						imageCount++
+					}
+					if block.AttachmentInput {
+						historicalTextFound = historicalTextFound || strings.Contains(block.Text, historicalBody)
+						currentTextFound = currentTextFound || (currentBody != "" && strings.Contains(block.Text, currentBody))
+					}
+				}
+			}
+			if (imageCount > 0) != tt.wantImage || historicalTextFound != tt.wantHistoricalText || currentTextFound != (tt.currentBytes > 0) {
+				t.Fatalf("selected bodies: images=%d historical=%t current=%t", imageCount, historicalTextFound, currentTextFound)
+			}
+			if tt.wantReason != "" {
+				reasons := ""
+				for _, message := range history {
+					reasons += message.Content
+				}
+				if !strings.Contains(reasons, tt.wantReason) {
+					t.Fatalf("missing explicit omission %q: %s", tt.wantReason, reasons)
+				}
 			}
 		})
 	}

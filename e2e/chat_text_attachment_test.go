@@ -8,14 +8,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
 
 func TestNativeChatTextAttachmentE2E(t *testing.T) {
-	const body = "private-native-file-sentinel: source code and notes"
+	const sentinel = "private-native-file-sentinel: source code and notes"
 	const model = "native-text-test-model"
 	captured := &capturedRequests{}
+	refPattern := regexp.MustCompile(`"attachment_ref":"([^"]+)"`)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -33,6 +35,49 @@ func TestNativeChatTextAttachmentE2E(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"id":"probe","model":%q,"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"probe","type":"function","function":{"name":"hecate_capability_probe","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`, model)
 			return
+		}
+		if request["tools"] != nil {
+			messages, _ := request["messages"].([]any)
+			toolResults := 0
+			ref := ""
+			for _, item := range messages {
+				message, _ := item.(map[string]any)
+				if message["role"] == "tool" {
+					toolResults++
+				}
+				if text, ok := message["content"].(string); ok {
+					if match := refPattern.FindStringSubmatch(text); len(match) == 2 {
+						ref = match[1]
+					}
+				}
+			}
+			if toolResults < 2 {
+				if ref == "" {
+					t.Error("private attachment reference missing")
+					w.WriteHeader(400)
+					return
+				}
+				if toolResults == 0 {
+					encoded, _ := json.Marshal(request)
+					if strings.Contains(string(encoded), sentinel) {
+						t.Error("initial task prompt eagerly disclosed text body")
+					}
+				}
+				name := "read_attachment"
+				args := fmt.Sprintf(`{"attachment_ref":%q,"offset":0,"max_bytes":1024}`, ref)
+				if toolResults == 1 {
+					name = "search_attachment"
+					args = fmt.Sprintf(`{"attachment_ref":%q,"query":"private-native-file-sentinel","max_matches":1}`, ref)
+				}
+				if request["stream"] == true {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprintf(w, "data: {\"id\":\"read\",\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":%q,\"type\":\"function\",\"function\":{\"name\":%q,\"arguments\":%q}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"read\",\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", model, fmt.Sprintf("file-%d", toolResults), name, args, model)
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprintf(w, `{"id":"read","model":%q,"choices":[{"message":{"role":"assistant","tool_calls":[{"id":%q,"type":"function","function":{"name":%q,"arguments":%q}}]},"finish_reason":"tool_calls"}]}`, model, fmt.Sprintf("file-%d", toolResults), name, args)
+				}
+				return
+			}
 		}
 		if request["stream"] == true {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -53,6 +98,11 @@ func TestNativeChatTextAttachmentE2E(t *testing.T) {
 	}
 	for _, toolsOn := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tools=%t", toolsOn), func(t *testing.T) {
+			padding := 40 << 10
+			if toolsOn {
+				padding = 100 << 10
+			}
+			body := strings.Repeat("x", padding) + "\n" + sentinel
 			created := postJSONDecode[e2eChatSessionResponse](t, baseURL+"/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"hecate","provider":"fake","model":%q,"workspace":%q,"workspace_mode":"in_place"}`, model, t.TempDir()))
 			upload, raw := e2eUploadChatAttachmentType(t, baseURL, created.Data.ID, "notes.go", "application/octet-stream", []byte(body))
 			if upload.Data.MediaType != "text/plain" || strings.Contains(string(raw), body) {
@@ -74,8 +124,15 @@ func TestNativeChatTextAttachmentE2E(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(wire), body) {
-				t.Fatalf("provider did not receive file: %s", wire)
+			if !strings.Contains(string(wire), sentinel) {
+				t.Fatal("provider did not receive file excerpt")
+			}
+			if !toolsOn {
+				messages := captured.lastBody()["messages"].([]any)
+				last := messages[len(messages)-1].(map[string]any)
+				if !strings.HasSuffix(last["content"].(string), body) {
+					t.Fatal("direct file was truncated")
+				}
 			}
 			if toolsOn {
 				var session struct {
@@ -91,7 +148,7 @@ func TestNativeChatTextAttachmentE2E(t *testing.T) {
 					t.Fatal("tools turn did not create a backing run")
 				}
 				artifacts := e2eGetRaw(t, baseURL+"/hecate/v1/tasks/"+session.Data.TaskID+"/runs/"+session.Data.LatestRunID+"/artifacts", http.StatusOK)
-				if strings.Contains(string(artifacts), body) || !strings.Contains(string(artifacts), "body not retained in Task artifacts") {
+				if strings.Contains(string(artifacts), sentinel) || !strings.Contains(string(artifacts), "not retained in Task artifacts") {
 					t.Fatalf("unsafe or missing conversation omission: %s", artifacts)
 				}
 			}

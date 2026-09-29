@@ -10,13 +10,12 @@ import (
 )
 
 const (
-	MaxNativeTextAttachmentBytes = 32 << 10
-	MaxNativeTextContextBytes    = 64 << 10
+	MaxNativeTextAttachmentBytes = 5 << 20
 )
 
 var (
-	ErrNativeTextAttachmentTooLarge = errors.New("text attachment exceeds the 32 KiB limit")
-	ErrNativeTextContextTooLarge    = errors.New("text attachments in model context exceed the 64 KiB limit")
+	ErrNativeTextAttachmentTooLarge = errors.New("text attachment exceeds the 5 MiB limit")
+	ErrNativeTextContextTooLarge    = errors.New("text attachments exceed the selected model's inline context budget; turn Tools on to read files in parts, or attach a smaller excerpt")
 )
 
 // ValidateNativeTextAttachment admits bounded UTF-8 source material, never a

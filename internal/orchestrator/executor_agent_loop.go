@@ -277,6 +277,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
 		IncludeBrowserInspection:     e.toolDispatcher != nil && e.toolDispatcher.browserInspector != nil,
 		IncludeBrowserFlow:           e.toolDispatcher != nil && e.toolDispatcher.browserFlowRunner != nil,
+		IncludeAttachments:           spec.AttachmentReader != nil && attachmentContextBudget(spec) > 0,
 	})
 	codeIntelligenceDocumented := false
 	terminals := e.terminalSessionsForRun(spec.Run.ID)
@@ -609,7 +610,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			isToolError := dispatch.ToolError ||
 				dispatchErr != nil ||
 				finalStep.Status == "failed"
-			conversation.AppendToolResult(toolCall.ID, dispatch.Text, isToolError)
+			if dispatch.PrivateAttachmentInput {
+				conversation.AppendPrivateAttachmentToolResult(toolCall.ID, dispatch.Text, isToolError)
+			} else {
+				conversation.AppendToolResult(toolCall.ID, dispatch.Text, isToolError)
+			}
 			// Checkpoint each result independently. A crash between calls in a
 			// multi-tool batch then leaves an exact durable prefix and only the
 			// unresolved calls are eligible for future dispatch.
@@ -727,6 +732,7 @@ type agentToolDefinitionOptions struct {
 	IncludeWebSearch             bool
 	IncludeBrowserInspection     bool
 	IncludeBrowserFlow           bool
+	IncludeAttachments           bool
 }
 
 func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.Tool {
@@ -1096,6 +1102,9 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 				}`),
 			},
 		})
+	}
+	if opts.IncludeAttachments {
+		tools = append(tools, attachmentToolDefinitions()...)
 	}
 	return tools
 }

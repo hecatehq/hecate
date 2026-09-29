@@ -78,6 +78,11 @@ type ExecutionSpec struct {
 	// resolver owns its storage boundary; executors must not persist inline
 	// binary bodies in artifacts.
 	InputMessage *types.Message
+	// AttachmentReader keeps file access scoped to the admitted input. The
+	// application supplies a conservative model-aware budget for retaining
+	// serialized private tool-result text in live model context; zero disables it.
+	AttachmentReader       AgentAttachmentReader
+	AttachmentContextBytes int
 	// ChatRequirements fences every model call that retains InputMessage in
 	// conversation context (for example, image-capability and provider bounds).
 	ChatRequirements types.ChatRequestRequirements

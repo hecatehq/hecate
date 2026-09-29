@@ -236,16 +236,21 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   `unknown` until the provider reports richer metadata.
 - File attachments are available for Hecate-owned turns with tools on or
   off, and for External Agent turns. Native Chat accepts UTF-8 text/code files
-  (32 KiB each, 64 KiB across current plus hydrated historical text) and
+  (5 MiB each, 12 MiB total per message) and
   PNG/JPEG/WebP images. Only images require confirmed model image capability.
   Invalid UTF-8 and binary documents are rejected; PDF/DOCX extraction, OCR,
   and archives are not implemented. File picking and drag-and-drop work in the
   web and desktop composer. Clipboard file input depends on the browser/webview;
   the current Windows/Linux desktop Ctrl+V fallback pastes text only, so use the
-  file picker or drop for attachments there. Oversized current input is rejected, while
-  older history receives explicit omission markers rather than truncation;
-  task-backed turns retain only an opaque input reference plus omission markers
-  in conversation artifacts rather than persisting uploaded bodies there.
+  file picker or drop for attachments there. Tools-on reads/searches private text
+  on demand in bounded parts; Tools-off requires whole text to fit a conservative
+  model-aware inline budget (64 KiB before conversation overhead when the context
+  window is unknown). Oversized current inline input is rejected with Tools-on
+  or excerpt guidance, while older history receives explicit omission markers;
+  task-backed turns retain only an opaque input reference, metadata, and omission markers
+  in conversation artifacts rather than persisting raw private read results.
+  Model-generated answers, search queries, and other tool arguments may quote
+  file contents and follow ordinary task persistence; this is not a DLP boundary.
   External Agents accept up to four non-empty files of any type within the same
   5 MiB per-file and 12 MiB combined limits. Two file-bearing External turns
   may run concurrently per Hecate process; later file turns receive a typed

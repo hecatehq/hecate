@@ -49,6 +49,18 @@ async function openNonvisionChat(page: Page, toolsEnabled: boolean) {
   await expect(
     page.getByText(`Tools ${toolsEnabled ? "on" : "off"} · /tmp/hecate-e2e`, { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      toolsEnabled ? "Private files · read/search on demand" : "Whole text · if model context fits",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Files" })).toHaveAttribute(
+    "title",
+    toolsEnabled
+      ? /private files are read or searched on demand/
+      : /whole text\/code files are included only if they fit the selected model context/,
+  );
   await expect(page.getByLabel("Choose files")).toBeEnabled();
   return gateway;
 }
@@ -59,10 +71,11 @@ for (const toolsEnabled of [false, true]) {
       page,
     }) => {
       const gateway = await openNonvisionChat(page, toolsEnabled);
+      const sourceBody = `  const privateBrowserText = "世界";\r\n\t// preserve whitespace\n${"x".repeat(96 * 1024)}`;
       const file = {
         name: "browser-source.ts",
         mimeType: "application/octet-stream",
-        buffer: Buffer.from('  const privateBrowserText = "世界";\r\n\t// preserve whitespace\n'),
+        buffer: Buffer.from(sourceBody),
       };
       const uploadedBodies: Buffer[] = [];
       await page.route(/\/hecate\/v1\/chat\/sessions\/[^/]+\/attachments$/, async (route) => {
@@ -157,4 +170,112 @@ test("nonvision Hecate Chat explains image rejection without disabling text file
   await expect(page.getByText("gpt-4o does not support image input.", { exact: true })).toHaveCount(
     0,
   );
+});
+
+test("native file selection enforces the shared 5 MiB and 12 MiB limits", async ({ page }) => {
+  const gateway = await openNonvisionChat(page, true);
+  const picker = page.getByLabel("Choose files");
+
+  await picker.setInputFiles({
+    name: "too-large.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.alloc(5 * 1024 * 1024 + 1, "x"),
+  });
+  await expect(
+    page.getByText("too-large.txt exceeds the 5 MiB limit.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove too-large.txt" })).toHaveCount(0);
+
+  const fourMiB = Buffer.alloc(4 * 1024 * 1024, "a");
+  await picker.setInputFiles([
+    { name: "one.txt", mimeType: "text/plain", buffer: fourMiB },
+    { name: "two.txt", mimeType: "text/plain", buffer: fourMiB },
+    { name: "three.txt", mimeType: "text/plain", buffer: fourMiB },
+    { name: "over.txt", mimeType: "text/plain", buffer: Buffer.from("x") },
+  ]);
+  await expect(
+    page.getByText("Files in one message can total up to 12 MiB.", { exact: true }),
+  ).toBeVisible();
+  for (const name of ["one.txt", "two.txt", "three.txt"]) {
+    await expect(page.getByRole("button", { name: `Remove ${name}` })).toBeVisible();
+  }
+  await expect(page.getByRole("button", { name: "Remove over.txt" })).toHaveCount(0);
+  expect(gateway.chatAttachmentUploads).toHaveLength(0);
+  expect(gateway.chatMessagePayloads).toHaveLength(0);
+});
+
+test("invalid UTF-8 leaves an existing valid text draft intact", async ({ page }) => {
+  const gateway = await openNonvisionChat(page, false);
+  const picker = page.getByLabel("Choose files");
+
+  await picker.setInputFiles({
+    name: "keep.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("keep this draft"),
+  });
+  await expect(page.getByRole("button", { name: "Remove keep.txt" })).toBeVisible();
+
+  await picker.setInputFiles({
+    name: "invalid.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from([0xc3, 0x28]),
+  });
+  await expect(
+    page.getByText("invalid.txt is not valid UTF-8 text or a supported PNG, JPEG, or WebP image.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove keep.txt" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove invalid.txt" })).toHaveCount(0);
+  expect(gateway.chatAttachmentUploads).toHaveLength(0);
+  expect(gateway.chatMessagePayloads).toHaveLength(0);
+});
+
+test("model-context rejection restores text and shows recovery guidance", async ({ page }) => {
+  const gateway = await openNonvisionChat(page, false);
+  await page.route(/\/hecate\/v1\/chat\/sessions\/[^/]+\/messages$/, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 413,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          type: "chat.text_context_too_large",
+          message: "text attachment context too large",
+          user_message: "These files do not fit the selected model's inline context budget.",
+          operator_action:
+            "Turn Tools on to read and search files in parts, or attach a smaller excerpt. No file text was sent.",
+        },
+      }),
+    });
+  });
+  const file = {
+    name: "large-source.ts",
+    mimeType: "text/plain",
+    buffer: Buffer.from("x".repeat(96 * 1024)),
+  };
+  await page.getByLabel("Choose files").setInputFiles(file);
+  await page.getByRole("textbox", { name: "Message" }).fill("Review the full source");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(
+    page.getByText("These files do not fit the selected model's inline context budget.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Turn Tools on to read and search files in parts, or attach a smaller excerpt. No file text was sent.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove large-source.ts" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue(
+    "Review the full source",
+  );
+  expect(gateway.chatAttachmentUploads).toHaveLength(1);
+  expect(gateway.chatMessagePayloads).toHaveLength(0);
 });
