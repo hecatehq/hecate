@@ -361,11 +361,15 @@ describe("useRuntimeConsole", () => {
     );
   });
 
-  it("blocks External Agent text drafts above Hecate's combined text budget", async () => {
+  it("carries External Agent text drafts above the former 64 KiB budget into Hecate Chat", async () => {
     const files = ["one", "two", "three"].map((name) => {
-      const file = new File([name], `${name}.txt`, { type: "text/plain" });
-      Object.defineProperty(file, "size", { value: 30 * 1024 });
-      return { id: `draft-${name}`, file, kind: "text" as const };
+      const file = new File([name.repeat(30 * 1024)], `${name}.txt`, { type: "text/plain" });
+      return {
+        id: `draft-${name}`,
+        file,
+        kind: "text" as const,
+        canonicalMediaType: "text/plain",
+      };
     });
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     const { result } = renderRuntimeConsoleHook();
@@ -375,11 +379,9 @@ describe("useRuntimeConsole", () => {
     await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(3));
     act(() => result.current.actions.setChatTarget("agent"));
 
-    expect(result.current.state.chatTarget).toBe("external_agent");
+    expect(result.current.state.chatTarget).toBe("agent");
     expect(result.current.state.pendingChatAttachments).toEqual(files);
-    expect(result.current.state.notice?.message).toBe(
-      "Keep text and code files at or below 64 KiB total before switching to Hecate Chat.",
-    );
+    expect(result.current.state.notice).toBeNull();
   });
 
   it("blocks switching away from an External Agent while its file turn owns attachments", async () => {
@@ -5181,6 +5183,8 @@ describe("useRuntimeConsole", () => {
       committed,
       deleteFails = false,
       errorCode,
+      errorMessage = "attachment rejected",
+      operatorAction,
       reconciliationFails = false,
       reconciledAssistantStatus,
       status,
@@ -5192,9 +5196,11 @@ describe("useRuntimeConsole", () => {
       committed: boolean;
       deleteFails?: boolean;
       errorCode?: string;
+      errorMessage?: string;
+      operatorAction?: string;
       reconciliationFails?: boolean;
       reconciledAssistantStatus?: "running" | "completed" | "failed" | "cancelled";
-      status: "network" | 409 | 422 | 429 | 500 | 502;
+      status: "network" | 409 | 413 | 422 | 429 | 500 | 502;
       uploadFailureDeferred?: boolean;
     }) {
       window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -5348,7 +5354,8 @@ describe("useRuntimeConsole", () => {
             {
               error: {
                 type: errorCode ?? (status === 500 ? "gateway_error" : "chat.attachment_rejected"),
-                message: "attachment rejected",
+                message: errorMessage,
+                operator_action: operatorAction,
               },
             },
             status,
@@ -9635,12 +9642,13 @@ describe("useRuntimeConsole", () => {
         window.localStorage.setItem("hecate.model", "gpt-4o-mini");
         let uploadedFile: File | null = null;
         let messagePayload: Record<string, unknown> | null = null;
+        const sourceBody = `export const value = "${"x".repeat(96 * 1024)}";`;
         const attachment = {
           id: "attachment-source",
           session_id: "native-text",
           filename: "source.ts",
           media_type: "text/plain",
-          size_bytes: 24,
+          size_bytes: sourceBody.length,
           sha256: "abc",
           created_at: "2026-09-29T10:00:00Z",
           content_url: "/hecate/v1/chat/sessions/native-text/attachments/attachment-source/content",
@@ -9720,7 +9728,7 @@ describe("useRuntimeConsole", () => {
 
         const { result } = renderRuntimeConsoleHook();
         await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("native-text"));
-        const file = new File(["export const value = 1;"], "source.ts", {
+        const file = new File([sourceBody], "source.ts", {
           type: "video/mp2t",
         });
         act(() => {
@@ -9739,6 +9747,7 @@ describe("useRuntimeConsole", () => {
         });
 
         expect(uploadedFile).toMatchObject({ name: "source.ts", type: "text/plain" });
+        expect(await (uploadedFile as unknown as File).text()).toBe(sourceBody);
         expect(messagePayload).toMatchObject({
           content: "Review this source",
           tools_enabled: toolsEnabled,
@@ -10281,6 +10290,44 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.message).toBe(`${originalPrompt}\n\ndraft the follow-up`);
       expect(result.current.state.chatAttachmentTurnDraftCount).toBe(0);
       expect(result.current.state.chatError).toBe("upload rejected");
+    });
+
+    it("restores text drafts and surfaces actionable model-context rejection guidance", async () => {
+      const guidance = "Turn Tools on to read the files on demand, or attach a smaller excerpt.";
+      mockImageSubmissionFailure({
+        committed: false,
+        status: 413,
+        errorCode: "chat.text_context_too_large",
+        errorMessage: "The attached text does not fit the selected model context.",
+        operatorAction: guidance,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const file = new File(["x".repeat(96 * 1024)], "large-source.ts", {
+        type: "video/mp2t",
+      });
+      const pendingAttachment = {
+        id: "draft-text",
+        file,
+        kind: "text" as const,
+        canonicalMediaType: "text/plain",
+      };
+      act(() => {
+        result.current.actions.setMessage("Review the full source");
+        result.current.actions.setPendingChatAttachments([pendingAttachment]);
+      });
+
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(result.current.state.pendingChatAttachments).toEqual([pendingAttachment]);
+      expect(result.current.state.message).toBe("Review the full source");
+      expect(result.current.state.chatErrorCode).toBe("chat.text_context_too_large");
+      expect(result.current.state.chatError).toBe(
+        "The attached text does not fit the selected model context.",
+      );
+      expect(result.current.state.chatErrorAction).toBe(guidance);
     });
 
     it("restores local input and warns when an upload response is ambiguous", async () => {

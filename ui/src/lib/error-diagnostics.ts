@@ -63,6 +63,11 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     action: "Send as direct model chat, or choose a model that reports tool-calling support.",
     tone: "warning",
   },
+  "chat.text_context_too_large": {
+    title: "Text attachments exceed model context",
+    action: "Turn Tools on to read and search files in parts, or attach a smaller excerpt.",
+    tone: "warning",
+  },
   "chat.agent_session_busy": {
     title: "Chat is still working",
     action:

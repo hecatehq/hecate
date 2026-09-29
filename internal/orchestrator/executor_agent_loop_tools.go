@@ -32,10 +32,11 @@ type agentLoopToolDispatcher struct {
 }
 
 type agentLoopToolDispatchResult struct {
-	Text      string
-	Step      *types.TaskStep
-	Artifacts []types.TaskArtifact
-	ToolError bool
+	Text                   string
+	Step                   *types.TaskStep
+	Artifacts              []types.TaskArtifact
+	ToolError              bool
+	PrivateAttachmentInput bool
 }
 
 const mcpAppHTMLMaxBytes = 1 << 20
@@ -139,6 +140,8 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 	// blob is reported back to the LLM as a tool failure rather than
 	// crashing the run — gives the model a chance to retry.
 	switch call.Function.Name {
+	case AgentToolReadAttachment, AgentToolSearchAttachment:
+		return dispatchAttachmentTool(ctx, spec, call, stepIndex, startedAt), nil
 	case "shell_exec":
 		var args shellExecArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {

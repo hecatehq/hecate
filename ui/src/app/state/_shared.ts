@@ -103,10 +103,8 @@ export type PendingChatAttachment = {
 export type PendingChatAttachmentKind = "image" | "opaque" | "text";
 
 export const CHAT_ATTACHMENT_MAX_COUNT = 4;
-export const CHAT_ATTACHMENT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const CHAT_ATTACHMENT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const CHAT_ATTACHMENT_MAX_MESSAGE_BYTES = 12 * 1024 * 1024;
-export const CHAT_ATTACHMENT_MAX_TEXT_BYTES = 32 * 1024;
-export const CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES = 64 * 1024;
 
 export const CHAT_RASTER_IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
   "image/jpeg",

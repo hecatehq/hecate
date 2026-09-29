@@ -409,14 +409,32 @@ is limited to 32 MiB with a 60-second read deadline.
 Both chat modes accept at most four files per message. Native text/code files
 must be non-empty UTF-8, with no binary control characters other than tab,
 newline, and carriage return. Markdown, JSON, CSV, and source files are treated
-as plain text, not executed or parsed into instructions. Text is limited to
-32 KiB per file and 64 KiB across current and rehydrated historical file bodies.
-Current-message overflow is rejected; older history outside the budget receives
-an explicit omission marker. These byte limits are not a guarantee that every
-model's context window can fit the full conversation. PDF/DOCX extraction, OCR,
+as plain text, not executed or parsed into instructions. Tools-on receives
+metadata and private `read_attachment` / `search_attachment` tools for the
+current input only. Files are not copied into the task workspace. Reads return
+at most 32 KiB, and literal search returns bounded excerpts; older private tool
+results receive explicit omission notices when the retained-excerpt budget is
+reached. Same-input resume revalidates access, but does not replay completed
+reads. A later turn without new attachments does not acquire the prior files.
+
+Tools-off includes whole files only within a conservative context estimate:
+one UTF-8 byte per token, less ordinary conversation/framing, with a quarter of
+the advertised context window plus 4096 tokens reserved. Unknown windows use
+a 64 KiB allowance before conversation overhead. Current-message overflow
+returns `chat.text_context_too_large` before transcript commit or file disclosure,
+with guidance to enable Tools or attach an excerpt. Older eligible history
+outside the budget receives an explicit omission marker. This estimate is not a
+vendor-tokenizer or image-context guarantee. PDF/DOCX extraction, OCR,
 archives, and other binary documents are not supported by native Chat.
 
-Images and External Agent files are limited to 5 MiB per upload; the combined
+Hecate checks the budget again against the final model immediately before
+provider I/O, including policy-driven model changes. If that later check fails,
+the already-committed turn settles as failed without sending file text; its
+attachments remain available to download. Tools-on also refreshes its private
+excerpt allowance against the final recorded model before accepting read/search
+results and before model calls.
+
+All accepted files are limited to 5 MiB per upload; the combined
 files on one message are limited to 12 MiB. Hecate-owned
 images are also limited to 8000 pixels on either axis and 16 megapixels. Hecate
 checks their magic bytes, declared media type, and decoded dimensions, fully

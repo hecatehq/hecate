@@ -238,6 +238,39 @@ filesystem work needed to create its managed workspace.
 
 ## Built-in tools
 
+Hecate Chat tools-on runs with text/code attachments also expose
+`read_attachment` and `search_attachment`. These read private attachment storage,
+not workspace paths, and are available only for the current run's admitted input.
+They obey the `read_file` / `all_tools` approval families and frozen preset
+policy. QA and ordinary Tasks without a scoped reader do not receive them.
+
+`read_attachment` takes `attachment_ref`, a UTF-8-aligned byte `offset`, and
+`max_bytes` (default 8192, maximum 32768). Its result contains `text`, `offset`,
+`next_offset`, and `eof`. `search_attachment` takes the reference, a literal
+`query` (at most 256 UTF-8 bytes), a byte `offset`, and `max_matches` (default 10,
+maximum 20). It returns bounded match offsets/excerpts and a continuation
+`next_offset` / `eof`; it does not interpret regular expressions or paths.
+Search excerpts total at most 16 KiB before result serialization.
+
+The API-bound reader checks immutable metadata, claim ownership, digest,
+session lifecycle, cancellation, and provider generation before disclosure.
+The current storage backends load one bounded file (at most 5 MiB) to produce a
+page; this is paged model context, not range-based database I/O. The run retains
+private tool-result bytes up to one quarter of the advertised context window,
+capped at 64 KiB (also the unknown-window fallback). Oldest results are replaced
+with explicit omissions before the next model call; oversized single results
+ask for a smaller page. This is not a tokenizer-based budget for the whole task.
+The allowance is refreshed from the durably recorded final model and clamped
+against admission, so a policy rewrite to a smaller model cannot retain the
+initial model's larger excerpt budget. A failed refresh blocks disclosure.
+
+Raw read/search results never enter steps, trace message content, or saved
+conversation artifacts. Checkpoints keep file metadata and explicit omissions;
+completed reads are not replayed after restart, but a same-input run can request
+them again after revalidation. A new turn without input attachments has no such
+reader. Model-generated answers, search queries, and other tool arguments may
+quote files and retain ordinary task persistence; this is not DLP.
+
 The agent gets its standard workspace tools by default. None require operator
 config beyond the approval policies; `http_request` reads the network policy
 from env. A configured web-search provider can add `web_search`; the separate
@@ -778,9 +811,9 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 - `git_exec` → pauses on `git_exec`, `git_status`, and `git_diff` tool calls
   outside QA v0; QA v0 reports Git evidence unavailable without an approval
 - `file_write` → pauses on `file_write`, `file_edit`, and `apply_patch` tool calls
-- `read_file` → pauses on `read_file`, `grep`, `glob`, `code_intelligence`, and `artifact_read` tool calls
+- `read_file` → pauses on `read_file`, `grep`, `glob`, `code_intelligence`, `artifact_read`, `read_attachment`, and `search_attachment` tool calls
 - `network_egress` → pauses on `http_request` and configured `web_search` tool calls
-- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `code_intelligence`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`); QA v0 Git evidence remains unavailable without an approval
+- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `code_intelligence`, `artifact_read`, `read_attachment`, `search_attachment`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`); QA v0 Git evidence remains unavailable without an approval
 
 `browser_inspect` and `browser_flow` are intentionally not in that policy
 mapping: every otherwise-permitted browser call pauses for

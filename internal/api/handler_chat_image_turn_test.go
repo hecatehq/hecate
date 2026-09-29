@@ -2267,7 +2267,7 @@ func TestHecateChatImageTurnReleasesCurrentDraftWhenHistoryPreparationFails(t *t
 	recorder := client.mustRequestStatus(http.StatusInternalServerError, http.MethodPost,
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
 		`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"ollama","model":"llama-vision","content":"Inspect this image.","attachment_ids":["`+attachment.Data.ID+`"]}`)
-	if !strings.Contains(recorder.Body.String(), "failed to prepare chat image context") {
+	if !strings.Contains(recorder.Body.String(), "failed to prepare chat attachment context") {
 		t.Fatalf("error body = %s, want bounded history-preparation error", recorder.Body.String())
 	}
 	if provider.CallCount() != 0 {

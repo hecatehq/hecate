@@ -2,29 +2,44 @@ package api
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+const nativeChatImageContextBytes = 8192
+
 func validateStoredNativeChatAttachments(attachments []chatattachments.StoredAttachment) (bool, error) {
 	hasImages := false
-	remainingText := chatapp.MaxNativeTextContextBytes
 	for _, attachment := range attachments {
 		if err := validateStoredNativeChatAttachment(attachment); err != nil {
 			return false, err
 		}
-		if attachment.MediaType == "text/plain" {
-			if len(attachment.Data) > remainingText {
-				return false, chatapp.ErrNativeTextContextTooLarge
-			}
-			remainingText -= len(attachment.Data)
-		} else {
+		if attachment.MediaType != "text/plain" {
 			hasImages = true
 		}
 	}
 	return hasImages, nil
+}
+
+func writeNativeTextContextTooLarge(w http.ResponseWriter, budget int) {
+	WriteErrorDetails(w, http.StatusRequestEntityTooLarge, "chat.text_context_too_large", chatapp.ErrNativeTextContextTooLarge.Error(), ErrorDetails{
+		UserMessage:    "These files do not fit the selected model's inline context budget.",
+		OperatorAction: "Turn Tools on to read and search files in parts, or attach a smaller excerpt. No file text was sent.",
+		Fields:         map[string]any{"inline_text_budget_bytes": budget},
+	})
+}
+
+// Include ordinary history and bounded per-message/image framing before
+// allocating any text attachment body to the direct model's context.
+func nativeChatInlineTextBudget(capabilities types.ModelCapabilities, messages []types.Message, imageCount int) int {
+	ordinaryBytes := 1024 + imageCount*nativeChatImageContextBytes
+	for _, message := range messages {
+		ordinaryBytes += len(message.Content) + 256
+	}
+	return chatapp.NativeTextContextBudget(capabilities.MaxContextTokens, ordinaryBytes)
 }
 
 func validateStoredNativeChatAttachment(attachment chatattachments.StoredAttachment) error {

@@ -190,3 +190,23 @@ func TestOpenAIWireContent_RestoredTextBlocksRetainOmissions(t *testing.T) {
 		t.Fatalf("restored wire=%+v", wire)
 	}
 }
+
+func TestPrivateAttachmentToolResultsReachProviderWire(t *testing.T) {
+	const private = "private-paged-tool-result"
+	message := types.Message{Role: "tool", ToolCallID: "read-1", ContentBlocks: []types.ContentBlock{{Type: "text", Text: private, AttachmentInput: true}}}
+	openAI := buildOpenAIWireContent(message)
+	if openAI.Text != private {
+		t.Fatalf("tool result was dropped: %+v", openAI)
+	}
+	anthropic := toolResultBlock(message)
+	if anthropic.ToolUseID != "read-1" || !strings.Contains(string(anthropic.ResultContent), private) {
+		t.Fatalf("tool result was dropped: %+v", anthropic)
+	}
+	if message.Content != "" || !message.ContentBlocks[0].AttachmentInput {
+		t.Fatal("wire serialization mutated private source")
+	}
+	req := types.ChatRequest{Messages: []types.Message{message}}
+	if err := attachmentSafeError(req, errors.New(private)); strings.Contains(err.Error(), private) {
+		t.Fatal("tool-result error echo leaked")
+	}
+}

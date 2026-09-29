@@ -68,7 +68,6 @@ import {
   toChatSegmentViewModel,
 } from "../../../features/chats/chatTurnViewModels";
 import {
-  CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES,
   type ChatExecutionMode,
   type ChatTarget,
   type PendingChatAttachment,
@@ -1385,14 +1384,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       )
     ) {
       return "Remove files that are not UTF-8 text/code or PNG, JPEG, or WebP before switching to Hecate Chat.";
-    }
-    const textBytes = pendingChatAttachments.reduce(
-      (total, attachment) =>
-        total + (pendingChatAttachmentKind(attachment) === "text" ? attachment.file.size : 0),
-      0,
-    );
-    if (textBytes > CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES) {
-      return "Keep text and code files at or below 64 KiB total before switching to Hecate Chat.";
     }
     const hasImages = pendingChatAttachments.some(
       (attachment) => pendingChatAttachmentKind(attachment) === "image",

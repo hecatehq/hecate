@@ -8,6 +8,10 @@ describe("describeGatewayError", () => {
     expect(describeGatewayError("chat.model_capability_required")?.title).toBe(
       "Tools unavailable for this model",
     );
+    expect(describeGatewayError("chat.text_context_too_large")).toMatchObject({
+      title: "Text attachments exceed model context",
+      action: expect.stringContaining("Turn Tools on"),
+    });
     expect(describeGatewayError("chat.workspace_required")?.action).toContain("Choose a workspace");
     expect(describeGatewayError("chat.session_not_running")).toMatchObject({
       title: "No active turn",

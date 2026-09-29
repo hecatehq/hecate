@@ -5662,7 +5662,7 @@ a provider or External Agent.
 
 Hecate-owned chats accept PNG, JPEG, WebP, and UTF-8 text/code for both Tools-off
 and Tools-on turns. Text/code is canonicalized to `text/plain`, limited to
-32 KiB per file, and must have no binary control characters except tab, newline,
+5 MiB per file, and must have no binary control characters except tab, newline,
 and carriage return. The server validates the entire byte payload rather than
 trusting a filename or MIME declaration. Recognized binary formats, PDF/DOCX,
 and archives are unsupported; no extraction or execution occurs.
@@ -5896,14 +5896,19 @@ the user message and assistant output.
 - `attachment_ids` — up to four ids returned by the staging endpoint. The ids
   must belong to this session and total no more than 12 MiB. Hecate-owned
   turns accept UTF-8 text/code and supported raster images with tools on or off.
-  Text files require no vision support and total at most 64 KiB per model request
-  including eligible historical files, with a 32 KiB per-file limit. Current
-  text overflow is rejected; older text outside the history budget receives
-  explicit omission markers. These are byte limits, not a model context-window
-  guarantee. Actual images require a currently routable matching route whose
+  Text files require no vision support. Tools-on supplies metadata and scoped
+  `read_attachment` / `search_attachment` tools instead of eagerly inlining
+  bodies. Tools-off admits whole text files against the selected model's
+  conservative inline budget (one byte per token, conversation/framing deducted,
+  a quarter of the context window plus 4096 tokens reserved; unknown windows
+  use 64 KiB before overhead). Current text overflow is rejected; older text
+  outside the history budget receives explicit omission markers. This estimate
+  is not a vendor-tokenizer guarantee. Actual images require a currently routable matching route whose
   effective capability is `image_input="supported"`. A tools-on Task Run persists only an opaque input
-  reference, hydrates the body immediately before agent-loop execution, and
-  replaces attachment blocks with omission markers in its conversation artifact.
+  reference, revalidates scoped access immediately before agent-loop execution,
+  and replaces private excerpts/images with omission markers in its conversation
+  artifact. File metadata remains available; completed reads are not replayed on
+  resume, and later turns without a new input do not inherit file-read authority.
   A matching manual tool-support verification can satisfy only an otherwise
   unknown tool requirement on the exact pinned route, including a tools-on
   Task Run without an attachment; it never substitutes for image support or
@@ -5947,8 +5952,14 @@ the user message and assistant output.
   answers and tool output can still quote the supplied text.
   Exceeding the overall 12 MiB message limit returns
   `413 chat.attachment_too_large` with `max_message_attachment_bytes`.
-  Exceeding the native text-file limits uses the same status and code with a
-  message identifying the 32 KiB per-file or 64 KiB combined text limit.
+  Exceeding the Tools-off inline text budget returns
+  `413 chat.text_context_too_large` with `inline_text_budget_bytes` and guidance
+  to enable Tools or attach a smaller excerpt. The rejected claim is released;
+  no transcript message or file-bearing provider call is committed. A second
+  check at final provider dispatch accounts for policy-driven model rewrites.
+  Failure there settles the already-committed turn as failed, without file
+  disclosure; its linked attachments remain downloadable rather than becoming
+  drafts again.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator

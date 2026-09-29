@@ -160,10 +160,13 @@ provider instance immediately before dispatch, and use the bounded 32 MiB,
 Hecate-owned Chat accepts staged PNG/JPEG/WebP and UTF-8 text/code attachments
 with Tools off or task-backed Tools on. Text files do not require image support;
 they retain the same no-failover and provider-generation disclosure boundaries.
-Text is bounded to 32 KiB per file and 64 KiB per model request including eligible
-history, without document extraction. The task-backed path persists only an opaque input
-reference and hydrates the file immediately before its fenced agent-loop
-dispatch. External Agent/ACP sessions accept bounded arbitrary files and
+Text shares the 5 MiB per-file and 12 MiB per-message storage envelope, without
+document extraction. Direct chat checks a conservative model-aware inline
+budget including eligible history; overflow explicitly suggests Tools-on or an
+excerpt. The task-backed path persists an opaque input reference and provides
+scoped private read/search tools, with bounded transient excerpts and body-free
+checkpoint omissions. It does not copy files into the workspace or grant later
+turns authority over previous input. External Agent/ACP sessions accept bounded arbitrary files and
 resolve them against live ACP image/embedded-resource capabilities, with a
 private per-turn `resource_link` as the baseline fallback; that path does not
 weaken direct-model image-capability admission.

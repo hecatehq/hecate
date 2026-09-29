@@ -11,7 +11,6 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
-	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
@@ -244,11 +243,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		}()
 		hasImages, validationErr := validateStoredNativeChatAttachments(resolvedAttachments)
 		if validationErr != nil {
-			if errors.Is(validationErr, chatapp.ErrNativeTextContextTooLarge) {
-				WriteError(w, http.StatusRequestEntityTooLarge, errCodeAttachmentTooLarge, validationErr.Error())
-			} else {
-				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
-			}
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored chat attachment failed integrity validation")
 			return
 		}
 		if hasImages {

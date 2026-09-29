@@ -12,10 +12,8 @@ import {
 import { getChatAttachmentContentBlob } from "../../lib/api";
 import {
   CHAT_ATTACHMENT_MAX_COUNT,
-  CHAT_ATTACHMENT_MAX_IMAGE_BYTES,
+  CHAT_ATTACHMENT_MAX_FILE_BYTES,
   CHAT_ATTACHMENT_MAX_MESSAGE_BYTES,
-  CHAT_ATTACHMENT_MAX_TEXT_BYTES,
-  CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES,
   CHAT_RASTER_IMAGE_MEDIA_TYPES,
   type PendingChatAttachment,
   type PendingChatAttachmentKind,
@@ -25,11 +23,8 @@ import type { ChatAttachmentRecord } from "../../types/chat";
 import { Icon, Icons, Modal } from "../shared/ui";
 
 export const MAX_CHAT_ATTACHMENTS = CHAT_ATTACHMENT_MAX_COUNT;
-export const MAX_CHAT_IMAGE_BYTES = CHAT_ATTACHMENT_MAX_IMAGE_BYTES;
-export const MAX_CHAT_IMAGE_MESSAGE_BYTES = CHAT_ATTACHMENT_MAX_MESSAGE_BYTES;
-export const MAX_CHAT_TEXT_BYTES = CHAT_ATTACHMENT_MAX_TEXT_BYTES;
-export const MAX_CHAT_TEXT_MESSAGE_BYTES = CHAT_ATTACHMENT_MAX_TEXT_MESSAGE_BYTES;
-export const MAX_CHAT_IMAGE_ATTACHMENTS = MAX_CHAT_ATTACHMENTS;
+export const MAX_CHAT_FILE_BYTES = CHAT_ATTACHMENT_MAX_FILE_BYTES;
+export const MAX_CHAT_MESSAGE_BYTES = CHAT_ATTACHMENT_MAX_MESSAGE_BYTES;
 
 export type ChatAttachmentAcceptance = "files" | "native";
 
@@ -103,7 +98,7 @@ export async function prepareChatFiles(
       continue;
     }
     if (acceptance === "files") {
-      if (file.size > MAX_CHAT_IMAGE_BYTES) {
+      if (file.size > MAX_CHAT_FILE_BYTES) {
         errors.push(`${file.name || "File"} exceeds the 5 MiB limit.`);
         continue;
       }
@@ -153,24 +148,13 @@ export function appendPreparedChatFiles(
       (total, attachment) => total + attachment.file.size,
       0,
     );
-    if (candidate.file.size > MAX_CHAT_IMAGE_MESSAGE_BYTES - combinedBytes) {
+    if (candidate.file.size > MAX_CHAT_MESSAGE_BYTES - combinedBytes) {
       const imageOnly =
         acceptance === "native" &&
         candidate.kind === "image" &&
         attachments.every((attachment) => pendingChatAttachmentKind(attachment) === "image");
       errors.push(`${imageOnly ? "Images" : "Files"} in one message can total up to 12 MiB.`);
       continue;
-    }
-    if (acceptance === "native" && candidate.kind === "text") {
-      const textBytes = attachments.reduce(
-        (total, attachment) =>
-          total + (pendingChatAttachmentKind(attachment) === "text" ? attachment.file.size : 0),
-        0,
-      );
-      if (candidate.file.size > MAX_CHAT_TEXT_MESSAGE_BYTES - textBytes) {
-        errors.push("Text and code files in one message can total up to 64 KiB.");
-        continue;
-      }
     }
     attachments.push(candidate);
   }
@@ -223,7 +207,7 @@ async function inspectNativeChatFile(file: File): Promise<NativeChatFileInspecti
   }
   const rasterMediaType = supportedRasterSignatureMediaType(prefix);
   if (rasterMediaType) {
-    return file.size > MAX_CHAT_IMAGE_BYTES
+    return file.size > MAX_CHAT_FILE_BYTES
       ? {
           kind: "image",
           error: `${filename} exceeds the 5 MiB image limit.`,
@@ -242,10 +226,10 @@ async function inspectNativeChatFile(file: File): Promise<NativeChatFileInspecti
       mediaType: "text/plain",
     };
   }
-  if (file.size > MAX_CHAT_TEXT_BYTES) {
+  if (file.size > MAX_CHAT_FILE_BYTES) {
     return {
       kind: "text",
-      error: `${filename} exceeds the 32 KiB text/code limit.`,
+      error: `${filename} exceeds the 5 MiB limit.`,
       mediaType: "text/plain",
     };
   }
@@ -348,6 +332,7 @@ export function ChatAttachmentDrafts({
   describedBy,
   error,
   compact = false,
+  nativeTextToolsEnabled = false,
   onAddFiles,
   onRemove,
 }: {
@@ -358,6 +343,7 @@ export function ChatAttachmentDrafts({
   describedBy?: string;
   error?: string;
   compact?: boolean;
+  nativeTextToolsEnabled?: boolean;
   onAddFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
 }) {
@@ -367,15 +353,23 @@ export function ChatAttachmentDrafts({
   const removeButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const previousAttachmentsRef = useRef(attachments);
   const reasonID = useId();
+  const guidanceID = useId();
   const errorID = useId();
   const [dragging, setDragging] = useState(false);
   const [attachmentAnnouncement, setAttachmentAnnouncement] = useState("");
   const acceptsFiles = acceptance === "files";
+  const nativeTextUsage = nativeTextToolsEnabled
+    ? "With Tools on, private files are read or searched on demand."
+    : "With Tools off, whole text/code files are included only if they fit the selected model context.";
+  const compactNativeTextUsage = nativeTextToolsEnabled
+    ? "Private files · read/search on demand"
+    : "Whole text · if model context fits";
   const atLimit = attachments.length >= MAX_CHAT_ATTACHMENTS;
   const canAdd = enabled && !atLimit;
   const unavailableReason = atLimit ? "A message can include up to 4 files." : disabledReason;
   const attachmentDescriptionIDs = [
     describedBy ?? "",
+    canAdd && !acceptsFiles ? guidanceID : "",
     !canAdd && unavailableReason ? reasonID : "",
     error ? errorID : "",
   ]
@@ -526,7 +520,7 @@ export function ChatAttachmentDrafts({
             canAdd
               ? acceptsFiles
                 ? "Attach files · 4 files · 5 MiB each · 12 MiB total"
-                : "Attach UTF-8 text/code or PNG, JPEG, WebP images · 4 files · text 32 KiB each/64 KiB total · images 5 MiB each/12 MiB total"
+                : `Attach UTF-8 text/code or PNG, JPEG, WebP images · 4 files · 5 MiB each · 12 MiB total. ${nativeTextUsage}`
               : unavailableReason
           }
           style={{
@@ -543,9 +537,23 @@ export function ChatAttachmentDrafts({
             dragging || !canAdd ? " chat-composer-attachment-copy--active" : ""
           }`}
           ref={unavailableStatusRef}
-          id={!canAdd && unavailableReason ? reasonID : undefined}
+          id={
+            !canAdd && unavailableReason
+              ? reasonID
+              : canAdd && !acceptsFiles
+                ? guidanceID
+                : undefined
+          }
           tabIndex={!canAdd && unavailableReason ? -1 : undefined}
-          title={compact ? (canAdd ? undefined : unavailableReason) : undefined}
+          title={
+            compact
+              ? canAdd
+                ? acceptsFiles
+                  ? undefined
+                  : nativeTextUsage
+                : unavailableReason
+              : undefined
+          }
           style={{
             color: "var(--t3)",
             fontFamily: "var(--font-mono)",
@@ -562,10 +570,10 @@ export function ChatAttachmentDrafts({
               ? compact
                 ? acceptsFiles
                   ? "4 files max"
-                  : "Text/code or images · 4 max"
+                  : compactNativeTextUsage
                 : acceptsFiles
                   ? "paste, choose, or drop · 4 files · 5 MiB each · 12 MiB total"
-                  : "paste, choose, or drop · UTF-8 text/code (32 KiB each) or PNG/JPEG/WebP"
+                  : `paste, choose, or drop · ${nativeTextUsage}`
               : unavailableReason}
         </span>
       </div>

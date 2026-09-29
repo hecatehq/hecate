@@ -139,6 +139,13 @@ survives live model calls but is replaced with a body-free notice in checkpoints
 OpenAI-compatible serialization flattens text blocks only at the provider wire
 boundary; Anthropic keeps text blocks. Both paths suppress upstream error text
 for marked file input before health, logs, or telemetry can retain an echo.
+Tools-off text uses a conservative model-aware inline budget. Tools-on passes
+a metadata-only manifest and an execution-scoped typed attachment reader into
+the orchestrator. Read/search tools revalidate the current input's claim,
+metadata, digest, lifecycle, and provider generation before returning bounded
+private excerpts. No attachment is materialized in the workspace. Tool-result
+bodies use the same private marker, with explicit checkpoint/budget omissions;
+model-generated search queries and answers retain ordinary persistence semantics.
 External Agent turns resolve live ACP capabilities and otherwise fall back to a
 private staged resource link; non-image file bytes are never rendered inline by
 the operator UI. A failure before
@@ -173,10 +180,12 @@ sequenceDiagram
         Gateway-->>API: provider response
     else Hecate tools-on attachment turn
         API->>Tasks: persist opaque chat-message input reference
-        API->>Gateway: hydrate transient text/image blocks at agent-loop execution
+        API->>Gateway: file manifest + transient images + scoped read/search tools
         Gateway->>Gateway: require vision only for images; no failover; fence generation
-        Gateway-->>API: provider response with tools available
-        API->>API: replace attachment blocks with artifact omission markers
+        Gateway-->>API: read_attachment or search_attachment
+        API->>Bodies: revalidate scoped claim + metadata + digest; load bounded file
+        API->>Gateway: bounded transient private tool result
+        API->>Tasks: metadata + explicit private-result omission markers
     else External Agent file turn
         API->>Turn: admit after durable user + running assistant
         opt browser/webview connection closes

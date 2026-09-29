@@ -1246,9 +1246,7 @@ test("uses a full-width replacement panel and phone-sized chat controls", async 
   await expect(settingsButton).toBeFocused();
 });
 
-test("keeps desktop composer actions separate when image input and dictation need setup", async ({
-  page,
-}) => {
+test("keeps desktop file controls and dictation setup actions separate", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 700 });
   await page.route("/hecate/v1/dictation/options", (route) =>
     route.fulfill({
@@ -1284,10 +1282,10 @@ test("keeps desktop composer actions separate when image input and dictation nee
   const dictationRoute = page.getByRole("combobox", { name: "Dictation route" });
   const dictationSetup = page.getByRole("button", { name: "Set up dictation provider" });
   const actionItems = [
-    { name: "image button", locator: page.getByRole("button", { name: "Image" }) },
+    { name: "file button", locator: page.getByRole("button", { name: "Files", exact: true }) },
     {
-      name: "image status",
-      locator: composerActions.locator(".chat-composer-attachment-copy--active"),
+      name: "file guidance",
+      locator: composerActions.locator(".chat-composer-attachment-copy"),
     },
     {
       name: "dictation button",
@@ -1343,7 +1341,7 @@ test("keeps desktop composer actions separate when image input and dictation nee
       expect(box!.y + box!.height).toBeLessThanOrEqual(actionsBox!.y + actionsBox!.height + 1);
       itemBoxes.push({ ...box!, name: item.name });
     }
-    expect(itemBoxes.find((item) => item.name === "image status")!.width).toBeGreaterThanOrEqual(
+    expect(itemBoxes.find((item) => item.name === "file guidance")!.width).toBeGreaterThanOrEqual(
       120,
     );
     for (let left = 0; left < itemBoxes.length; left += 1) {
@@ -1524,13 +1522,13 @@ test("keeps the phone composer controls contained when dictation needs setup", a
   const messageComposer = page.getByRole("group", { name: "Message composer" });
   const composerActions = page.getByRole("group", { name: "Composer actions" });
   const dictationRoute = page.getByRole("combobox", { name: "Dictation route" });
-  const imageStatus = composerActions.locator(".chat-composer-attachment-copy--active");
+  const imageStatus = composerActions.locator(".chat-composer-attachment-copy");
   const dictationStatus = composerActions.locator(".chat-composer-dictation-status--active");
   const dictationSetup = page.getByRole("button", { name: "Set up dictation provider" });
   const controls = [
     page.getByRole("button", { name: /Provider picker:/ }),
     page.getByRole("button", { name: /Model picker:/ }),
-    page.getByRole("button", { name: "Image" }),
+    page.getByRole("button", { name: "Files", exact: true }),
     page.getByRole("button", { name: "Start dictation" }),
     dictationSetup,
     page.getByRole("button", { name: "Send message" }),
@@ -2931,8 +2929,9 @@ test("Hecate Chat stages and renders an image through the browser attachment flo
   await expect(page.locator('[aria-label="Queued messages"]')).toHaveCount(0);
 
   await expect(page.getByRole("group", { name: "Attached images" })).toBeVisible();
-  const loadButton = page.getByRole("button", { name: "Load browser-vision.png" });
-  if (await loadButton.isVisible()) await loadButton.click();
+  // Visible attachment previews load automatically. Clicking a transient Load
+  // button races that observer and can wait on a control that has unmounted.
+  await page.getByRole("group", { name: "Attached images" }).scrollIntoViewIfNeeded();
   await expect
     .poll(() =>
       gateway.chatAttachmentContentRequests.some(

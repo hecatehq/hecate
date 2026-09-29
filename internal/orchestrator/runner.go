@@ -150,9 +150,11 @@ type SystemPromptResolver func(ctx context.Context, tenantID, perTaskPrompt, wor
 // reference. Release drops any admission permit or other transient resource
 // held while the executor retains the hydrated body.
 type AgentInput struct {
-	Message      types.Message
-	Requirements types.ChatRequestRequirements
-	Release      func()
+	Message                types.Message
+	Requirements           types.ChatRequestRequirements
+	Release                func()
+	AttachmentReader       AgentAttachmentReader
+	AttachmentContextBytes int
 }
 
 // AgentInputResolver keeps application-owned binary storage outside the task
@@ -429,12 +431,12 @@ func (r *Runner) hasPolicy(name string) bool {
 // policy set into the agent-loop tool gating set. The mapping:
 // task policy "shell_exec" gates the agent's shell_exec tool, etc.
 // Network egress maps to http_request; read_file maps to read-only
-// workspace/artifact inspection tools.
+// workspace/artifact/private-attachment inspection tools.
 // all_tools short-circuits to the full set of every agent tool.
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", AgentToolCodeIntelligence, "http_request", AgentToolWebSearch, AgentToolDraftProjectProposal}
+		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", AgentToolCodeIntelligence, AgentToolReadAttachment, AgentToolSearchAttachment, "http_request", AgentToolWebSearch, AgentToolDraftProjectProposal}
 		return append(out, agentLoopTerminalToolNames()...)
 	}
 	out := make([]string, 0, len(policies))
@@ -448,7 +450,7 @@ func agentLoopGatedTools(policies map[string]struct{}) []string {
 		case "file_write":
 			out = append(out, "file_write", "file_edit", "apply_patch")
 		case "read_file":
-			out = append(out, "read_file", "grep", "glob", "artifact_read", AgentToolCodeIntelligence)
+			out = append(out, "read_file", "grep", "glob", "artifact_read", AgentToolCodeIntelligence, AgentToolReadAttachment, AgentToolSearchAttachment)
 		case "network_egress":
 			// `network_egress` is the historical name for the
 			// outbound-network policy applied to shell tasks. We
@@ -1513,6 +1515,8 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		ShellNetworkAllowPrivateIPs: r.config.ShellNetwork.AllowPrivateIPs,
 		InputMessage:                inputMessage,
 		ChatRequirements:            agentInput.Requirements,
+		AttachmentReader:            agentInput.AttachmentReader,
+		AttachmentContextBytes:      agentInput.AttachmentContextBytes,
 		RecordProviderAttempt: func(route types.RouteDecision) error {
 			return r.recordAgentInputProviderAttempt(ctx, task, run, route)
 		},
