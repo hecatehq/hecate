@@ -263,8 +263,9 @@ The implemented runtime remains smaller than a workflow browser worker. An
 Agent Preset independently grants `browser_allowed` for script-disabled
 `browser_inspect` and `browser_interactions_allowed` for `browser_flow`; either
 grant requires the shared exact `browser_allowed_origins` list. Hecate snapshots
-both grants and the normalized origins only when it launches a native
-project-assignment Task. The capability is not inherited from generic
+both grants and the normalized origins for eligible standalone native Tasks,
+native project assignments, and new Hecate Chats selecting a compatible Work
+policy. Chat's tools-on backing Tasks copy the frozen session posture. The capability is not inherited from generic
 `network_allowed` or Cairnline coordination intent.
 
 Both calls use an explicitly configured local Chromium-compatible executable,
@@ -285,8 +286,8 @@ effects, so approval authorizes the full ordered flow. If a later action fails,
 Hecate keeps partial action evidence because an earlier click may already have
 changed the application.
 
-Neither tool attaches to the operator's browser or appears in Hecate Chat,
-External Agents, QA, legacy/manual Tasks, or remote runtime. QA v0 explicitly
+Neither tool attaches to the operator's browser or appears in tools-off Chat,
+External Agents, QA, ungranted legacy/manual Tasks, or remote runtime. QA v0 explicitly
 blocks both tools and does not add a browser URL input. A future QA contract
 needs a separate Hecate-owned assignment-launch selection before it can claim
 either constrained browser capability.

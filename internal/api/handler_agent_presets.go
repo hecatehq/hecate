@@ -200,7 +200,7 @@ func clearIneligibleBrowserCapabilities(profile *agentprofiles.Profile) {
 	if surface == "" {
 		surface = agentprofiles.SurfaceAny
 	}
-	if profile.ToolsEnabled && (surface == agentprofiles.SurfaceAny || surface == agentprofiles.SurfaceHecateTask) {
+	if profile.ToolsEnabled && (surface == agentprofiles.SurfaceAny || surface == agentprofiles.SurfaceHecateTask || surface == agentprofiles.SurfaceHecateChat) {
 		if profile.BrowserAllowed || profile.BrowserInteractionsAllowed {
 			return
 		}

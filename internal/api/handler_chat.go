@@ -253,17 +253,22 @@ func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSna
 	if approvalPolicy == "" {
 		approvalPolicy = agentprofiles.ApprovalInherit
 	}
+	browserAllowed := profile.BrowserAllowed
+	browserInteractionsAllowed := profile.BrowserInteractionsAllowed
 	return &chat.AgentPresetSnapshot{
-		ID:               strings.TrimSpace(profile.ID),
-		Name:             strings.TrimSpace(profile.Name),
-		ProviderHint:     strings.TrimSpace(profile.ProviderHint),
-		ModelHint:        strings.TrimSpace(profile.ModelHint),
-		Instructions:     strings.TrimSpace(profile.Instructions),
-		ExecutionProfile: strings.TrimSpace(profile.ExecutionProfile),
-		ToolsEnabled:     profile.ToolsEnabled,
-		WritesAllowed:    profile.WritesAllowed,
-		NetworkAllowed:   profile.NetworkAllowed,
-		ApprovalPolicy:   approvalPolicy,
+		ID:                         strings.TrimSpace(profile.ID),
+		Name:                       strings.TrimSpace(profile.Name),
+		ProviderHint:               strings.TrimSpace(profile.ProviderHint),
+		ModelHint:                  strings.TrimSpace(profile.ModelHint),
+		Instructions:               strings.TrimSpace(profile.Instructions),
+		ExecutionProfile:           strings.TrimSpace(profile.ExecutionProfile),
+		ToolsEnabled:               profile.ToolsEnabled,
+		WritesAllowed:              profile.WritesAllowed,
+		NetworkAllowed:             profile.NetworkAllowed,
+		BrowserAllowed:             &browserAllowed,
+		BrowserInteractionsAllowed: &browserInteractionsAllowed,
+		BrowserAllowedOrigins:      append([]string(nil), profile.BrowserAllowedOrigins...),
+		ApprovalPolicy:             approvalPolicy,
 	}
 }
 

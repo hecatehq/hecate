@@ -1871,6 +1871,7 @@ export function ChatView({
                   toolsEnabled={isHecateChat && hecateChatToolsEnabled}
                   toolsDisabledForModel={hecateAgentToolsDisabledForModel}
                   agentPreset={isHecateChat ? state.activeChatSession?.agent_preset : undefined}
+                  browserEvidenceReadiness={settings.state.config?.browser_evidence}
                   rtkEnabled={Boolean(state.hecateRTKEnabled)}
                   rtkAvailable={Boolean(state.hecateRTKAvailable)}
                   rtkPath={state.hecateRTKPath}

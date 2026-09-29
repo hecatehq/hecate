@@ -2531,9 +2531,9 @@ Hecate Chat session creation accepts only presets whose `surface` is
 `hecate_chat` or `any`. This is a narrow Hecate-owned Chat contract, distinct
 from native Task resolution: `hecate_task` presets are available to standalone
 and project-assignment Tasks, while `external_agent` presets remain for
-External Agent launch paths. Hecate Chat does not copy the preset's
-browser grants into its backing Task. It does copy the explicit
-`approval_policy` from the frozen Chat-safe snapshot to tools-on backing Tasks;
+External Agent launch paths. Hecate Chat copies the independent browser grants,
+exact allowed origins, and explicit `approval_policy` from its frozen Chat
+snapshot to tools-on backing Tasks;
 External Agent permission requests continue through the ACP approval/grant
 path.
 
@@ -2592,7 +2592,8 @@ set `browser_allowed=true` for static `browser_inspect`,
 `browser_interactions_allowed=true` for `browser_flow`, either, or both. The
 grants are independent: static evidence never grants interaction and
 interaction never grants static evidence. Either grant is valid only when the
-preset is usable by a native task (`surface="hecate_task"` or `"any"`), tools
+preset is usable by native execution (`surface="hecate_task"`, `"hecate_chat"`,
+or `"any"`), tools
 are enabled, and `browser_allowed_origins` contains at least one exact HTTP(S)
 origin. Hecate normalizes and deduplicates the shared list; credentials, paths,
 query strings, and fragments are rejected rather than broadened.
@@ -2603,13 +2604,13 @@ to the output-only `agent_preset_browser_allowed`,
 `agent_preset_browser_allowed_origins` Task fields. Later preset edits cannot
 alter a queued, running, retried, or resumed Task. Partial updates clear both
 grants and the list when tools are disabled or the surface stops being
-`any`/`hecate_task`. Disabling only one browser grant preserves the other grant
+`any`/`hecate_task`/`hecate_chat`. Disabling only one browser grant preserves the other grant
 and its origins; disabling the last grant clears the list. Creation remains
 strict and rejects either grant without valid exact origins.
 
 The snapshots expose only Hecate's local browser tools when a local executable
 is configured. They do not grant `http_request`, `web_search`, sandbox network,
-or any capability to an External Agent. Hecate Chat, External Agent, QA,
+or any capability to an External Agent. Tools-off Chat, External Agent, QA,
 non-preset Tasks, and remote-runtime Tasks receive neither tool. A preset may list
 multiple origins, but each approved call passes only its selected exact origin
 to the browser. Another configured origin is not available as a cross-origin
@@ -5155,6 +5156,8 @@ GET /hecate/v1/chat/sessions
         "tools_enabled": true,
         "writes_allowed": false,
         "network_allowed": false,
+        "browser_allowed": false,
+        "browser_interactions_allowed": false,
         "approval_policy": "require"
       },
       "status": "completed",
@@ -5194,8 +5197,9 @@ configured providers that expose the selected model.
 For `agent_id="hecate"`, an optional `agent_preset_id` selects a saved Agent
 Preset whose `surface` is `hecate_chat` or `any`. Hecate copies the narrow
 Chat-safe subset into the session at creation time: id, name, provider/model
-hints, instructions, execution profile, tools/write/network posture, and
-approval posture.
+hints, instructions, execution profile, tools/write/network posture,
+approval posture, `browser_allowed`, `browser_interactions_allowed`, and
+`browser_allowed_origins`.
 The `agent_preset` object returned on list and detail responses is that frozen
 snapshot, not a live preset lookup. Later preset edits or deletion therefore do
 not change historical chat behavior or a Task created from the chat. Explicit
@@ -5204,8 +5208,8 @@ omitted values.
 
 `agent_preset_id` is invalid for an External Agent session. Hecate does not
 translate this Chat selection into ACP configuration, project roles,
-Cairnline coordination, project memory/source policy, project skills, browser
-evidence, MCP-server selection, or other
+Cairnline coordination, project memory/source policy, project skills,
+MCP-server selection, or other
 adapter-specific options. Those surfaces retain their own explicit contracts.
 
 `project_id` is optional. When supplied, it must reference an embedded
@@ -5256,8 +5260,25 @@ copies the frozen `approval_policy` into the Task's additive mid-loop approval
 layer. `require` gates every otherwise-permitted advertised tool call;
 `block` refuses calls that another runtime or MCP policy would otherwise gate;
 `inherit` and `allow` add no gate or override. Direct turns have no tools to
-approve. Normal Hecate policy and model-capability checks still apply, and the
-Chat snapshot grants no browser capability.
+approve. Normal Hecate policy and model-capability checks still apply.
+
+New Chat preset snapshots include explicit `browser_allowed` and
+`browser_interactions_allowed` booleans plus `browser_allowed_origins` when
+either grant is enabled. These output-only session fields are copied into a new
+backing Task's corresponding `agent_preset_browser_*` fields. Callers select a
+policy by id; they do not supply snapshot fields. Legacy snapshots with absent
+browser fields remain ungranted. Continuing or retrying a Task uses its stored
+snapshot; changing provider/model or creating another task-backed segment does
+not re-resolve the mutable policy.
+
+Browser execution still requires the configured local runtime, tools-on mode,
+the corresponding explicit grant and exact origin, and mandatory per-call
+approval. `approval_policy="allow"` does not bypass that approval;
+`"block"` makes otherwise-available browser calls unusable. Neither ordinary
+Tools nor network permission grants browser authority. External Agents and
+remote runtimes retain their existing exclusion. The API adds no new browser
+endpoint or browser session: Chat uses the existing Task tools, approvals, and
+bounded evidence artifacts.
 
 `workspace_mode` records the execution posture for future task-backed turns:
 
@@ -5363,6 +5384,8 @@ POST /hecate/v1/chat/sessions
       "tools_enabled": true,
       "writes_allowed": false,
       "network_allowed": false,
+      "browser_allowed": false,
+      "browser_interactions_allowed": false,
       "approval_policy": "require"
     },
     "status": "idle",

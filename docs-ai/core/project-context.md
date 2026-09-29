@@ -63,16 +63,21 @@ session.
 When a Hecate Chat is created with a named Agent Preset, accept only a
 `hecate_chat` or `any` surface and persist a narrow immutable snapshot: id,
 name, provider/model hints, instructions, execution profile, and
-tool/write/network/approval posture. Fill only omitted provider/model selections from
+tool/write/network/approval posture, and independent browser grants with exact
+origins. Fill only omitted provider/model selections from
 the hints. Compose the frozen instructions after the bounded project prelude
 and before the operator's per-chat instructions; a tools-disabled snapshot
 must keep the chat on the direct-model path. A permitted tools-on turn maps the
 same frozen posture to the backing native Task. Do not re-resolve the preset
 later or borrow project-assignment behavior: Chat presets do not activate
-project-memory/context-source policy, skills, browser capabilities, MCP servers,
+project-memory/context-source policy, skills, MCP servers,
 or External Agent options. The approval posture is additive only for tools-on
 backing Tasks; direct turns have no tools, and legacy snapshots without an
-explicit value retain runtime defaults. This is Hecate execution
+explicit value retain runtime defaults. Browser grants are separate optional
+snapshot fields: absent legacy fields never grant access. Copy explicit grants
+and deep-copied exact origins only into new backing Tasks; retry/continuation
+uses the Task snapshot. Every browser call retains runtime/origin checks and
+mandatory approval. This is Hecate execution
 state, not Cairnline coordination; it must not create or mutate portable
 Projects, roles, assignments, or handoffs.
 
@@ -150,11 +155,11 @@ dispatch. Preset-backed native HTTP/search tools fail closed when that snapshot
 disables network access;
 read-only tasks omit and reject broad shell, Git, file-write, and interactive
 terminal surfaces while retaining structured inspection and proposal-only
-edits. Browser capability is separate from generic network: a native-task
+edits. Browser capability is separate from generic network: a native Task or Chat
 preset independently grants script-disabled `browser_inspect` and
 approval-bound `browser_flow`, and either grant requires their shared exact
-origin list. Native Task creation snapshots both booleans and the normalized
-origins. Neither is inferred from `sandbox_network`, later preset edits, or a
+origin list. Native Task or Chat creation snapshots both booleans and the normalized
+origins; new Chat backing Tasks copy that snapshot. Neither is inferred from `sandbox_network`, later preset edits, or a
 non-preset Task. Every call uses one query-free URL at one exact origin,
 requires approval, starts a fresh local browser process/profile, and returns
 bounded plain-text evidence. A native preset that both grants a browser
@@ -164,7 +169,8 @@ that effective posture. A flow runs 1–6 fully declared exact accessibility
 click/wait actions with scripts enabled; same-origin `GET`/`HEAD` requests and
 clicks may change the application, and a failure retains partial action audit.
 There is no typing, upload, download, screenshot, authentication import,
-retained state, Hecate Chat, External Agent, QA, or remote-runtime surface. One
+retained state, External Agent, QA, or remote-runtime surface. Eligible tools-on
+Hecate Chats use the same tools through their frozen policy-backed Tasks. One
 timeout spans preflight, startup, and the call; Hecate cancels after observing
 4 MiB of aggregate response data, including unknown-length streams, though
 browser/socket buffering can overshoot before cancellation. Do not treat

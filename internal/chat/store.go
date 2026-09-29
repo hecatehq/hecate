@@ -40,8 +40,8 @@ type Session struct {
 	// profile reference, so a later preset edit or deletion cannot rewrite a
 	// historical transcript or a backing Task retry.
 	//
-	// External-agent sessions never carry this field. Browser evidence,
-	// project-role context, skills, and external-agent options are deliberately
+	// External-agent sessions never carry this field. Project-role context,
+	// skills and external-agent options are deliberately
 	// outside this small Chat contract.
 	AgentPreset       *AgentPresetSnapshot
 	ConfigOptions     []agentcontrols.ConfigOption
@@ -78,6 +78,11 @@ type AgentPresetSnapshot struct {
 	ToolsEnabled     bool   `json:"tools_enabled"`
 	WritesAllowed    bool   `json:"writes_allowed"`
 	NetworkAllowed   bool   `json:"network_allowed"`
+	// Nil browser grants identify legacy snapshots and must never inherit
+	// capabilities from a subsequently edited live preset.
+	BrowserAllowed             *bool    `json:"browser_allowed,omitempty"`
+	BrowserInteractionsAllowed *bool    `json:"browser_interactions_allowed,omitempty"`
+	BrowserAllowedOrigins      []string `json:"browser_allowed_origins,omitempty"`
 	// ApprovalPolicy is always explicit for newly created sessions, including
 	// "inherit". An empty value therefore identifies a legacy snapshot and must
 	// not activate a Chat-specific approval layer.
@@ -824,6 +829,15 @@ func cloneAgentPresetSnapshot(snapshot *AgentPresetSnapshot) *AgentPresetSnapsho
 		return nil
 	}
 	clone := *snapshot
+	if snapshot.BrowserAllowed != nil {
+		allowed := *snapshot.BrowserAllowed
+		clone.BrowserAllowed = &allowed
+	}
+	if snapshot.BrowserInteractionsAllowed != nil {
+		allowed := *snapshot.BrowserInteractionsAllowed
+		clone.BrowserInteractionsAllowed = &allowed
+	}
+	clone.BrowserAllowedOrigins = append([]string(nil), snapshot.BrowserAllowedOrigins...)
 	return &clone
 }
 

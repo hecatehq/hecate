@@ -1042,18 +1042,21 @@ type ChatSessionItem struct {
 
 // ChatAgentPresetSnapshotItem is the safe, frozen subset of an Agent Preset
 // that shaped a Hecate Chat session. It intentionally excludes project,
-// browser, MCP, and external-agent details.
+// MCP and external-agent details.
 type ChatAgentPresetSnapshotItem struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	ProviderHint     string `json:"provider_hint,omitempty"`
-	ModelHint        string `json:"model_hint,omitempty"`
-	Instructions     string `json:"instructions,omitempty"`
-	ExecutionProfile string `json:"execution_profile,omitempty"`
-	ToolsEnabled     bool   `json:"tools_enabled"`
-	WritesAllowed    bool   `json:"writes_allowed"`
-	NetworkAllowed   bool   `json:"network_allowed"`
-	ApprovalPolicy   string `json:"approval_policy,omitempty"`
+	ID                         string   `json:"id"`
+	Name                       string   `json:"name"`
+	ProviderHint               string   `json:"provider_hint,omitempty"`
+	ModelHint                  string   `json:"model_hint,omitempty"`
+	Instructions               string   `json:"instructions,omitempty"`
+	ExecutionProfile           string   `json:"execution_profile,omitempty"`
+	ToolsEnabled               bool     `json:"tools_enabled"`
+	WritesAllowed              bool     `json:"writes_allowed"`
+	NetworkAllowed             bool     `json:"network_allowed"`
+	BrowserAllowed             *bool    `json:"browser_allowed,omitempty"`
+	BrowserInteractionsAllowed *bool    `json:"browser_interactions_allowed,omitempty"`
+	BrowserAllowedOrigins      []string `json:"browser_allowed_origins,omitempty"`
+	ApprovalPolicy             string   `json:"approval_policy,omitempty"`
 }
 
 type ChatContextSummaryItem struct {

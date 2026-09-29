@@ -254,7 +254,7 @@ func validateProfile(profile Profile) error {
 		if !profile.ToolsEnabled {
 			return ErrInvalid
 		}
-		if profile.Surface != SurfaceAny && profile.Surface != SurfaceHecateTask {
+		if profile.Surface != SurfaceAny && profile.Surface != SurfaceHecateTask && profile.Surface != SurfaceHecateChat {
 			return ErrInvalid
 		}
 		origins, err := browserrunner.NormalizeAllowedOrigins(profile.BrowserAllowedOrigins)

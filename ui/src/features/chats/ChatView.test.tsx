@@ -4085,6 +4085,67 @@ describe("ChatView input", () => {
     });
   });
 
+  it("shows complete browser interaction details before inline approval", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      activeChatSessionID: "chat_browser",
+      activeChatSession: {
+        id: "chat_browser",
+        execution_mode: "hecate_task",
+        title: "Browser review",
+        task_id: "task_browser_123456",
+        latest_run_id: "run_browser_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "awaiting_approval",
+        messages: [
+          {
+            id: "m_browser",
+            run_id: "run_browser_abcdef",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            activities: [
+              {
+                id: "task:step:browser_approval",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "approval",
+                title: "Awaiting approval — browser_flow",
+                detail:
+                  'Agent requested tools that require approval: browser_flow destination=https://app.example.test/account; actions: 1. click button "Delete account"; 2. wait status "Account deleted". Warning: clicks can run page scripts and may change state in the allowed app. - awaiting_approval',
+                approval_id: "appr_browser",
+                action_summary: ["browser_flow url=https://app.example.test/account actions=2"],
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const approvalBanner = screen.getByTestId("hecate-task-approval-banner");
+    expect(within(approvalBanner).getByText("Browser interaction")).toBeTruthy();
+    expect(
+      within(approvalBanner).getByText(/destination=https:\/\/app\.example\.test\/account/),
+    ).toBeTruthy();
+    expect(within(approvalBanner).getByText(/1\. click button "Delete account"/)).toBeTruthy();
+    expect(within(approvalBanner).getByText(/2\. wait status "Account deleted"/)).toBeTruthy();
+    expect(
+      within(approvalBanner).getByText(/clicks can run page scripts and may change state/i),
+    ).toBeTruthy();
+    expect(
+      within(approvalBanner).getByText(
+        "browser_flow url=https://app.example.test/account actions=2",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(approvalBanner).getByRole("button", { name: "Approve Browser interaction" }),
+    ).toBeEnabled();
+  });
+
   it("disables matching Hecate approval and RTK mutations while Stop settles", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",

@@ -528,7 +528,12 @@ Key invariants:
   standalone path activates no Cairnline/project memory, context, or skills.
   Start, Schedule dispatch, Retry, Resume, Continue, and retry-from-model-call
   consume the stored Task and never re-resolve the preset. Project assignments
-  resolve their coordinated context separately in `projectworkapp`.
+  resolve their coordinated context separately in `projectworkapp`. Chat
+  creation freezes its own Chat-compatible policy, including independent
+  browser grants and exact origins. New tools-on backing Tasks copy that
+  snapshot through `hecateAgentTaskOrchestrator`; old chats never gain browser
+  authority from a later preset edit. Both browser tools still use the same
+  local runtime, mandatory approval, process ownership, and evidence paths.
 - **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. An `agent_loop` task whose Agent Preset snapshot explicitly disables tools skips the network gate because it has no executable network capability to approve. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a model call produced a gated tool call. A standard Work-policy-backed native Task adds its frozen preset approval posture only to this mid-loop decision: `require` gates every otherwise-permitted advertised call, `block` denies only calls another policy would gate, and `inherit` / `allow` add no gate or override. Hard denials precede this layer, and an absent non-preset snapshot changes nothing. Both approval flavors resolve via `POST /approvals/{id}/resolve`.
 - **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each state payload carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](../runtime/events.md).
 - **Resume creates a new attempt.** A resumed run gets a fresh `run_id`; the original run stays terminal. The new run normally reuses the prior workspace so file state carries forward, gets the prior checkpoint context in step input, and inherits the chain's cumulative cost via `PriorCostMicrosUSD` so the per-task ceiling holds across the full chain. The report-only `workflow_mode="qa"` contract is the exception: retry, resume, and retry-from-model-call receive a new Hecate-managed workspace for their new run.

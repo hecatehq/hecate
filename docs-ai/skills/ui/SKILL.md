@@ -134,13 +134,17 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   actions that exactly match an accessible role and name. Both permissions
   share the preset's exact origin list, so preserve that list while either
   permission remains enabled and clear all browser posture when tools or the
-  native-task surface is disabled. Explain that the complete flow is approved
+  every native surface (`hecate_task`, `hecate_chat`, `any`) is disabled. Explain that the complete flow is approved
   before a fresh temporary browser starts; clicks can run page scripts and may
   change state in the allowed app; interaction does not grant typing, uploads,
   downloads, saved state, clipboard/device access, cross-origin navigation, or
-  general task network access; and External Agents and Hecate Chat do not
-  receive these capabilities. Eligible standalone Tasks and native project
-  assignments do receive the frozen grant. Render the interaction grant
+  general task network access; and External Agents do not receive these
+  capabilities. Eligible standalone Tasks, native project assignments, and
+  tools-on Hecate Chats receive the frozen grant. Preview both independent
+  grants and exact origins before Chat creation and in its existing Work policy
+  settings summary; absent legacy fields mean no grant. Explain the configured
+  local-browser requirement without presenting configured grants as readiness.
+  Render the interaction grant
   separately in assignment launch posture and Task detail; do not infer it from
   an absent legacy field. Retained `browser_flow_evidence` is untrusted text evidence
   with a dedicated collapsed panel, not a screenshot or retained browser
@@ -201,7 +205,7 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Show the approval posture in a Hecate Chat's frozen Work policy summary.
   Explain it as applying to tools-on, task-backed turns only. Keep the field
   optional when reading legacy sessions, label absence as the runtime default,
-  and never suggest that Chat approval posture grants browser capability or
+  and never suggest that Chat approval posture itself grants browser capability or
   changes External Agent permission handling.
 - Successful keyed message responses expose `message_request.replay` and the
   exact committed user-message id. A replay can return before its assistant is

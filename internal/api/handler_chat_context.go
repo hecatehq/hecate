@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -363,6 +364,24 @@ func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Sess
 	}
 	preset := session.AgentPreset
 	label := firstNonEmptyString(strings.TrimSpace(preset.Name), strings.TrimSpace(preset.ID))
+	metadata := map[string]string{
+		"preset_id":         strings.TrimSpace(preset.ID),
+		"execution_profile": hecateChatExecutionProfile(session),
+		"tools_enabled":     fmt.Sprintf("%t", preset.ToolsEnabled),
+		"writes_allowed":    fmt.Sprintf("%t", preset.WritesAllowed),
+		"network_allowed":   fmt.Sprintf("%t", preset.NetworkAllowed),
+		"approval_policy":   strings.TrimSpace(preset.ApprovalPolicy),
+	}
+	if preset.BrowserAllowed != nil {
+		metadata["browser_allowed"] = fmt.Sprintf("%t", *preset.BrowserAllowed)
+	}
+	if preset.BrowserInteractionsAllowed != nil {
+		metadata["browser_interactions_allowed"] = fmt.Sprintf("%t", *preset.BrowserInteractionsAllowed)
+	}
+	if len(preset.BrowserAllowedOrigins) != 0 {
+		origins, _ := json.Marshal(preset.BrowserAllowedOrigins)
+		metadata["browser_allowed_origins"] = string(origins)
+	}
 	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
 		Kind:   "agent_preset",
 		Label:  label,
@@ -376,14 +395,7 @@ func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Sess
 		Body:            "This Hecate-owned preset is frozen for the chat session. Later preset edits or deletion do not change this chat or its backing Tasks.",
 		Included:        true,
 		InclusionReason: "Hecate Chat runtime preset snapshot",
-		Metadata: map[string]string{
-			"preset_id":         strings.TrimSpace(preset.ID),
-			"execution_profile": hecateChatExecutionProfile(session),
-			"tools_enabled":     fmt.Sprintf("%t", preset.ToolsEnabled),
-			"writes_allowed":    fmt.Sprintf("%t", preset.WritesAllowed),
-			"network_allowed":   fmt.Sprintf("%t", preset.NetworkAllowed),
-			"approval_policy":   strings.TrimSpace(preset.ApprovalPolicy),
-		},
+		Metadata:        metadata,
 	})
 }
 

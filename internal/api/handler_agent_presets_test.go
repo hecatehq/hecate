@@ -156,8 +156,22 @@ func TestAgentPresetsAPI_PatchPreservesIndependentBrowserGrantsAndClearsIneligib
 			patch: `{"tools_enabled":false}`,
 		},
 		{
-			name:  "surface changed",
-			patch: `{"surface":"hecate_chat"}`,
+			name:  "external surface",
+			patch: `{"surface":"external_agent"}`,
+		},
+		{
+			name:             "surface changed",
+			patch:            `{"surface":"hecate_chat"}`,
+			wantEvidence:     true,
+			wantInteractions: true,
+			wantOrigins:      true,
+		},
+		{
+			name:             "any surface",
+			patch:            `{"surface":"any"}`,
+			wantEvidence:     true,
+			wantInteractions: true,
+			wantOrigins:      true,
 		},
 	}
 	for _, test := range tests {

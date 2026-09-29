@@ -149,7 +149,8 @@ only meaningful alongside the session that produced them.
 
 The selected preset is a Hecate runtime posture, not project coordination
 state. Hecate snapshots its id, name, provider/model hints, instructions,
-execution profile, tool/write/network settings, and approval posture when it
+execution profile, tool/write/network settings, approval posture, and independent
+browser grants with their exact allowed origins when it
 creates the chat.
 Provider and model hints fill only omitted create-time selections; explicit
 operator choices win. The session response and Chat settings show this frozen
@@ -169,15 +170,56 @@ flag is kept on the direct-model path. A tools-enabled snapshot permits, but
 does not force, task-backed turns; normal model capability checks still apply.
 Direct-model turns execute no tools, so there is nothing to approve.
 
-This first Chat slice intentionally does **not** carry project-memory or
-context-source policy, project skills, browser evidence, MCP-server selection,
-or External Agent options from a preset. In particular, a Chat preset never
-grants either browser capability and neither creates nor changes Cairnline
+This Chat slice intentionally does **not** carry project-memory or
+context-source policy, project skills, MCP-server selection,
+or External Agent options from a preset. It neither creates nor changes Cairnline
 project, assignment, role, or handoff records. Project-linked chat continues to
 use its separate bounded project prelude and Hecate resolves task execution
 under its normal policy and approval boundaries. Sessions created before the
 approval field was added keep their historical runtime defaults rather than
 inventing a policy during readback.
+
+### Browser tools in Hecate Chat
+
+To use browser tools, configure `HECATE_TASK_BROWSER_EXECUTABLE` on a local
+runtime, then create a Work policy for Hecate Chat (or Any) with Tools enabled.
+Enable **Static browser evidence**, **Browser interaction**, or both, and list
+the exact allowed HTTP(S) origins. Select that policy when creating a new chat;
+the policy preview and Chat settings show the frozen grants and origins.
+Existing chats do not acquire permissions from later policy edits. Create a new
+chat to select a different browser policy.
+
+With Tools on, `browser_inspect` can capture script-disabled static text and
+`browser_flow` can perform one declared sequence of up to six exact accessible
+click/wait actions. Hecate copies only the frozen grants and origins into each
+new backing Task; continuation, retry, and approval recovery use that Task's
+stored posture. Legacy snapshots without browser fields and chats without a
+policy have no browser grant. Tools off executes neither tool.
+
+Every browser call still requires approval, including with an `allow` or
+`inherit` policy. Review the destination and, for interactions, the complete
+action list in Chat's existing approval controls. Clicks and page scripts may
+change the allowed application; rejection or Stop prevents pending work but
+does not undo an already completed click. A `block` approval policy makes
+browser tools unusable. A configured grant is not proof that the runtime has a
+usable browser executable.
+
+Each call uses a fresh temporary browser profile, not your signed-in browser.
+There is no typing, file upload/download, screenshot, or retained session.
+Private destinations require the separate runtime opt-in. External Agents and
+remote runtimes do not receive these Hecate tools. See the full
+[browser boundary](agent-runtime.md#browser-capabilities) for network, identity,
+evidence, and cleanup limits.
+
+```mermaid
+flowchart LR
+    Policy["Selected Chat Work policy"] --> Snapshot["Frozen Chat grants and exact origins"]
+    Snapshot --> Task["Tools-on backing Task snapshot"]
+    Task --> Gate["Runtime and origin checks"]
+    Gate --> Approval["Operator approval in Chat"]
+    Approval --> Browser["Fresh browser inspection or click/wait flow"]
+    Browser --> Evidence["Bounded text evidence and Task artifacts"]
+```
 
 Assistant turns may also expose a collapsed **context** inspector. This is a
 metadata snapshot that answers "what kind of context did this turn use?" without

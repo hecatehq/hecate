@@ -156,10 +156,12 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
 - Native browser capability remains a narrow alpha surface. It is available
   only to a local Work-policy-backed native Task whose policy snapshots an
   exact-origin allowlist and only when the operator configured a local
-  Chromium-compatible executable. `browser_allowed` independently grants
+  Chromium-compatible executable. Tools-on Hecate Chat also receives these
+  tools when created with an explicit Chat-compatible browser policy; existing
+  chats and absent legacy grants remain unchanged. `browser_allowed` independently grants
   script-disabled static evidence; `browser_interactions_allowed` grants one
   fully declared approval-bound accessibility flow. Enabling either does not
-  enable the other. Hecate Chat, External Agent sessions, QA, non-preset
+  enable the other. Tools-off Chat, External Agent sessions, QA, non-preset
   Tasks, and remote runtime receive neither tool.
 - Every `browser_flow` contains 1–6 exact accessibility `click` / `wait_for`
   actions and stays on the query-free start URL's exact origin. It supports no
@@ -277,8 +279,10 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   That Chat slice applies provider/model hints, instructions, execution profile,
   tool/write/network posture, and additive mid-loop approval posture to
   tools-on backing Tasks, but deliberately does not inherit project
-  memory/source policy, skills, browser capabilities, MCP selection, or
-  External Agent options. Standalone native Tasks freeze the
+  memory/source policy, skills, MCP selection, or
+  External Agent options. It freezes independent browser grants and exact
+  origins for tools-on backing Tasks, with the same local-runtime and mandatory
+  per-call approval limits as standalone browser tools. Standalone native Tasks freeze the
   policy's execution, route-hint, instruction, tools, write, network, approval,
   and browser posture at creation but deliberately do not activate Project
   memory, context-source bodies, skills, or Cairnline coordination. Native

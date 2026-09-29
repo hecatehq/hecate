@@ -79,6 +79,10 @@ export function emptyAgentPresetForm(): AgentPresetForm {
 }
 
 export function presetFormFromRecord(preset: AgentPresetRecord): AgentPresetForm {
+  const browserEligible =
+    preset.tools_enabled && agentPresetSupportsNativeBrowserSurface(preset.surface);
+  const browserAllowed = browserEligible && (preset.browser_allowed ?? false);
+  const browserInteractionsAllowed = browserEligible && preset.browser_interactions_allowed;
   return {
     id: preset.id,
     name: preset.name,
@@ -91,9 +95,12 @@ export function presetFormFromRecord(preset: AgentPresetRecord): AgentPresetForm
     toolsEnabled: preset.tools_enabled,
     writesAllowed: preset.writes_allowed,
     networkAllowed: preset.network_allowed,
-    browserAllowed: preset.browser_allowed ?? false,
-    browserInteractionsAllowed: preset.browser_interactions_allowed,
-    browserAllowedOrigins: (preset.browser_allowed_origins ?? []).join("\n"),
+    browserAllowed,
+    browserInteractionsAllowed,
+    browserAllowedOrigins:
+      browserAllowed || browserInteractionsAllowed
+        ? (preset.browser_allowed_origins ?? []).join("\n")
+        : "",
     approvalPolicy: preset.approval_policy || "inherit",
     projectMemoryPolicy: preset.project_memory_policy || "inherit",
     contextSourcePolicy: preset.context_source_policy || "inherit",
@@ -110,21 +117,25 @@ export function presetCreatePayloadFromForm(form: AgentPresetForm): CreateAgentP
 }
 
 export function presetUpdatePayloadFromForm(form: AgentPresetForm): UpdateAgentPresetPayload {
+  const surface = form.surface.trim() || "any";
+  const browserEligible = form.toolsEnabled && agentPresetSupportsNativeBrowserSurface(surface);
+  const browserAllowed = browserEligible && form.browserAllowed;
+  const browserInteractionsAllowed = browserEligible && form.browserInteractionsAllowed;
   return {
     name: form.name.trim(),
     description: form.description.trim(),
     instructions: form.instructions.trim(),
-    surface: form.surface.trim() || "any",
+    surface,
     provider_hint: form.providerHint.trim(),
     model_hint: form.modelHint.trim(),
     execution_profile: form.executionProfile.trim(),
     tools_enabled: form.toolsEnabled,
     writes_allowed: form.writesAllowed,
     network_allowed: form.networkAllowed,
-    browser_allowed: form.browserAllowed,
-    browser_interactions_allowed: form.browserInteractionsAllowed,
+    browser_allowed: browserAllowed,
+    browser_interactions_allowed: browserInteractionsAllowed,
     browser_allowed_origins:
-      form.browserAllowed || form.browserInteractionsAllowed
+      browserAllowed || browserInteractionsAllowed
         ? splitBrowserOrigins(form.browserAllowedOrigins)
         : [],
     approval_policy: form.approvalPolicy.trim() || "inherit",
@@ -133,6 +144,11 @@ export function presetUpdatePayloadFromForm(form: AgentPresetForm): UpdateAgentP
     skill_ids: uniqueSkillIDs(splitIDs(form.skillIDs)),
     external_agent_kind: form.externalAgentKind.trim(),
   };
+}
+
+export function agentPresetSupportsNativeBrowserSurface(surface: string): boolean {
+  const normalized = surface.trim();
+  return normalized === "any" || normalized === "hecate_chat" || normalized === "hecate_task";
 }
 
 export function presetReferenceSummary(

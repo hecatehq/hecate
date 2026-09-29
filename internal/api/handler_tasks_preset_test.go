@@ -51,7 +51,8 @@ func TestHandleCreateTaskFreezesStandaloneAgentPreset(t *testing.T) {
 		"agent_preset_browser_allowed":false,
 		"agent_preset_browser_interactions_allowed":false,
 		"agent_preset_browser_allowed_origins":["https://forged.example.test"],
-		"origin_kind":"chat"
+		"origin_kind":"chat",
+		"origin_id":"forged-chat"
 	}`)
 	if created.Data.AgentPresetID != "standalone_review" || created.Data.AgentPresetToolsEnabled == nil || !*created.Data.AgentPresetToolsEnabled {
 		t.Fatalf("preset identity/tools snapshot = %q/%v", created.Data.AgentPresetID, created.Data.AgentPresetToolsEnabled)
@@ -59,8 +60,8 @@ func TestHandleCreateTaskFreezesStandaloneAgentPreset(t *testing.T) {
 	if created.Data.AgentPresetApprovalPolicy != agentprofiles.ApprovalRequire || created.Data.AgentPresetBrowserAllowed == nil || !*created.Data.AgentPresetBrowserAllowed || created.Data.AgentPresetBrowserInteractionsAllowed == nil || !*created.Data.AgentPresetBrowserInteractionsAllowed {
 		t.Fatalf("preset approval/browser snapshot = approval %q browser %v interactions %v", created.Data.AgentPresetApprovalPolicy, created.Data.AgentPresetBrowserAllowed, created.Data.AgentPresetBrowserInteractionsAllowed)
 	}
-	if created.Data.OriginKind != "" {
-		t.Fatalf("origin_kind = %q, want output-only input ignored", created.Data.OriginKind)
+	if created.Data.OriginKind != "" || created.Data.OriginID != "" {
+		t.Fatalf("origin = %q/%q, want output-only input ignored", created.Data.OriginKind, created.Data.OriginID)
 	}
 	if created.Data.ExecutionProfile != "repo_local" || !created.Data.SandboxReadOnly || created.Data.SandboxNetwork {
 		t.Fatalf("execution posture = profile %q read_only:%t network:%t", created.Data.ExecutionProfile, created.Data.SandboxReadOnly, created.Data.SandboxNetwork)

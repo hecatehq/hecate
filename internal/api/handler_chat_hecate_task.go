@@ -128,6 +128,9 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		task.AgentPresetID = preset.ID
 		task.AgentPresetToolsEnabled = &toolsEnabled
 		task.AgentPresetApprovalPolicy = strings.TrimSpace(preset.ApprovalPolicy)
+		task.AgentPresetBrowserAllowed = cloneBool(preset.BrowserAllowed)
+		task.AgentPresetBrowserInteractionsAllowed = cloneBool(preset.BrowserInteractionsAllowed)
+		task.AgentPresetBrowserAllowedOrigins = append([]string(nil), preset.BrowserAllowedOrigins...)
 		task.SandboxReadOnly = !preset.WritesAllowed
 		task.SandboxNetwork = preset.NetworkAllowed
 	}
