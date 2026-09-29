@@ -844,17 +844,33 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
+	browserAllowed, browserInteractionsAllowed := true, false
 	preset := &AgentPresetSnapshot{
-		ID:               "safe_review",
-		Name:             "Safe reviewer",
-		ProviderHint:     "openai",
-		ModelHint:        "gpt-4o-mini",
-		Instructions:     "Inspect before proposing changes.",
-		ExecutionProfile: "review",
-		ToolsEnabled:     false,
-		WritesAllowed:    false,
-		NetworkAllowed:   true,
-		ApprovalPolicy:   types.AgentPresetApprovalRequire,
+		ID:                         "safe_review",
+		Name:                       "Safe reviewer",
+		ProviderHint:               "openai",
+		ModelHint:                  "gpt-4o-mini",
+		Instructions:               "Inspect before proposing changes.",
+		ExecutionProfile:           "review",
+		ToolsEnabled:               false,
+		WritesAllowed:              false,
+		NetworkAllowed:             true,
+		ApprovalPolicy:             types.AgentPresetApprovalRequire,
+		BrowserAllowed:             &browserAllowed,
+		BrowserInteractionsAllowed: &browserInteractionsAllowed,
+		BrowserAllowedOrigins:      []string{"https://app.example.test"},
+	}
+	assertBrowserSnapshot := func(snapshot *AgentPresetSnapshot) {
+		t.Helper()
+		if snapshot == nil || snapshot.BrowserAllowed == nil || !*snapshot.BrowserAllowed || snapshot.BrowserInteractionsAllowed == nil || *snapshot.BrowserInteractionsAllowed || len(snapshot.BrowserAllowedOrigins) != 1 || snapshot.BrowserAllowedOrigins[0] != "https://app.example.test" {
+			t.Fatalf("browser snapshot = %#v, want independent immutable grants and origins", snapshot)
+		}
+	}
+	mutateBrowserSnapshot := func(snapshot *AgentPresetSnapshot) {
+		t.Helper()
+		*snapshot.BrowserAllowed = false
+		*snapshot.BrowserInteractionsAllowed = true
+		snapshot.BrowserAllowedOrigins[0] = "https://mutated.example.test"
 	}
 	created, err := store.Create(ctx, Session{
 		ID:          "chat_agent_preset",
@@ -869,6 +885,7 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	}
 	preset.Name = "mutated through create input"
 	preset.Instructions = "mutated through create input"
+	mutateBrowserSnapshot(preset)
 	got, ok, err := store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after create input mutation: ok=%v err=%v", ok, err)
@@ -876,9 +893,11 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if got.AgentPreset == nil || got.AgentPreset.Name != "Safe reviewer" || got.AgentPreset.Instructions != "Inspect before proposing changes." {
 		t.Fatalf("stored agent preset mutated through create input: %#v", got.AgentPreset)
 	}
+	assertBrowserSnapshot(got.AgentPreset)
 
 	created.AgentPreset.Name = "mutated through create result"
 	created.AgentPreset.Instructions = "mutated through create result"
+	mutateBrowserSnapshot(created.AgentPreset)
 	got, ok, err = store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after create mutation: ok=%v err=%v", ok, err)
@@ -886,10 +905,12 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if got.AgentPreset == nil || got.AgentPreset.Name != "Safe reviewer" || got.AgentPreset.Instructions != "Inspect before proposing changes." {
 		t.Fatalf("stored agent preset mutated through create result: %#v", got.AgentPreset)
 	}
+	assertBrowserSnapshot(got.AgentPreset)
 
 	got.AgentPreset.ProviderHint = "mutated through get result"
 	got.AgentPreset.NetworkAllowed = false
 	got.AgentPreset.ApprovalPolicy = types.AgentPresetApprovalBlock
+	mutateBrowserSnapshot(got.AgentPreset)
 	got, ok, err = store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after get mutation: ok=%v err=%v", ok, err)
@@ -897,12 +918,14 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if got.AgentPreset == nil || got.AgentPreset.ProviderHint != "openai" || !got.AgentPreset.NetworkAllowed || got.AgentPreset.ApprovalPolicy != types.AgentPresetApprovalRequire {
 		t.Fatalf("stored agent preset mutated through get result: %#v", got.AgentPreset)
 	}
+	assertBrowserSnapshot(got.AgentPreset)
 
 	items, err := store.List(ctx)
 	if err != nil || len(items) != 1 || items[0].AgentPreset == nil {
 		t.Fatalf("List: items=%#v err=%v", items, err)
 	}
 	items[0].AgentPreset.ExecutionProfile = "mutated through list result"
+	mutateBrowserSnapshot(items[0].AgentPreset)
 	got, ok, err = store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after list mutation: ok=%v err=%v", ok, err)
@@ -910,6 +933,7 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if got.AgentPreset == nil || got.AgentPreset.ExecutionProfile != "review" {
 		t.Fatalf("stored agent preset mutated through list result: %#v", got.AgentPreset)
 	}
+	assertBrowserSnapshot(got.AgentPreset)
 
 	updated, err := store.UpdateSession(ctx, created.ID, func(session *Session) {
 		session.AgentPreset.Name = "Updated safe reviewer"
@@ -922,6 +946,13 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 	if updated.AgentPreset == nil || updated.AgentPreset.Name != "Updated safe reviewer" || !updated.AgentPreset.WritesAllowed || updated.AgentPreset.ApprovalPolicy != types.AgentPresetApprovalAllow {
 		t.Fatalf("updated agent preset = %#v, want persisted update", updated.AgentPreset)
 	}
+	assertBrowserSnapshot(updated.AgentPreset)
+	mutateBrowserSnapshot(updated.AgentPreset)
+	got, ok, err = store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after update result mutation: ok=%v err=%v", ok, err)
+	}
+	assertBrowserSnapshot(got.AgentPreset)
 }
 
 func runStoreMCPServersRoundTrip(t *testing.T, store Store) {

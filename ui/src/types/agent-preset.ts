@@ -12,8 +12,8 @@ export type AgentPresetRecord = {
   tools_enabled: boolean;
   writes_allowed: boolean;
   network_allowed: boolean;
-  // Native Hecate task browser capabilities only. External Agents do not
-  // receive these capabilities.
+  // Native Hecate browser capabilities only. External Agents do not receive
+  // these capabilities.
   browser_allowed?: boolean;
   browser_interactions_allowed: boolean;
   browser_allowed_origins?: string[];

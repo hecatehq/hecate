@@ -91,7 +91,7 @@ func TestAgentLoopBrowserToolCatalogFailsClosedWithoutPresetSnapshot(t *testing.
 		AgentPresetBrowserAllowedOrigins: []string{"https://example.test"},
 	}, opts)
 	if hasToolDefinition(chat, AgentToolBrowserInspect) {
-		t.Fatal("browser_inspect advertised for Hecate Chat with forged preset fields")
+		t.Fatal("browser_inspect advertised for Hecate Chat without a durable origin")
 	}
 }
 

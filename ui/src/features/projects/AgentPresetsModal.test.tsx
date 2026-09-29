@@ -292,8 +292,55 @@ describe("AgentPresetsModal", () => {
     expect(screen.getByLabelText("Allow browser interaction")).not.toBeChecked();
     expect(screen.queryByLabelText("Allowed browser origins")).toBeNull();
     expect(
-      screen.getByText(/External Agents and Hecate Chat do not receive either browser capability/i),
+      screen.getByText(/External Agents do not receive either browser capability/i),
     ).toBeInTheDocument();
+  });
+
+  it("keeps browser grants and exact origins when switching to Hecate Chat", async () => {
+    const onCreate = vi.fn(async (form) => preset({ id: form.id, name: form.name }));
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText("Policy ID"), "chat-browser");
+    await userEvent.type(screen.getByLabelText("Name"), "Chat browser");
+    await userEvent.click(screen.getByLabelText("Allow static browser evidence"));
+    await userEvent.click(screen.getByLabelText("Allow browser interaction"));
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Applies to"), "hecate_chat");
+
+    expect(screen.getByLabelText("Allow static browser evidence")).toBeEnabled();
+    expect(screen.getByLabelText("Allow static browser evidence")).toBeChecked();
+    expect(screen.getByLabelText("Allow browser interaction")).toBeEnabled();
+    expect(screen.getByLabelText("Allow browser interaction")).toBeChecked();
+    expect(screen.getByLabelText("Allowed browser origins")).toHaveValue(
+      "https://app.example.test",
+    );
+    expect(screen.getByText(/including Hecate Chat, standalone Tasks/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Create policy" }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: "hecate_chat",
+        browserAllowed: true,
+        browserInteractionsAllowed: true,
+        browserAllowedOrigins: "https://app.example.test",
+      }),
+    );
   });
 
   it("clears both browser grants when tools are disabled", async () => {

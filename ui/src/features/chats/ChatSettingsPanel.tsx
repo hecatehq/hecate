@@ -9,8 +9,10 @@ import type {
   ChatUsageRecord,
   ChatWorkspaceMode,
 } from "../../types/chat";
+import type { BrowserEvidenceRuntimeReadiness } from "../../types/provider";
 import { Icon, Icons } from "../shared/ui";
 import { ExternalAgentSettingsControls } from "./ChatAgentControls";
+import { ChatBrowserPolicySummary } from "./ChatBrowserPolicySummary";
 import { compactID } from "./ChatComposer";
 import { ChatInstructionsPanel } from "./ChatInstructionsPanel";
 
@@ -19,6 +21,7 @@ export function ChatSettingsPanel({
   toolsEnabled,
   toolsDisabledForModel,
   agentPreset,
+  browserEvidenceReadiness,
   rtkEnabled,
   rtkAvailable,
   rtkPath,
@@ -54,6 +57,7 @@ export function ChatSettingsPanel({
   toolsEnabled: boolean;
   toolsDisabledForModel: boolean;
   agentPreset?: ChatAgentPresetSnapshotRecord;
+  browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
   rtkEnabled: boolean;
   rtkAvailable: boolean;
   rtkPath: string;
@@ -147,11 +151,12 @@ export function ChatSettingsPanel({
                 />
               </div>
             </ChatSettingsSection>
-            {agentPreset && (
-              <ChatSettingsSection title="Work policy">
-                <ChatSettingsAgentPreset preset={agentPreset} />
-              </ChatSettingsSection>
-            )}
+            <ChatSettingsSection title="Work policy">
+              <ChatSettingsAgentPreset
+                preset={agentPreset}
+                browserEvidenceReadiness={browserEvidenceReadiness}
+              />
+            </ChatSettingsSection>
             <ChatSettingsSection title="Command output">
               <ChatSettingsRTKRow
                 available={rtkAvailable}
@@ -513,7 +518,33 @@ function ChatSettingsToolsRow({
   );
 }
 
-function ChatSettingsAgentPreset({ preset }: { preset: ChatAgentPresetSnapshotRecord }) {
+function ChatSettingsAgentPreset({
+  preset,
+  browserEvidenceReadiness,
+}: {
+  preset?: ChatAgentPresetSnapshotRecord;
+  browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
+}) {
+  if (!preset) {
+    return (
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          background: "var(--bg1)",
+          padding: 12,
+          display: "grid",
+          gap: 8,
+        }}
+      >
+        <ChatSettingsField label="Selected policy" value="Default Hecate Chat" />
+        <ChatBrowserPolicySummary frozen readiness={browserEvidenceReadiness} />
+        <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          No Work policy was frozen with this chat. Tools alone does not grant browser access.
+        </div>
+      </div>
+    );
+  }
   const posture = [
     preset.tools_enabled ? "tools" : "direct chat",
     preset.writes_allowed ? "writes allowed" : "read-only",
@@ -540,6 +571,7 @@ function ChatSettingsAgentPreset({ preset }: { preset: ChatAgentPresetSnapshotRe
         label="Approvals"
         value={chatPresetApprovalPolicyLabel(preset.approval_policy)}
       />
+      <ChatBrowserPolicySummary preset={preset} frozen readiness={browserEvidenceReadiness} />
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
         Frozen when this chat was created. Later work-policy edits or deletion do not change this
         chat or its backing Tasks. Approval posture applies to tools-on, task-backed turns; direct

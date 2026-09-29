@@ -70,6 +70,12 @@ function taskApprovalDisplayKind(activity: ChatActivityRecord): string {
   if (haystack.includes("file_write")) return "file_write";
   if (haystack.includes("http_request") || haystack.includes("web_search")) return "network_egress";
   if (haystack.includes("network_egress")) return "network_egress";
+  if (haystack.includes("browser_inspect") || haystack.includes("browser_evidence")) {
+    return "browser_evidence";
+  }
+  if (haystack.includes("browser_flow") || haystack.includes("browser_interaction")) {
+    return "browser_flow";
+  }
   if (haystack.includes("agent_loop_tool_call")) return "agent_loop_tool_call";
   return "approval";
 }
@@ -362,6 +368,12 @@ function describeTaskApprovalKind(kind: string): string {
       return "File write";
     case "network_egress":
       return "Network egress";
+    case "browser_evidence":
+    case "browser_inspect":
+      return "Browser evidence";
+    case "browser_flow":
+    case "browser_interaction":
+      return "Browser interaction";
     case "agent_loop_tool_call":
       return "Agent tool call";
     default:

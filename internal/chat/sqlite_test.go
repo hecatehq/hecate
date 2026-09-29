@@ -45,16 +45,26 @@ func TestAgentPresetSnapshotJSONPreservesLegacyApprovalSemantics(t *testing.T) {
 	if legacy == nil || legacy.ApprovalPolicy != "" {
 		t.Fatalf("legacy snapshot = %#v, want empty approval policy", legacy)
 	}
+	if legacy.BrowserAllowed != nil || legacy.BrowserInteractionsAllowed != nil || len(legacy.BrowserAllowedOrigins) != 0 {
+		t.Fatalf("legacy browser snapshot = %#v, want absent grants", legacy)
+	}
 
+	allowed, interactions := false, true
 	current := &AgentPresetSnapshot{
-		ID:             "current",
-		Name:           "Current",
-		ToolsEnabled:   true,
-		ApprovalPolicy: types.AgentPresetApprovalInherit,
+		ID:                         "current",
+		Name:                       "Current",
+		ToolsEnabled:               true,
+		ApprovalPolicy:             types.AgentPresetApprovalInherit,
+		BrowserAllowed:             &allowed,
+		BrowserInteractionsAllowed: &interactions,
+		BrowserAllowedOrigins:      []string{"https://app.example.test"},
 	}
 	decoded := unmarshalAgentPresetSnapshot(marshalAgentPresetSnapshot(current))
 	if decoded == nil || decoded.ApprovalPolicy != types.AgentPresetApprovalInherit {
 		t.Fatalf("current snapshot = %#v, want explicit inherit", decoded)
+	}
+	if decoded.BrowserAllowed == nil || *decoded.BrowserAllowed || decoded.BrowserInteractionsAllowed == nil || !*decoded.BrowserInteractionsAllowed || len(decoded.BrowserAllowedOrigins) != 1 || decoded.BrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("browser snapshot = %#v, want explicit independent grants and origins", decoded)
 	}
 }
 

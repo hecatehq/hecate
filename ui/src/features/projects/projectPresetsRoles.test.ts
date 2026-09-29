@@ -70,4 +70,59 @@ describe("browser capability preset mapping", () => {
     expect(form.browserInteractionsAllowed).toBe(false);
     expect(form.browserAllowedOrigins).toBe("https://app.example.test");
   });
+
+  it("preserves independent browser grants for a tools-on Hecate Chat policy", () => {
+    const form = emptyAgentPresetForm();
+    form.surface = "hecate_chat";
+    form.browserAllowed = true;
+    form.browserInteractionsAllowed = true;
+    form.browserAllowedOrigins = "https://app.example.test";
+
+    expect(presetUpdatePayloadFromForm(form)).toMatchObject({
+      surface: "hecate_chat",
+      tools_enabled: true,
+      browser_allowed: true,
+      browser_interactions_allowed: true,
+      browser_allowed_origins: ["https://app.example.test"],
+    });
+  });
+
+  it.each([
+    ["external_agent", true],
+    ["hecate_chat", false],
+  ])("clears browser grants for surface %s with tools=%s", (surface, toolsEnabled) => {
+    const form = emptyAgentPresetForm();
+    form.surface = surface;
+    form.toolsEnabled = toolsEnabled;
+    form.browserAllowed = true;
+    form.browserInteractionsAllowed = true;
+    form.browserAllowedOrigins = "https://app.example.test";
+
+    expect(presetUpdatePayloadFromForm(form)).toMatchObject({
+      browser_allowed: false,
+      browser_interactions_allowed: false,
+      browser_allowed_origins: [],
+    });
+  });
+
+  it("does not restore stale browser grants from an External Agent policy", () => {
+    const form = presetFormFromRecord({
+      id: "external-review",
+      name: "External review",
+      surface: "external_agent",
+      tools_enabled: true,
+      writes_allowed: false,
+      network_allowed: false,
+      browser_allowed: true,
+      browser_interactions_allowed: true,
+      browser_allowed_origins: ["https://app.example.test"],
+      approval_policy: "inherit",
+      project_memory_policy: "inherit",
+      context_source_policy: "inherit",
+    });
+
+    expect(form.browserAllowed).toBe(false);
+    expect(form.browserInteractionsAllowed).toBe(false);
+    expect(form.browserAllowedOrigins).toBe("");
+  });
 });

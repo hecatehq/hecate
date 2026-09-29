@@ -63,6 +63,9 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 	if task.ExecutionKind != "agent_loop" || task.ExecutionProfile != "chat_agent" || task.OriginKind != "chat" || task.OriginID != "chat_start" {
 		t.Fatalf("task execution fields = %+v, want chat agent loop", task)
 	}
+	if task.AgentPresetBrowserAllowed != nil || task.AgentPresetBrowserInteractionsAllowed != nil || len(task.AgentPresetBrowserAllowedOrigins) != 0 {
+		t.Fatalf("no-preset task inherited browser grants: %+v", task)
+	}
 	if task.WorkingDirectory != "/tmp/hecate-chat" || task.SandboxAllowedRoot != "/tmp/hecate-chat" || !task.RTKEnabled {
 		t.Fatalf("task workspace/rtk = wd %q root %q rtk %v, want session workspace and RTK", task.WorkingDirectory, task.SandboxAllowedRoot, task.RTKEnabled)
 	}
@@ -214,6 +217,9 @@ func TestHecateAgentTaskOrchestrator_LegacyChatPresetDoesNotInventApprovalPolicy
 	if task.AgentPresetApprovalPolicy != "" {
 		t.Fatalf("legacy task approval snapshot = %q, want empty", task.AgentPresetApprovalPolicy)
 	}
+	if task.AgentPresetBrowserAllowed != nil || task.AgentPresetBrowserInteractionsAllowed != nil || len(task.AgentPresetBrowserAllowedOrigins) != 0 {
+		t.Fatalf("legacy task invented browser grants: %+v", task)
+	}
 }
 
 func TestHecateAgentTaskOrchestrator_NewManagedSegmentReusesPriorRunWorkspace(t *testing.T) {
@@ -291,16 +297,20 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	store := taskstate.NewMemoryStore()
 	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
 	toolsEnabled := true
+	inspect, interact := true, false
 	task, err := store.CreateTask(ctx, types.Task{
-		ID:                        "task_existing",
-		Title:                     "Existing chat",
-		Status:                    "completed",
-		LatestRunID:               "run_existing",
-		AgentPresetID:             "frozen_existing",
-		AgentPresetToolsEnabled:   &toolsEnabled,
-		AgentPresetApprovalPolicy: types.AgentPresetApprovalRequire,
-		CreatedAt:                 now,
-		UpdatedAt:                 now,
+		ID:                                    "task_existing",
+		Title:                                 "Existing chat",
+		Status:                                "completed",
+		LatestRunID:                           "run_existing",
+		AgentPresetID:                         "frozen_existing",
+		AgentPresetToolsEnabled:               &toolsEnabled,
+		AgentPresetApprovalPolicy:             types.AgentPresetApprovalRequire,
+		AgentPresetBrowserAllowed:             &inspect,
+		AgentPresetBrowserInteractionsAllowed: &interact,
+		AgentPresetBrowserAllowedOrigins:      []string{"https://frozen.example.test"},
+		CreatedAt:                             now,
+		UpdatedAt:                             now,
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -329,9 +339,12 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 			TaskID:      task.ID,
 			LatestRunID: "run_existing",
 			AgentPreset: &chat.AgentPresetSnapshot{
-				ID:             "changed_session",
-				ToolsEnabled:   true,
-				ApprovalPolicy: types.AgentPresetApprovalBlock,
+				ID:                         "changed_session",
+				ToolsEnabled:               true,
+				ApprovalPolicy:             types.AgentPresetApprovalBlock,
+				BrowserAllowed:             &interact,
+				BrowserInteractionsAllowed: &inspect,
+				BrowserAllowedOrigins:      []string{"https://changed.example.test"},
 			},
 		},
 		Prompt: "continue with tools",
@@ -354,6 +367,9 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	}
 	if runner.continueTask.AgentPresetID != "frozen_existing" || runner.continueTask.AgentPresetApprovalPolicy != types.AgentPresetApprovalRequire {
 		t.Fatalf("continue preset snapshot = %q/%q, want existing require snapshot", runner.continueTask.AgentPresetID, runner.continueTask.AgentPresetApprovalPolicy)
+	}
+	if got := runner.continueTask; got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || got.AgentPresetBrowserInteractionsAllowed == nil || *got.AgentPresetBrowserInteractionsAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://frozen.example.test" {
+		t.Fatalf("continued task changed frozen browser posture: %+v", got)
 	}
 	if continuedTask.ID != task.ID || run.ID != "run_next" || run.TaskID != task.ID {
 		t.Fatalf("continued result = task %+v run %+v, want next run for existing task", continuedTask, run)

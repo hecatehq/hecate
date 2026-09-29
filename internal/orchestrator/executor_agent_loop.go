@@ -1175,10 +1175,8 @@ func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	if name != AgentToolBrowserInspect && name != AgentToolBrowserFlow {
 		return false
 	}
-	// Browser evidence is a native preset-backed Task capability, not a generic
-	// task field that Hecate Chat or an unrelated origin can activate. Project
-	// assignment and standalone Task creation are the only public paths that
-	// emit the complete immutable snapshot.
+	// Only native launch paths that freeze a complete preset snapshot may
+	// grant browser capabilities. Arbitrary task origins remain fail-closed.
 	if !hasAuthoritativeBrowserAgentPresetSnapshot(task) {
 		return true
 	}
@@ -1196,14 +1194,15 @@ func agentPresetBlocksBrowser(task types.Task, name string) bool {
 	return err != nil || len(origins) == 0
 }
 
-// hasAuthoritativeBrowserAgentPresetSnapshot deliberately excludes Hecate
-// Chat. Chat may carry a frozen approval posture, but browser grants remain
-// available only to standalone native Tasks and project-work assignments.
+// hasAuthoritativeBrowserAgentPresetSnapshot recognizes native Tasks,
+// project-work assignments, and Chat backing Tasks with a durable origin.
+// Legacy snapshots without an explicit tools posture remain fail-closed.
 func hasAuthoritativeBrowserAgentPresetSnapshot(task types.Task) bool {
-	if strings.TrimSpace(task.AgentPresetID) == "" || task.AgentPresetToolsEnabled == nil {
+	if strings.TrimSpace(task.AgentPresetID) == "" || task.AgentPresetToolsEnabled == nil || !*task.AgentPresetToolsEnabled {
 		return false
 	}
-	return task.OriginKind == "" || task.OriginKind == "project_work_item"
+	return task.OriginKind == "" || task.OriginKind == "project_work_item" ||
+		(task.OriginKind == "chat" && strings.TrimSpace(task.OriginID) != "")
 }
 
 func agentReadOnlyBlocksTool(task types.Task, name string) bool {

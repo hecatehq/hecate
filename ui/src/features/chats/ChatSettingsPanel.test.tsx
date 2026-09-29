@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
@@ -179,6 +179,71 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
     );
 
     expect(screen.getByText("Runtime default (legacy chat)")).toBeTruthy();
+    const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
+    expect(within(browserSummary).getAllByText("Disabled (legacy snapshot)")).toHaveLength(2);
+  });
+
+  it("shows frozen Chat browser grants, exact origins, approval, and runtime posture", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        toolsEnabled
+        usageSource="hecate"
+        externalSession={null}
+        browserEvidenceReadiness={{
+          available: false,
+          status: "not_configured",
+          message: "No supported browser is configured.",
+          operator_action: "Install Chromium or configure its executable.",
+        }}
+        agentPreset={{
+          id: "browser_review",
+          name: "Browser review",
+          tools_enabled: true,
+          writes_allowed: false,
+          network_allowed: false,
+          browser_allowed: true,
+          browser_interactions_allowed: true,
+          browser_allowed_origins: ["https://app.example.test", "https://status.example.test:8443"],
+          approval_policy: "require",
+        }}
+      />,
+    );
+
+    const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
+    expect(within(browserSummary).getByText("Browser evidence").parentElement).toHaveTextContent(
+      "Configured · approval required for each call",
+    );
+    expect(within(browserSummary).getByText("Browser interaction").parentElement).toHaveTextContent(
+      "Configured · approval required for each call",
+    );
+    const origins = within(browserSummary).getByRole("list", {
+      name: "Allowed browser origins",
+    });
+    expect(within(origins).getByText("https://app.example.test")).toBeTruthy();
+    expect(within(origins).getByText("https://status.example.test:8443")).toBeTruthy();
+    expect(browserSummary).toHaveTextContent(
+      "Browser runtime: Unavailable · No supported browser is configured. Install Chromium or configure its executable.",
+    );
+    expect(browserSummary).toHaveTextContent("Tools alone does not grant browser access");
+  });
+
+  it("shows that default Hecate Chat has no browser grant", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        toolsEnabled
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    expect(screen.getByText("Default Hecate Chat")).toBeTruthy();
+    const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
+    expect(within(browserSummary).getAllByText("Disabled (no Work policy)")).toHaveLength(2);
+    expect(screen.getByText(/No Work policy was frozen with this chat/i)).toBeTruthy();
   });
 
   it("explains isolated execution and changes the workspace mode", () => {

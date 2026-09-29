@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 
 import { chatNavigationURL } from "../../app/navigation";
 import { composerDraftScope, composerDraftScopesMatch, useChat } from "../../app/state/chat";
 import { queuedChatSessionDeletionFenceStatus } from "../../app/state/queuedChatStorage";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
+import { useSettings } from "../../app/state/settings";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
@@ -29,6 +30,7 @@ import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
+import { ChatBrowserPolicySummary } from "./ChatBrowserPolicySummary";
 
 export type SidebarSession = {
   id: string;
@@ -75,6 +77,7 @@ export function ChatSidebar({
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
   const projects = useProjects();
+  const settings = useSettings();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
@@ -103,6 +106,8 @@ export function ChatSidebar({
   const hecatePresetsLoadRef = useRef<Promise<void> | null>(null);
   const deleteChatPendingRef = useRef(false);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
+  const newChatPolicySelectID = useId();
+  const newChatPolicySummaryID = useId();
 
   const serverSessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
     id: s.id,
@@ -159,6 +164,9 @@ export function ChatSidebar({
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
 
   const compatibleHecatePresets = hecatePresets.filter(isHecateChatPreset);
+  const selectedHecatePreset = compatibleHecatePresets.find(
+    (preset) => preset.id === newHecatePresetID,
+  );
 
   function loadHecatePresets() {
     if (hecatePresetsLoaded || hecatePresetsLoadRef.current) return;
@@ -398,7 +406,7 @@ export function ChatSidebar({
               }}
             />
             {newChatAgentID === "hecate" && (
-              <label
+              <div
                 style={{
                   display: "grid",
                   gap: 5,
@@ -407,10 +415,12 @@ export function ChatSidebar({
                   color: "var(--t3)",
                 }}
               >
-                Work policy
+                <label htmlFor={newChatPolicySelectID}>Work policy</label>
                 <select
+                  id={newChatPolicySelectID}
                   className="input"
                   aria-label="Work policy for new Hecate chat"
+                  aria-describedby={newChatPolicySummaryID}
                   value={newHecatePresetID}
                   disabled={chatCreating || chatSessionCreateInFlight || workspaceMutationPending}
                   onFocus={loadHecatePresets}
@@ -439,7 +449,14 @@ export function ChatSidebar({
                     {hecatePresetsError}
                   </span>
                 )}
-              </label>
+                <ChatBrowserPolicySummary
+                  id={newChatPolicySummaryID}
+                  preset={selectedHecatePreset}
+                  readiness={settings.state.config?.browser_evidence}
+                  compact
+                  live
+                />
+              </div>
             )}
             {workspaceRequiredForNewChat && (
               <div

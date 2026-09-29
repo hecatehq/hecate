@@ -6,6 +6,7 @@ import type { BrowserEvidenceRuntimeReadiness } from "../../types/provider";
 import { ConfirmModal, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
 import {
+  agentPresetSupportsNativeBrowserSurface,
   browserAllowedOriginsValidationError,
   emptyAgentPresetForm,
   presetFormFromRecord,
@@ -97,7 +98,7 @@ export function AgentPresetsModal({
     setForm(presetFormFromRecord(preset));
   }
 
-  const browserUsesNativeTaskSurface = form.surface === "any" || form.surface === "hecate_task";
+  const browserUsesNativeSurface = agentPresetSupportsNativeBrowserSurface(form.surface);
   const browserConfigured = form.browserAllowed || form.browserInteractionsAllowed;
   const browserOriginsError = browserConfigured
     ? browserAllowedOriginsValidationError(form.browserAllowedOrigins)
@@ -305,18 +306,15 @@ export function AgentPresetsModal({
                       setForm((current) => ({
                         ...current,
                         surface,
-                        browserAllowed:
-                          surface === "any" || surface === "hecate_task"
-                            ? current.browserAllowed
-                            : false,
-                        browserInteractionsAllowed:
-                          surface === "any" || surface === "hecate_task"
-                            ? current.browserInteractionsAllowed
-                            : false,
-                        browserAllowedOrigins:
-                          surface === "any" || surface === "hecate_task"
-                            ? current.browserAllowedOrigins
-                            : "",
+                        browserAllowed: agentPresetSupportsNativeBrowserSurface(surface)
+                          ? current.browserAllowed
+                          : false,
+                        browserInteractionsAllowed: agentPresetSupportsNativeBrowserSurface(surface)
+                          ? current.browserInteractionsAllowed
+                          : false,
+                        browserAllowedOrigins: agentPresetSupportsNativeBrowserSurface(surface)
+                          ? current.browserAllowedOrigins
+                          : "",
                       }));
                     }}
                   >
@@ -419,10 +417,7 @@ export function AgentPresetsModal({
                     type="checkbox"
                     checked={form.browserAllowed}
                     disabled={
-                      pending ||
-                      editingBuiltIn ||
-                      !browserUsesNativeTaskSurface ||
-                      !form.toolsEnabled
+                      pending || editingBuiltIn || !browserUsesNativeSurface || !form.toolsEnabled
                     }
                     aria-describedby="browser-evidence-help browser-capability-scope-help"
                     onChange={(event) =>
@@ -443,10 +438,7 @@ export function AgentPresetsModal({
                     type="checkbox"
                     checked={form.browserInteractionsAllowed}
                     disabled={
-                      pending ||
-                      editingBuiltIn ||
-                      !browserUsesNativeTaskSurface ||
-                      !form.toolsEnabled
+                      pending || editingBuiltIn || !browserUsesNativeSurface || !form.toolsEnabled
                     }
                     aria-describedby="browser-interaction-help browser-capability-scope-help"
                     onChange={(event) =>
@@ -464,32 +456,35 @@ export function AgentPresetsModal({
                 </label>
               </div>
               <div id="browser-evidence-help" style={presetRoleSubtleTextStyle}>
-                Static browser evidence is approval-gated. It inspects allowed origins in a fresh
-                temporary profile with page scripts disabled, and cannot interact with the page.
+                Static browser evidence requires approval for each call. It inspects allowed origins
+                in a fresh temporary profile with page scripts disabled, and cannot interact with
+                the page.
               </div>
               <div id="browser-interaction-help" style={presetRoleSubtleTextStyle}>
-                Browser interaction is stronger than static evidence. An approved flow opens a fresh
-                temporary browser profile and performs up to six click or wait actions that each
-                exactly match an accessible role and name on the allowed origins. The complete flow
-                is approved before the browser starts. Clicks can run page scripts and may change
-                state in the allowed app. The flow cannot type, upload, download, use saved browser
-                state, access clipboard or device permissions, or leave the allowed origins.
+                Browser interaction is stronger than static evidence and requires approval for each
+                call. An approved flow opens a fresh temporary browser profile and performs up to
+                six click or wait actions that each exactly match an accessible role and name on the
+                allowed origins. The complete flow is approved before the browser starts. Clicks can
+                run page scripts and may change state in the allowed app. The flow cannot type,
+                upload, download, use saved browser state, access clipboard or device permissions,
+                or leave the allowed origins.
               </div>
               <div id="browser-capability-scope-help" style={presetRoleSubtleTextStyle}>
-                Browser capabilities apply only to Hecate-native task launches and do not enable
-                general task network access. A temporary profile does not override operating-system
-                or enterprise browser identity or network policy.
-                {!browserUsesNativeTaskSurface &&
-                  " External Agents and Hecate Chat do not receive either browser capability. Select All Hecate work or Hecate Task to enable them."}
+                Browser capabilities apply only to Hecate-native Tools-on work, including Hecate
+                Chat, standalone Tasks, and project assignments. They do not enable general network
+                access. A temporary profile does not override operating-system or enterprise browser
+                identity or network policy.
+                {!browserUsesNativeSurface &&
+                  " External Agents do not receive either browser capability. Select All Hecate work, Hecate Chat, or Hecate Task to enable them."}
                 {!form.toolsEnabled && " Select Allow tools to configure browser capabilities."}
               </div>
-              {browserUsesNativeTaskSurface && (
+              {browserUsesNativeSurface && (
                 <div id="browser-evidence-runtime" style={presetRoleSubtleTextStyle} role="status">
                   {browserEvidenceReadiness?.available
                     ? `Browser runtime ready: ${browserEvidenceReadiness.message}`
                     : browserEvidenceReadiness
                       ? `Browser runtime unavailable: ${browserEvidenceReadiness.message}${browserEvidenceReadiness.operator_action ? ` ${browserEvidenceReadiness.operator_action}` : ""}`
-                      : "Browser runtime status has not loaded. This work policy records capability intent; task runs still require a configured local browser runtime."}
+                      : "Browser runtime status has not loaded. This work policy records capability intent; Hecate work still requires a configured local browser runtime."}
                 </div>
               )}
               {browserConfigured && (
@@ -629,7 +624,7 @@ export function AgentPresetsModal({
               {form.approvalPolicy === "block" && browserConfigured && (
                 <div role="status" style={{ ...presetRoleSubtleTextStyle, color: "var(--amber)" }}>
                   Browser capabilities stay configured, but browser calls always require approval
-                  and will therefore be blocked for compatible native Hecate Tasks.
+                  and will therefore be blocked for compatible native Hecate work.
                 </div>
               )}
               <ProjectSkillPicker

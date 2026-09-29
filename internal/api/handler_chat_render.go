@@ -144,16 +144,19 @@ func renderChatAgentPresetSnapshot(snapshot *chat.AgentPresetSnapshot) *ChatAgen
 		return nil
 	}
 	return &ChatAgentPresetSnapshotItem{
-		ID:               snapshot.ID,
-		Name:             snapshot.Name,
-		ProviderHint:     snapshot.ProviderHint,
-		ModelHint:        snapshot.ModelHint,
-		Instructions:     snapshot.Instructions,
-		ExecutionProfile: snapshot.ExecutionProfile,
-		ToolsEnabled:     snapshot.ToolsEnabled,
-		WritesAllowed:    snapshot.WritesAllowed,
-		NetworkAllowed:   snapshot.NetworkAllowed,
-		ApprovalPolicy:   snapshot.ApprovalPolicy,
+		ID:                         snapshot.ID,
+		Name:                       snapshot.Name,
+		ProviderHint:               snapshot.ProviderHint,
+		ModelHint:                  snapshot.ModelHint,
+		Instructions:               snapshot.Instructions,
+		ExecutionProfile:           snapshot.ExecutionProfile,
+		ToolsEnabled:               snapshot.ToolsEnabled,
+		WritesAllowed:              snapshot.WritesAllowed,
+		NetworkAllowed:             snapshot.NetworkAllowed,
+		BrowserAllowed:             cloneBool(snapshot.BrowserAllowed),
+		BrowserInteractionsAllowed: cloneBool(snapshot.BrowserInteractionsAllowed),
+		BrowserAllowedOrigins:      append([]string(nil), snapshot.BrowserAllowedOrigins...),
+		ApprovalPolicy:             snapshot.ApprovalPolicy,
 	}
 }
 

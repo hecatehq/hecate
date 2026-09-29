@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "../../app/state/chat";
@@ -80,6 +80,11 @@ describe("ChatSidebar new-chat creation", () => {
     );
 
     const newChatButton = screen.getByRole("button", { name: "New Hecate chat" });
+    const defaultBrowserSummary = screen.getByRole("group", { name: "Browser permissions" });
+    expect(defaultBrowserSummary).toHaveTextContent(
+      "Browser permissions are disabled without a Work policy",
+    );
+    expect(defaultBrowserSummary).toHaveTextContent("Tools alone does not grant browser access");
     act(() => {
       newChatButton.click();
       newChatButton.click();
@@ -99,11 +104,13 @@ describe("ChatSidebar new-chat creation", () => {
           id: "chat_review",
           name: "Chat review",
           surface: "hecate_chat",
-          tools_enabled: false,
+          tools_enabled: true,
           writes_allowed: false,
           network_allowed: false,
-          browser_interactions_allowed: false,
-          approval_policy: "inherit",
+          browser_allowed: true,
+          browser_interactions_allowed: true,
+          browser_allowed_origins: ["https://app.example.test", "https://status.example.test:8443"],
+          approval_policy: "require",
           project_memory_policy: "inherit",
           context_source_policy: "inherit",
         },
@@ -143,7 +150,22 @@ describe("ChatSidebar new-chat creation", () => {
           onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
-        { state: createRuntimeConsoleFixture(), actions: createRuntimeConsoleActions() },
+        {
+          state: createRuntimeConsoleFixture({
+            settingsConfig: {
+              backend: "sqlite",
+              providers: [],
+              policy_rules: [],
+              events: [],
+              browser_evidence: {
+                available: true,
+                status: "ready",
+                message: "Chromium is configured.",
+              },
+            },
+          }),
+          actions: createRuntimeConsoleActions(),
+        },
       ),
     );
 
@@ -159,6 +181,22 @@ describe("ChatSidebar new-chat creation", () => {
     expect(screen.queryByRole("option", { name: "Task only" })).toBeNull();
 
     fireEvent.change(presetSelect, { target: { value: "chat_review" } });
+    const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
+    expect(within(browserSummary).getByText("Browser evidence").parentElement).toHaveTextContent(
+      "Configured · per-call approval",
+    );
+    expect(within(browserSummary).getByText("Browser interaction").parentElement).toHaveTextContent(
+      "Configured · per-call approval",
+    );
+    const origins = within(browserSummary).getByRole("list", {
+      name: "Allowed browser origins",
+    });
+    expect(within(origins).getByText("https://app.example.test")).toBeTruthy();
+    expect(within(origins).getByText("https://status.example.test:8443")).toBeTruthy();
+    expect(browserSummary).toHaveTextContent("Browser runtime: Ready · Chromium is configured.");
+    expect(browserSummary).toHaveTextContent("Tools alone does not grant access");
+    expect(browserSummary).toHaveTextContent("browser readiness is not implied");
+
     fireEvent.click(screen.getByRole("button", { name: "New Hecate chat" }));
     expect(onCreateChat).toHaveBeenCalledWith("hecate", "", "chat_review");
   });

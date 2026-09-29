@@ -195,9 +195,11 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   `browser_allowed` (script-disabled `browser_inspect`) independent from
   `browser_interactions_allowed` (`browser_flow`), with one shared normalized
   `browser_allowed_origins` list. `taskapp` may snapshot these for a standalone
-  native Task and `projectworkapp` may snapshot them for a native assignment;
-  never infer either grant from
-  Cairnline intent, `sandbox_network`, Hecate Chat, External Agent/ACP, QA,
+  native Task and `projectworkapp` may snapshot them for a native assignment.
+  Hecate Chat creation freezes the same independent grants from a selected
+  `hecate_chat`/`any` policy; new tools-on backing Tasks copy those values.
+  Never infer either grant from
+  Cairnline intent, `sandbox_network`, ordinary Chat Tools, External Agent/ACP, QA,
   non-preset Tasks, or a later preset edit. A flow is one strict,
   approval-bound, query-free URL plus 1–6 exact accessibility click/wait
   actions. Preserve a fresh process/profile, one exact origin, `GET`/`HEAD`
@@ -1007,11 +1009,14 @@ context packets; keep the HTTP handler focused on request parsing, chat message
 persistence, live publishing, and response rendering.
 
 When a Hecate Chat selects a Work policy, persist one narrow immutable session
-snapshot and copy its explicit approval posture to newly created tools-on
-backing Tasks. New snapshots must store `inherit` explicitly; an empty value is
+snapshot and copy its explicit approval posture and independent browser grants
+with deep-copied exact origins to newly created tools-on backing Tasks. New
+snapshots explicitly store both browser booleans; absent legacy fields remain
+nil/ungranted. New snapshots must store `inherit` explicitly; an empty value is
 legacy compatibility state and must not activate a policy. Keep approval
-authority separate from browser authority: a Chat snapshot never makes either
-native browser tool available. Continuing, retrying, or resuming an existing
+authority separate from browser authority: only the respective explicit grant,
+valid exact origins, enabled tools, and configured local runtime make a browser
+tool available; mandatory approval remains unchanged. Continuing, retrying, or resuming an existing
 Task consumes its stored posture rather than re-reading the session or preset.
 
 Native `agent_loop` code is intentionally split by responsibility:
