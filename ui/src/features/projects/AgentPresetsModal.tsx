@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import type { BrowserEvidenceRuntimeReadiness } from "../../types/provider";
+import { browserReadinessLabel } from "../../lib/browser-readiness";
 import { ConfirmModal, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
 import {
@@ -480,11 +481,9 @@ export function AgentPresetsModal({
               </div>
               {browserUsesNativeSurface && (
                 <div id="browser-evidence-runtime" style={presetRoleSubtleTextStyle} role="status">
-                  {browserEvidenceReadiness?.available
-                    ? `Browser runtime ready: ${browserEvidenceReadiness.message}`
-                    : browserEvidenceReadiness
-                      ? `Browser runtime unavailable: ${browserEvidenceReadiness.message}${browserEvidenceReadiness.operator_action ? ` ${browserEvidenceReadiness.operator_action}` : ""}`
-                      : "Browser runtime status has not loaded. This work policy records capability intent; Hecate work still requires a configured local browser runtime."}
+                  {browserEvidenceReadiness
+                    ? `Browser runtime ${browserReadinessLabel(browserEvidenceReadiness).toLowerCase()}: ${browserEvidenceReadiness.message}${browserEvidenceReadiness.operator_action ? ` ${browserEvidenceReadiness.operator_action}` : ""}`
+                    : "Browser runtime status has not loaded. This work policy records capability intent; Hecate work still requires a configured local browser runtime."}
                 </div>
               )}
               {browserConfigured && (

@@ -478,15 +478,62 @@ controller:
 - `browser_flow` runs one fully declared accessibility interaction with page
   scripts enabled.
 
-Both tools are available only when the gateway runs locally, the operator sets
-`HECATE_TASK_BROWSER_EXECUTABLE` to an absolute Chromium-compatible executable,
-and the native Task carries a resolved Work policy with tools enabled. This
+Both tools are available only when the gateway runs locally, the operator
+explicitly enables an installed browser in Settings or configures the
+`HECATE_TASK_BROWSER_EXECUTABLE` override, and the native Task carries a
+resolved Work policy with tools enabled. This
 includes standalone Tasks and native project assignments using `hecate_task`
 or `any` policies, plus tools-on Hecate Chat backing Tasks using a frozen
-`hecate_chat` or `any` policy. Hecate does not search
-`PATH`, download a browser, attach to an existing browser, or expose either
+`hecate_chat` or `any` policy. Hecate does not download or bundle a browser,
+attach to an existing browser, or expose either
 tool in External Agent sessions, QA v0, non-preset Tasks, or
 remote-runtime mode.
+
+#### Browser setup
+
+Open **Settings → Browser setup**, select a supported installation, then choose
+**Enable browser**. Hecate passively checks standard Chrome, Chromium, Edge, and
+Brave installation locations on macOS, Linux, and Windows, including supported
+per-user locations. It does not scan `PATH` or the current workspace. Opening
+Settings does not run a candidate or enable one automatically. Enable
+authorizes the displayed installation path for
+future approved browser calls. It is not publisher verification, checksum
+pinning, or a malware-free verdict; a browser update can change the executable
+at that path. Hecate revalidates the selected canonical path before each use.
+Changed installation metadata resets working evidence; a changed symlink target
+requires selection again.
+
+Setup takes effect without restarting Hecate. **Configured** means the browser
+can be offered to eligible Tasks and Chats but has not yet completed a call in
+this Hecate process. Each execution attempt freezes browser availability for its
+catalog, approval gate, and dispatcher; enabling during an already-running
+attempt takes effect on the next turn or execution attempt. Disable still
+closes new browser admission immediately. The first successful approved call marks it **Working**;
+there is no required Check before use. Readiness is operational evidence, not a
+grant of access to any site. The saved choice is scoped to this runtime host
+and follows the configured `memory`, SQLite, or Postgres backend. Memory state
+does not survive a restart; Working evidence is always process-lifetime.
+**Disable browser** blocks future browser admissions without cancelling calls
+that have already started.
+
+For a managed or custom installation, set `HECATE_TASK_BROWSER_EXECUTABLE` to
+an absolute executable path before starting Hecate. This environment setting
+overrides the saved choice and makes in-app edits unavailable. An invalid
+override fails closed rather than falling back to discovery or saved settings.
+Clear the override and restart Hecate to return control to Settings. An empty
+override with no saved choice leaves browser tools disabled. If no supported
+installation is listed, install one yourself or use the explicit override;
+Hecate never downloads it. If a selected installation disappears or becomes
+invalid, follow the readiness guidance in Settings and select an available
+installation. For a launch or page failure, inspect the failed Task or Chat;
+that failure does not disable the configured installation or erase earlier
+successful-use evidence. Setup is local-only, including when the UI is opened in a web
+browser rather than the desktop app.
+
+The API separates local installation details from general runtime readiness;
+see [browser settings](runtime-api.md#get-put-delete-hecatev1settingsbrowser).
+
+#### Policy and approval
 
 The grants are independent. `browser_allowed=true` enables only
 `browser_inspect`; `browser_interactions_allowed=true` enables only
@@ -931,7 +978,7 @@ Env vars that affect agent_loop runs:
 | `HECATE_CODEINTEL_GOPLS_PATH`            | `""`               | Exact absolute `gopls` executable; empty discovers `gopls` from the trusted global PATH                                                                                                                       |
 | `HECATE_CODEINTEL_TSC_PATH`              | `""`               | Exact absolute TypeScript 7+ native `tsc` executable; empty discovers `tsc` from the trusted global PATH                                                                                                      |
 | `HECATE_CODEINTEL_AST_GREP_PATH`         | `""`               | Exact absolute `ast-grep` executable; empty discovers `ast-grep` from the trusted global PATH                                                                                                                 |
-| `HECATE_TASK_BROWSER_EXECUTABLE`         | `""`               | Absolute path to a local Chromium-compatible executable for these optional browser tools. Empty disables both; Hecate never finds or downloads a browser automatically, and remote-runtime mode rejects them. |
+| `HECATE_TASK_BROWSER_EXECUTABLE`         | `""`               | Absolute executable override, ahead of host-scoped Settings; invalid fails closed. Empty uses the saved choice or disables both tools. Local runtime only; no browser downloads. See [setup](#browser-setup). |
 | `HECATE_TASK_BROWSER_TIMEOUT`            | `20s`              | Positive wall-clock limit for one static inspection or complete flow, including preflight and browser startup                                                                                                 |
 | `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`  | `false`            | Allows private/local destinations after explicit opt-in. Hostname resolution is pinned for the call, but this is not an OS/network isolation boundary.                                                        |
 | `HECATE_TASK_WEB_SEARCH_PROVIDER`        | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                                                                                                                  |
@@ -993,8 +1040,8 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`).
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent. Native Tasks require a tool-capable model when their effective catalog is non-empty; preset-backed model-only tasks send no tools.
 - **`browser inspection is unavailable`** or **`native browser interaction is
-unavailable`** — this is expected unless the local gateway has an explicit
-  `HECATE_TASK_BROWSER_EXECUTABLE`, the Task was created from an eligible Work
+unavailable`** — this is expected unless the local gateway has an enabled
+  browser in Settings or an explicit `HECATE_TASK_BROWSER_EXECUTABLE`, the Task was created from an eligible Work
   policy (directly, through a native project assignment, or from a new Chat's
   frozen policy), and that policy
   independently granted the

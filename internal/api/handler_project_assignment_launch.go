@@ -517,12 +517,13 @@ func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, pro
 	readiness.Provider = plan.RequestedProvider
 	readiness.Model = plan.RequestedModel
 	readiness.ExecutionProfile = plan.ExecutionProfile
-	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile, projectwork.AssignmentDriverHecateTask, h.browserEvidenceReadiness)
+	browserReadiness := h.browserReadiness(ctx)
+	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile, projectwork.AssignmentDriverHecateTask, browserReadiness)
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
 	if warning := projectAssignmentApprovalPolicyWarning(plan.Profile); warning != "" {
 		readiness.Warnings = append(readiness.Warnings, warning)
 	}
-	if warning := projectAssignmentBrowserRuntimeWarning(plan.Profile, h.browserEvidenceReadiness); warning != "" {
+	if warning := projectAssignmentBrowserRuntimeWarning(plan.Profile, browserReadiness); warning != "" {
 		readiness.Warnings = append(readiness.Warnings, warning)
 	}
 	if h.service == nil {

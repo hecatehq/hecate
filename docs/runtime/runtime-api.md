@@ -982,8 +982,12 @@ sequenceDiagram
 - `HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT=<duration>` (default `5s`; per-ping deadline; failure or timeout evicts the entry)
 - `HECATE_TASK_BROWSER_EXECUTABLE=<absolute path>` enables the optional local
   native browser runtime used by static evidence and separately granted
-  interaction. The path must name an existing executable; Hecate neither
-  finds/downloads a browser nor allows either tool in remote-runtime mode.
+  interaction, overriding the host-scoped selection in Settings. The path must
+  name an existing executable; an invalid override fails closed without
+  fallback. Empty uses the saved selection, or leaves browser tools disabled
+  when none exists. Settings passively discovers supported installations, but
+  Hecate never downloads or bundles a browser and neither tool is available in
+  remote-runtime mode.
 - `HECATE_TASK_BROWSER_TIMEOUT=<duration>` (default `20s`; must be positive
   when the browser runtime is enabled; one deadline spans preflight, startup,
   and the complete capture or interaction flow)
@@ -1409,10 +1413,13 @@ The settings response includes path-free readiness for the optional native
 browser runtime. The existing `browser_evidence` wire field covers both static
 evidence and separately granted interaction because one configured runtime
 backs both tools. `browser_evidence.available` says whether this gateway can
-currently offer that local runtime; `status` is `ready`, `not_configured`,
-`local_only`, or `unavailable`. `message` and optional `operator_action` are
-safe to display directly. The response never exposes the configured executable
-path, local probe diagnostics, or host filesystem details.
+currently offer that local runtime; `status` is `configured`, `working`,
+`not_configured`, `local_only`, or `unavailable`. `configured` is available but
+unverified; `working` records a successful approved call for the current
+selection in this process. Neither is a capability grant or security verdict.
+`message` and optional `operator_action` are safe to display directly. The
+response never exposes the configured executable path, local probe diagnostics,
+or host filesystem details. Reading readiness never launches the browser.
 
 ```json
 {
@@ -1421,12 +1428,83 @@ path, local probe diagnostics, or host filesystem details.
     "browser_evidence": {
       "available": false,
       "status": "not_configured",
-      "message": "The native browser runtime is not configured on this runtime.",
-      "operator_action": "Set HECATE_TASK_BROWSER_EXECUTABLE to an absolute path to a Chromium-compatible executable, then restart Hecate."
+      "message": "Choose and enable an installed browser to use browser tools.",
+      "operator_action": "Open Settings → Browser setup."
     }
   }
 }
 ```
+
+### `GET`, `PUT`, `DELETE /hecate/v1/settings/browser`
+
+One-time browser setup for a local runtime. These routes are local-only and
+require a loopback connection; they are unavailable in remote-runtime mode.
+Unlike general Settings readiness, their response contains local installation
+paths. Responses use `Cache-Control: private, no-store`. Do not forward those
+details to model prompts, logs, or telemetry.
+
+`GET` passively lists supported installed browsers and the current selection.
+It does not launch, probe, or automatically enable any candidate. `PUT` accepts
+`{"candidate_id":"<id from GET>"}`, rechecks the candidate, and enables that
+installation for future eligible calls without restarting Hecate. The id binds
+passive path/metadata observations, not executable bytes or publisher identity.
+Stale candidates must be refreshed and selected again. There is no Check or
+self-test prerequisite; the first successful approved call provides working
+evidence. `DELETE` clears the saved choice and blocks future browser admissions;
+already-admitted calls are not cancelled.
+
+All three operations return the same envelope:
+
+```json
+{
+  "object": "browser_settings",
+  "data": {
+    "readiness": {
+      "available": true,
+      "status": "configured",
+      "message": "Browser enabled. Its first approved use will confirm that it works."
+    },
+    "source": "settings",
+    "selected": {
+      "id": "opaque-candidate-id",
+      "name": "Google Chrome",
+      "path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    },
+    "candidates": [
+      {
+        "id": "opaque-candidate-id",
+        "name": "Google Chrome",
+        "path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      }
+    ],
+    "backend": "sqlite"
+  }
+}
+```
+
+`source` is `none`, `settings`, or `environment`; `selected` is omitted when no
+selection exists. `backend` identifies `memory`, `sqlite`, or `postgres`. Saved
+choices are keyed by runtime host in that backend; memory choices do not survive
+restart. Working evidence is never persisted. At each use Hecate revalidates
+the selected regular executable and canonical path. Installation metadata
+changes clear working evidence, while a changed symlink target requires
+reselection. Enabling an installation permits updates at the same path; it does
+not checksum-pin the executable or certify it as malware-free.
+
+An explicit `HECATE_TASK_BROWSER_EXECUTABLE` has precedence over saved settings
+and makes `PUT`/`DELETE` unavailable. An invalid override fails closed, never
+falling back to the saved choice or discovered candidates. Clear the override
+and restart Hecate to manage the selection here. Enabling a browser does not
+change Work policies: native Tasks and tools-on Chat still need frozen grants,
+exact origins, and approval for each browser call.
+
+`PUT` accepts one strict JSON object up to 4 KiB; malformed, empty, or unknown
+fields return `400 invalid_request`. A changed or missing candidate returns
+`409 browser.candidate_changed`; an environment-managed mutation returns
+`409 browser.environment_managed`. Non-loopback clients and remote runtime
+receive `403`. A settings read/write failure returns a fixed path-free `500`
+message; refresh before retrying because a write may have completed before a
+response failed.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
 
@@ -4487,8 +4565,8 @@ The response envelope is:
       "browser_allowed_origins": ["https://qa.example.test"],
       "browser_runtime_readiness": {
         "available": true,
-        "status": "ready",
-        "message": "The native browser runtime is ready on this local runtime for static evidence and approved interaction."
+        "status": "working",
+        "message": "Browser worked successfully during this Hecate session. Each call still requires a Work policy and approval."
       },
       "approval_policy": "require",
       "project_memory_policy": "include",

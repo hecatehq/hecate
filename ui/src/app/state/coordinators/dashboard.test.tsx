@@ -6,6 +6,7 @@ import { useDashboardActions } from "./dashboard";
 import { ChatProvider } from "../chat";
 import { ProvidersAndModelsProvider, useProvidersAndModels } from "../providersAndModels";
 import { RuntimeProvider } from "../runtime";
+import { SettingsProvider, useSettings } from "../settings";
 import type { AgentAdapterResponse } from "../../../types/agent-adapter";
 import type { ModelResponse } from "../../../types/model";
 
@@ -42,7 +43,9 @@ function Wrapper({ children }: { children: ReactNode }) {
   return (
     <RuntimeProvider>
       <ProvidersAndModelsProvider initialState={{ models: initialModels }}>
-        <ChatProvider>{children}</ChatProvider>
+        <SettingsProvider>
+          <ChatProvider>{children}</ChatProvider>
+        </SettingsProvider>
       </ProvidersAndModelsProvider>
     </RuntimeProvider>
   );
@@ -50,15 +53,19 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 function useDashboardHarness() {
   const providersAndModels = useProvidersAndModels();
+  const settings = useSettings();
   const dashboard = useDashboardActions({
-    settingsConfig: null,
-    setSettingsConfig: () => {},
+    settingsConfig: settings.state.config,
+    setSettingsConfig: (next) => {
+      if (typeof next === "function") settings.actions.updateConfig(next);
+      else settings.actions.setConfig(next);
+    },
     setSettingsError: () => {},
     applyChatSession: () => true,
     syncHecateSelectionFromSession: () => {},
     refreshRuntimeState: async () => {},
   });
-  return { dashboard, providersAndModels };
+  return { dashboard, providersAndModels, settings };
 }
 
 function setupDashboardReads() {
@@ -99,6 +106,42 @@ afterEach(() => {
 });
 
 describe("useDashboardActions model catalog ownership", () => {
+  it("does not let either dashboard wave overwrite a newer browser setup result", async () => {
+    let resolveSettings!: (value: Awaited<ReturnType<typeof api.getSettingsConfig>>) => void;
+    vi.mocked(api.getSettingsConfig).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useDashboardHarness(), { wrapper: Wrapper });
+    let dashboardLoad!: Promise<void>;
+    act(() => {
+      dashboardLoad = result.current.dashboard.loadDashboard();
+    });
+    const readiness = { available: true, status: "configured", message: "Browser enabled." };
+    act(() => result.current.settings.actions.setBrowserReadiness(readiness));
+    await act(async () => {
+      resolveSettings({
+        object: "settings",
+        data: {
+          backend: "sqlite",
+          providers: [],
+          policy_rules: [],
+          events: [],
+          browser_evidence: {
+            available: false,
+            status: "not_configured",
+            message: "No browser selected.",
+          },
+        },
+      });
+      await dashboardLoad;
+    });
+    expect(result.current.settings.state.config?.browser_evidence).toEqual(readiness);
+    expect(result.current.settings.state.config?.backend).toBe("sqlite");
+  });
+
   it("publishes dashboard catalog results through the providers/models slice", async () => {
     vi.mocked(api.getModels).mockResolvedValue({
       object: "list",

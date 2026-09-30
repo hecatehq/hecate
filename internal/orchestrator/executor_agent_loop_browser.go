@@ -27,8 +27,39 @@ const (
 
 var errInvalidBrowserInspectionArguments = errors.New(browserInspectionArgumentsText)
 
+// Fixed runners need only implement execution. The settings-backed delegate
+// additionally exposes passive live availability.
+func browserRuntimeAvailable(runtime any) bool {
+	if runtime == nil {
+		return false
+	}
+	if dynamic, ok := runtime.(interface{ Available() bool }); ok {
+		return dynamic.Available()
+	}
+	return true
+}
+
+// One execution attempt shares a browser capability snapshot across catalog,
+// approval and dispatch. A late enable cannot turn an unadvertised, ungated
+// call into executable work. The retained delegate still rejects a later
+// disable at actual admission. Only immutable dispatcher wiring is copied;
+// the executor's terminal ownership and mutexes remain on the original owner.
+func (e *AgentLoopExecutor) browserRuntimeSnapshot() (*agentLoopToolDispatcher, agentLoopApprovalGate) {
+	dispatcher := *e.toolDispatcher
+	if !browserRuntimeAvailable(dispatcher.browserInspector) {
+		dispatcher.browserInspector = nil
+	}
+	if !browserRuntimeAvailable(dispatcher.browserFlowRunner) {
+		dispatcher.browserFlowRunner = nil
+	}
+	gate := e.approvalGate
+	gate.browserInspectionAvailable = dispatcher.browserInspector != nil
+	gate.browserFlowAvailable = dispatcher.browserFlowRunner != nil
+	return &dispatcher, gate
+}
+
 func (d *agentLoopToolDispatcher) browserInspectTool(ctx context.Context, spec ExecutionSpec, args browserInspectArgs, stepIndex int, startedAt time.Time, toolName string) (agentLoopToolDispatchResult, error) {
-	if d == nil || d.browserInspector == nil {
+	if d == nil || !browserRuntimeAvailable(d.browserInspector) {
 		return agentLoopToolDispatchResult{
 			Text:      "browser_inspect: native browser evidence is not configured for this Hecate runtime",
 			ToolError: true,

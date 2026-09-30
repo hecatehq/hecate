@@ -11,6 +11,9 @@ type remoteRuntimeRoutePattern struct {
 }
 
 var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
+	{method: http.MethodGet, path: "/hecate/v1/settings/browser"},
+	{method: http.MethodPut, path: "/hecate/v1/settings/browser"},
+	{method: http.MethodDelete, path: "/hecate/v1/settings/browser"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-dialog"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-open"},
 	{method: http.MethodPost, path: "/hecate/v1/terminals"},

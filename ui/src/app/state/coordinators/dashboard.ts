@@ -17,6 +17,7 @@ import { resolveDashboardSnapshot } from "../../runtimeConsoleDashboard";
 import { useChat, type ChatSessionSnapshotSource } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
+import { useSettings } from "../settings";
 import type { ChatSessionRecord, ChatSessionSummaryRecord } from "../../../types/chat";
 import type { ConfiguredStateResponse } from "../../../types/provider";
 import type { ChatActions } from "./chat";
@@ -36,6 +37,7 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
   const runtime = useRuntime();
   const providersAndModels = useProvidersAndModels();
   const chat = useChat();
+  const { captureBrowserReadinessRevision, mergeConfigFromRead } = useSettings().actions;
 
   const {
     setHealth,
@@ -68,6 +70,7 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
   } = chat.actions;
 
   async function loadDashboard() {
+    const browserReadinessRevision = captureBrowserReadinessRevision();
     const chatSessionIntent = currentChatSessionIntent();
     const dashboardActiveChatSessionID = currentActiveChatSessionID();
     // Dashboard hydration is passive: it may publish the active chat only if
@@ -118,7 +121,9 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
         onEssentials: (essentials) => {
           setHealth(essentials.health);
           setSessionInfo(essentials.sessionInfo);
-          params.setSettingsConfig(essentials.settingsConfig);
+          params.setSettingsConfig((current) =>
+            mergeConfigFromRead(essentials.settingsConfig, browserReadinessRevision, current),
+          );
         },
         onChatSessionsReadStart: captureChatSessionsReadStopTokens,
         onActiveChatSessionReadStart: (sessionID) => {
@@ -269,7 +274,9 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
           return additions.length > 0 ? [...current, ...additions] : current;
         });
       }
-      params.setSettingsConfig(snapshot.settingsConfig);
+      params.setSettingsConfig((current) =>
+        mergeConfigFromRead(snapshot.settingsConfig, browserReadinessRevision, current),
+      );
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
       setHecateRTKAvailable(snapshot.rtkAvailable);
       setHecateRTKPath(snapshot.rtkPath);

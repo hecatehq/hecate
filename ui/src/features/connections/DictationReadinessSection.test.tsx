@@ -67,7 +67,9 @@ describe("DictationReadinessSection", () => {
     render(<DictationReadinessSection onAddProvider={onAddProvider} />);
 
     const section = await screen.findByTestId("connections-dictation");
-    expect(within(section).getByLabelText("Speech-to-text route setup needed")).toBeVisible();
+    expect(
+      await within(section).findByLabelText("Speech-to-text route setup needed"),
+    ).toBeVisible();
     expect(within(section).getByTestId("connections-dictation-unavailable")).toHaveTextContent(
       "No speech-to-text route is configured.",
     );

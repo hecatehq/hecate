@@ -12,6 +12,7 @@ import (
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/browserapp"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/projectruntime"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -22,16 +23,29 @@ import (
 	"github.com/hecatehq/hecate/internal/remoteruntime"
 )
 
+func browserRuntimeForTestStatus(t *testing.T, status string) *browserapp.Service {
+	t.Helper()
+	options := browserapp.Options{RuntimeHostID: "test-host"}
+	switch status {
+	case "local_only":
+		options.Remote = true
+	case "unavailable":
+		options.ExecutableOverride = filepath.Join(t.TempDir(), "missing-browser")
+	case "configured":
+		options.ExecutableOverride = filepath.Join(t.TempDir(), "browser.exe")
+		if err := os.WriteFile(options.ExecutableOverride, []byte("browser"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return browserapp.New(options)
+}
+
 func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{
 		name: "anthropic",
 	})
-	handler.browserEvidenceReadiness = BrowserEvidenceRuntimeReadinessResponse{
-		Available: true,
-		Status:    "ready",
-		Message:   "The native browser runtime is ready on this local runtime for static evidence and approved interaction.",
-	}
+	handler.browserRuntime = browserRuntimeForTestStatus(t, "configured")
 	workspace := t.TempDir()
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
 		Workspace:           workspace,
@@ -102,8 +116,8 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessReturnsNativePlanWithoutSideEff
 	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.ID != "browser_review" || !readiness.Data.ProfilePosture.ToolsEnabled || !readiness.Data.ProfilePosture.WritesAllowed || readiness.Data.ProfilePosture.NetworkAllowed || readiness.Data.ProfilePosture.ApprovalPolicy != agentprofiles.ApprovalBlock || readiness.Data.ProfilePosture.BrowserEvidenceStatus != projectAssignmentBrowserEvidenceStatusEnabled || !readiness.Data.ProfilePosture.BrowserAllowed || readiness.Data.ProfilePosture.BrowserInteractionStatus != projectAssignmentBrowserInteractionStatusEnabled || !readiness.Data.ProfilePosture.BrowserInteractionsAllowed || !reflect.DeepEqual(readiness.Data.ProfilePosture.BrowserAllowedOrigins, []string{"https://qa.example.test"}) {
 		t.Fatalf("profile_posture = %+v, want browser-enabled native task posture with tools/writes on and network off", readiness.Data.ProfilePosture)
 	}
-	if runtime := readiness.Data.ProfilePosture.BrowserRuntimeReadiness; runtime == nil || !runtime.Available || runtime.Status != "ready" {
-		t.Fatalf("browser_runtime_readiness = %+v, want ready runtime", runtime)
+	if runtime := readiness.Data.ProfilePosture.BrowserRuntimeReadiness; runtime == nil || !runtime.Available || runtime.Status != "configured" {
+		t.Fatalf("browser_runtime_readiness = %+v, want configured runtime", runtime)
 	}
 	if readiness.Data.ModelReadiness == nil || !readiness.Data.ModelReadiness.Ready {
 		t.Fatalf("model_readiness = %+v, want ready", readiness.Data.ModelReadiness)
@@ -141,8 +155,8 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessWarnsWhenGrantedBrowserToolsAre
 				OperatorAction: "Set HECATE_TASK_BROWSER_EXECUTABLE, then restart Hecate.",
 			},
 			wantStatus:     "not_configured",
-			wantMessage:    "not configured on this runtime",
-			wantActionText: "HECATE_TASK_BROWSER_EXECUTABLE",
+			wantMessage:    "Choose and enable",
+			wantActionText: "Settings",
 		},
 		{
 			name: "invalid executable",
@@ -152,8 +166,8 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessWarnsWhenGrantedBrowserToolsAre
 				OperatorAction: "Check HECATE_TASK_BROWSER_EXECUTABLE and its executable permissions, then restart Hecate.",
 			},
 			wantStatus:     "unavailable",
-			wantMessage:    "unavailable from the current runtime configuration",
-			wantActionText: "executable permissions",
+			wantMessage:    "unavailable",
+			wantActionText: "HECATE_TASK_BROWSER_EXECUTABLE",
 		},
 		{
 			name: "remote runtime",
@@ -169,7 +183,7 @@ func TestProjectWorkAPI_AssignmentLaunchReadinessWarnsWhenGrantedBrowserToolsAre
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{name: "anthropic"})
-			handler.browserEvidenceReadiness = test.readiness
+			handler.browserRuntime = browserRuntimeForTestStatus(t, test.readiness.Status)
 			seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
 				Workspace:           t.TempDir(),
 				Driver:              projectwork.AssignmentDriverHecateTask,

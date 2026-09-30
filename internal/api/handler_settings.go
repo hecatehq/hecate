@@ -22,7 +22,7 @@ func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
 			Providers:       []SettingsProviderRecord{},
 			PolicyRules:     []SettingsPolicyRuleRecord{},
 			Events:          []SettingsAuditEventRecord{},
-			BrowserEvidence: h.browserEvidenceReadiness,
+			BrowserEvidence: h.browserReadiness(r.Context()),
 		},
 	}
 	for _, record := range result.Providers {

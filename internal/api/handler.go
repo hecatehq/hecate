@@ -14,6 +14,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/browserapp"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/config"
@@ -94,7 +95,7 @@ type Handler struct {
 	agentProfiles                     agentprofiles.Store
 	modelToolProbeStore               modelprobe.Store
 	modelToolProbeCoordinator         *modelprobe.Coordinator
-	browserEvidenceReadiness          BrowserEvidenceRuntimeReadinessResponse
+	browserRuntime                    *browserapp.Service
 	agentChatRunner                   agentadapters.Runner
 	agentChatLive                     *agentChatLive
 	// agentChatStreamHeartbeatC is a deterministic test seam for the
@@ -252,7 +253,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	taskOriginRunGate := taskruncoord.NewOriginGate()
 	workspaceCoordinator := workspacecoord.NewRegistry()
 	modelToolProbeStore := modelprobe.NewMemoryStore()
-	browserInspector, browserFlowRunner, browserEvidenceReadiness := browserRuntimesFromConfig(cfg, logger)
+	browserRuntime, browserInspector, browserFlowRunner := browserRuntimeFromConfig(cfg, runtimeHost.ID)
 	runner := orchestrator.NewRunner(logger, taskStore, tracer, orchestrator.Config{
 		DefaultModel:           cfg.Router.DefaultModel,
 		ApprovalPolicies:       cfg.Server.TaskApprovalPolicies,
@@ -419,7 +420,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentProfiles:                     agentprofiles.NewMemoryStore(),
 		modelToolProbeStore:               modelToolProbeStore,
 		modelToolProbeCoordinator:         modelprobe.NewCoordinator(modelToolProbeStore),
-		browserEvidenceReadiness:          browserEvidenceReadiness,
+		browserRuntime:                    browserRuntime,
 		agentChatRunner:                   agentChatRunner,
 		executableTrust:                   executableTrust,
 		agentChatLive:                     agentChatLive,
