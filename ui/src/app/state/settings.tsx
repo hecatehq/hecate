@@ -10,10 +10,21 @@
 // the seam was worth; if the slice grows a second non-settings
 // concern, split.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
-import type { ConfiguredStateResponse } from "../../types/provider";
+import type {
+  BrowserEvidenceRuntimeReadiness,
+  ConfiguredStateResponse,
+} from "../../types/provider";
 
 export type NoticeState = {
   kind: "success" | "error";
@@ -27,6 +38,13 @@ export type SettingsState = {
 };
 
 export type SettingsActions = {
+  setBrowserReadiness: (value: BrowserEvidenceRuntimeReadiness) => void;
+  captureBrowserReadinessRevision: () => number;
+  mergeConfigFromRead: (
+    value: ConfiguredStateResponse["data"] | null,
+    browserRevision: number,
+    current: ConfiguredStateResponse["data"] | null,
+  ) => ConfiguredStateResponse["data"] | null;
   setConfig: (value: ConfiguredStateResponse["data"] | null) => void;
   updateConfig: (
     updater: (
@@ -90,6 +108,34 @@ export function SettingsProvider({
     reducer,
     seededState ? { ...initialState, ...seededState } : initialState,
   );
+  const browserReadiness = useRef({
+    revision: 0,
+    value: seededState?.config?.browser_evidence,
+  });
+  const setBrowserReadiness = useCallback((value: BrowserEvidenceRuntimeReadiness) => {
+    browserReadiness.current = { revision: browserReadiness.current.revision + 1, value };
+    dispatch({
+      type: "config/update",
+      updater: (current) => (current ? { ...current, browser_evidence: value } : current),
+    });
+  }, []);
+  const captureBrowserReadinessRevision = useCallback(() => browserReadiness.current.revision, []);
+  const mergeConfigFromRead = useCallback(
+    (
+      value: ConfiguredStateResponse["data"] | null,
+      browserRevision: number,
+      current: ConfiguredStateResponse["data"] | null,
+    ) => {
+      // A dashboard started before browser setup settled must not restore its old
+      // readiness. The rest of its settings snapshot can still be refreshed.
+      if (!value || browserReadiness.current.revision === browserRevision) return value;
+      return {
+        ...value,
+        browser_evidence: current ? current.browser_evidence : browserReadiness.current.value,
+      };
+    },
+    [],
+  );
 
   const setConfig = useCallback((value: ConfiguredStateResponse["data"] | null) => {
     dispatch({ type: "config/set", value });
@@ -119,6 +165,9 @@ export function SettingsProvider({
 
   const actions = useMemo<SettingsActions>(
     () => ({
+      setBrowserReadiness,
+      captureBrowserReadinessRevision,
+      mergeConfigFromRead,
       setConfig,
       updateConfig,
       setError,
@@ -126,7 +175,17 @@ export function SettingsProvider({
       dismissNotice,
       dismissNoticeIfMatching,
     }),
-    [setConfig, updateConfig, setError, setNotice, dismissNotice, dismissNoticeIfMatching],
+    [
+      setBrowserReadiness,
+      captureBrowserReadinessRevision,
+      mergeConfigFromRead,
+      setConfig,
+      updateConfig,
+      setError,
+      setNotice,
+      dismissNotice,
+      dismissNoticeIfMatching,
+    ],
   );
   const value = useMemo(() => ({ state, actions }), [state, actions]);
 

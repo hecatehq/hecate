@@ -1,6 +1,7 @@
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ChatAgentPresetSnapshotRecord } from "../../types/chat";
 import type { BrowserEvidenceRuntimeReadiness } from "../../types/provider";
+import { browserReadinessLabel } from "../../lib/browser-readiness";
 
 type BrowserPolicyPreset = Pick<
   AgentPresetRecord | ChatAgentPresetSnapshotRecord,
@@ -118,7 +119,7 @@ export function ChatBrowserPolicySummary({
         <div style={{ color: readiness?.available ? "var(--teal)" : "var(--t3)" }}>
           <strong>Browser runtime:</strong>{" "}
           {readiness
-            ? `${readiness.available ? "Ready" : "Unavailable"} · ${readiness.message}${readiness.operator_action ? ` ${readiness.operator_action}` : ""}`
+            ? `${browserReadinessLabel(readiness)} · ${readiness.message}${readiness.operator_action ? ` ${readiness.operator_action}` : ""}`
             : compact
               ? "Not checked · configure a local browser."
               : "Not checked · configure a local browser before using these grants."}

@@ -88,6 +88,19 @@ and that tool's SSRF/host policy.
 
 ## Native browser capability boundary
 
+Browser setup is an explicit local-operator decision. **Settings → Browser setup**
+lists installed candidates without running them; selecting and enabling one
+authorizes that installation path, not a checksum-pinned binary, verified
+publisher, or malware-free app. Installed updates can change its bytes. Hecate
+revalidates the selected canonical path before use, and an explicit executable
+environment override takes precedence without fallback. Configuration and
+working evidence are separate: successful approved use verifies operation for
+the current selection in this process, not trustworthiness. Disable prevents
+future admissions but does not cancel an already-running call. Installation
+details are available only through local-runtime, loopback-only setup routes;
+shared readiness responses do not expose paths. See
+[browser setup](../runtime/agent-runtime.md#browser-setup).
+
 Browser capability belongs to Hecate runtime policy, not Cairnline coordination
 intent. An Agent Preset may independently grant script-disabled static evidence
 with `browser_allowed` and approved interaction with

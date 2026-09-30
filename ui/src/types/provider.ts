@@ -136,7 +136,7 @@ export type ConfiguredAuditEventRecord = {
 // runtime. The API intentionally omits executable paths and diagnostic details.
 export type BrowserEvidenceRuntimeReadiness = {
   available: boolean;
-  status: "ready" | "not_configured" | "local_only" | "unavailable" | string;
+  status: "configured" | "working" | "not_configured" | "local_only" | "unavailable" | string;
   message: string;
   operator_action?: string;
 };

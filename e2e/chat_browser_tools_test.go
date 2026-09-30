@@ -124,6 +124,7 @@ func TestHecateChatBrowserChromiumSmokeE2E(t *testing.T) {
 	}
 	upstream, captured := fakeChatBrowserUpstream(t, calls)
 	baseURL, created := createE2EBrowserChat(t, upstream, executable, "", site.URL, "allow")
+	assertE2EBrowserReadiness(t, baseURL, nil, "configured", true, executable)
 	settled := postE2EBrowserMessage(t, baseURL, created.Data.ID)
 	linked := waitForE2EChatTaskLink(t, baseURL, created.Data.ID, e2eChatWorkPolicyResponse{}, 10*time.Second)
 	for index := range calls {
@@ -138,6 +139,7 @@ func TestHecateChatBrowserChromiumSmokeE2E(t *testing.T) {
 	}
 	waitForE2ETaskRunStatus(t, baseURL, linked.Data.TaskID, linked.Data.LatestRunID, "completed", 45*time.Second)
 	waitForE2EBrowserMessage(t, settled)
+	assertE2EBrowserReadiness(t, baseURL, nil, "working", true, executable)
 	if pageLoads.Load() != 2 || scriptCalls.Load() != 1 || reusedCookie.Load() {
 		t.Fatalf("browser lifecycle: page loads=%d scripts=%d reused cookie=%t", pageLoads.Load(), scriptCalls.Load(), reusedCookie.Load())
 	}

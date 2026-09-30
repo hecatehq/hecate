@@ -10,6 +10,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
+	"github.com/hecatehq/hecate/internal/browserapp"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/controlplane"
@@ -49,6 +50,17 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 	controlPlaneStore, err := controlplane.NewPostgresStore(ctx, client, "control-plane")
 	if err != nil {
 		t.Fatalf("controlplane.NewPostgresStore: %v", err)
+	}
+	browserStore, err := browserapp.NewPostgresStore(ctx, client)
+	if err != nil {
+		t.Fatalf("browserapp.NewPostgresStore: %v", err)
+	}
+	browserSelection := browserapp.Selection{RuntimeHostID: "browser-smoke-host", Name: "Chromium", Path: "/browser", CanonicalPath: "/browser"}
+	if err := browserStore.Put(ctx, browserSelection); err != nil {
+		t.Fatalf("browser selection Put: %v", err)
+	}
+	if got, err := browserStore.Get(ctx, browserSelection.RuntimeHostID); err != nil || got != browserSelection {
+		t.Fatalf("browser selection Get = %+v, %v", got, err)
 	}
 	retentionStore, err := retention.NewPostgresHistoryStore(ctx, client, "retention_runs")
 	if err != nil {

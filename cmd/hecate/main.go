@@ -264,6 +264,7 @@ func runServe() {
 	// path=startup_reconcile up front.
 	approvalStore := buildApprovalStore(cfg, logger, sqliteClient, postgresClient)
 	executableTrustStore := buildExecutableTrustStore(cfg, logger, sqliteClient, postgresClient)
+	browserSettingsStore := buildBrowserSettingsStore(cfg, logger, sqliteClient, postgresClient)
 	if rec, ok := approvalStore.(agentadapters.ApprovalRetentionStore); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		reconciled, err := rec.ReconcilePending(ctx, time.Now().UTC())
@@ -331,6 +332,7 @@ func runServe() {
 	handler.SetModelToolProbeStore(modelToolProbeStore)
 	handler.SetAgentApprovalStore(approvalStore)
 	handler.SetExecutableTrustStore(executableTrustStore)
+	handler.SetBrowserSettingsStore(browserSettingsStore)
 	if postgresClient != nil {
 		handler.SetStateCleaner(postgresClient)
 	} else {

@@ -226,7 +226,7 @@ describe("AgentPresetsModal", () => {
       "https://app.example.test/",
     );
 
-    expect(screen.getByText(/Browser runtime unavailable/i)).toHaveTextContent(
+    expect(screen.getByText(/Browser runtime not configured/i)).toHaveTextContent(
       "Set HECATE_TASK_BROWSER_EXECUTABLE",
     );
     expect(screen.getByRole("button", { name: "Create policy" })).toBeEnabled();

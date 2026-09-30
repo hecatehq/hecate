@@ -8,6 +8,7 @@ import {
   createAgentPreset,
   deleteAgentPreset,
   getAgentPresets,
+  getBrowserSettings,
   getDictationOptions,
   getPlugins,
   updateAgentPreset,
@@ -32,6 +33,7 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   getDictationOptions: vi.fn(),
   getPlugins: vi.fn(),
   getAgentPresets: vi.fn(),
+  getBrowserSettings: vi.fn(),
   createAgentPreset: vi.fn(),
   updateAgentPreset: vi.fn(),
   deleteAgentPreset: vi.fn(),
@@ -65,6 +67,15 @@ beforeEach(() => {
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
   vi.mocked(getAgentPresets).mockReset();
   vi.mocked(getAgentPresets).mockResolvedValue({ object: "agent_presets", data: [] });
+  vi.mocked(getBrowserSettings).mockResolvedValue({
+    object: "browser_settings",
+    data: {
+      readiness: { available: false, status: "not_configured", message: "No browser selected." },
+      source: "none",
+      candidates: [],
+      backend: "memory",
+    },
+  });
   vi.mocked(createAgentPreset).mockReset();
   vi.mocked(updateAgentPreset).mockReset();
   vi.mocked(deleteAgentPreset).mockReset();
@@ -245,7 +256,7 @@ describe("SettingsView", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/The request was blocked/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Refresh/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
 
   it("starts native Hecate Cloud sign-in without requiring hec", async () => {

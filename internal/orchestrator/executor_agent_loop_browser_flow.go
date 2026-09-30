@@ -34,7 +34,7 @@ type browserFlowActionArgs struct {
 }
 
 func (d *agentLoopToolDispatcher) browserFlowTool(ctx context.Context, spec ExecutionSpec, args browserFlowArgs, stepIndex int, startedAt time.Time, toolName string) (agentLoopToolDispatchResult, error) {
-	if d == nil || d.browserFlowRunner == nil {
+	if d == nil || !browserRuntimeAvailable(d.browserFlowRunner) {
 		return agentLoopToolDispatchResult{
 			Text:      "browser_flow: native browser interaction is not configured for this Hecate runtime",
 			ToolError: true,

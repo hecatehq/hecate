@@ -621,6 +621,9 @@ export async function mockGatewayAPIs(
   );
 
   await page.route("/hecate/v1/plugins*", (r) => r.fulfill(ok({ object: "plugins", data: [] })));
+  await page.route("/hecate/v1/agent-presets", (r) =>
+    r.fulfill(ok({ object: "agent_presets", data: [] })),
+  );
 
   await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
     const request = route.request();
@@ -1046,6 +1049,24 @@ export async function mockGatewayAPIs(
       body: JSON.stringify({ object: "settings", data: state }),
     });
   });
+
+  await page.route("/hecate/v1/settings/browser", (route) =>
+    route.fulfill(
+      ok({
+        object: "browser_settings",
+        data: {
+          readiness: {
+            available: false,
+            status: "not_configured",
+            message: "No browser selected.",
+          },
+          source: "none",
+          candidates: [],
+          backend: "memory",
+        },
+      }),
+    ),
+  );
 
   // POST /hecate/v1/settings/providers → create. Slugifies the name to id,
   // appends to the in-memory list, and returns 201. Stateful so the next

@@ -193,7 +193,9 @@ describe("ChatSidebar new-chat creation", () => {
     });
     expect(within(origins).getByText("https://app.example.test")).toBeTruthy();
     expect(within(origins).getByText("https://status.example.test:8443")).toBeTruthy();
-    expect(browserSummary).toHaveTextContent("Browser runtime: Ready · Chromium is configured.");
+    expect(browserSummary).toHaveTextContent(
+      "Browser runtime: Configured (unverified) · Chromium is configured.",
+    );
     expect(browserSummary).toHaveTextContent("Tools alone does not grant access");
     expect(browserSummary).toHaveTextContent("browser readiness is not implied");
 

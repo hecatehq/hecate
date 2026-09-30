@@ -68,7 +68,7 @@ test("memory backend disables in-process reset", async ({ page }) => {
 });
 
 test("sqlite backend disables in-process reset", async ({ page }) => {
-  await page.route("/hecate/v1/settings*", async (route) => {
+  await page.route("/hecate/v1/settings", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

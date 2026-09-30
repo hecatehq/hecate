@@ -310,7 +310,10 @@ tool call; `block` refuses actions that would otherwise ask for approval.
 Direct turns have no tool calls to approve. A Chat Work policy may independently
 grant static browser inspection and approved click/wait flows for exact origins.
 Select it when creating a new chat; later policy edits do not change that chat.
-These tools require a configured local browser and approval for every call.
+Enable an installed browser once in **Settings → Browser setup**. Hecate lists
+supported installations without running them; the first successful approved
+use confirms that the selected browser works. There is no recurring Check
+prerequisite. These tools still require a local runtime and approval for every call.
 See [browser tools in Chat](docs/runtime/chat-sessions.md#browser-tools-in-hecate-chat).
 
 Before task-backed work starts, chat settings choose **Managed workspace** or

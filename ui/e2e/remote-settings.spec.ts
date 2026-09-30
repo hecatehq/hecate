@@ -34,7 +34,7 @@ test("renders remote Settings as controlled-instance context without host-local 
   await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
 
   await expect(page.getByTestId("remote-runtime-settings")).toBeVisible();
-  await expect(page.getByText("Controlled instance")).toBeVisible();
+  await expect(page.getByText("Controlled instance", { exact: true })).toBeVisible();
   await expect(page.getByText(/This window supervises Dogfood Runtime/i)).toBeVisible();
   await expect(
     page.getByText(/Host-local controls, including Hecate Cloud connection/i),

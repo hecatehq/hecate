@@ -15,7 +15,7 @@ import (
 
 func TestSettingsStatusBrowserEvidenceReadinessIsPathFree(t *testing.T) {
 	t.Parallel()
-	executable := filepath.Join(t.TempDir(), "local-browser")
+	executable := filepath.Join(t.TempDir(), "local-browser.exe")
 	if err := os.WriteFile(executable, []byte("browser"), 0o700); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestSettingsStatusBrowserEvidenceReadinessIsPathFree(t *testing.T) {
 		{
 			name:     "not configured",
 			status:   "not_configured",
-			contains: "HECATE_TASK_BROWSER_EXECUTABLE",
+			contains: "Settings",
 		},
 		{
 			name: "remote runtime",
@@ -47,16 +47,16 @@ func TestSettingsStatusBrowserEvidenceReadinessIsPathFree(t *testing.T) {
 				TaskBrowserExecutable: filepath.Join(t.TempDir(), "missing-browser"),
 			}},
 			status:   "unavailable",
-			contains: "executable permissions",
+			contains: "HECATE_TASK_BROWSER_EXECUTABLE",
 		},
 		{
-			name: "ready",
+			name: "configured but unverified",
 			cfg: config.Config{Server: config.ServerConfig{
 				TaskBrowserExecutable: executable,
 			}},
 			available: true,
-			status:    "ready",
-			contains:  "ready on this local runtime",
+			status:    "configured",
+			contains:  "first approved use",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -82,9 +82,9 @@ func TestSettingsStatusBrowserEvidenceReadinessIsPathFree(t *testing.T) {
 	}
 }
 
-func TestBrowserRuntimesFromConfigOmitUnavailableInterfaces(t *testing.T) {
+func TestBrowserRuntimeCompositionKeepsLocalDelegateAndOmitsRemoteInterfaces(t *testing.T) {
 	t.Parallel()
-	executable := filepath.Join(t.TempDir(), "local-browser")
+	executable := filepath.Join(t.TempDir(), "local-browser.exe")
 	if err := os.WriteFile(executable, []byte("browser"), 0o700); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
@@ -112,10 +112,11 @@ func TestBrowserRuntimesFromConfigOmitUnavailableInterfaces(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			inspector, flowRunner, readiness := browserRuntimesFromConfig(test.cfg, quietLogger())
-			if inspector != nil || flowRunner != nil {
-				t.Fatalf("browser runtimes = inspector %T flow %T, want both nil", inspector, flowRunner)
+			service, inspector, flowRunner := browserRuntimeFromConfig(test.cfg, "host-test")
+			if test.cfg.Server.RemoteRuntimeMode != (inspector == nil && flowRunner == nil) {
+				t.Fatalf("browser interfaces must exist only for local composition: %T %T", inspector, flowRunner)
 			}
+			readiness := service.Readiness(t.Context())
 			if readiness.Available || readiness.Status != test.status {
 				t.Fatalf("browser readiness = %+v, want unavailable status %q", readiness, test.status)
 			}

@@ -181,8 +181,13 @@ inventing a policy during readback.
 
 ### Browser tools in Hecate Chat
 
-To use browser tools, configure `HECATE_TASK_BROWSER_EXECUTABLE` on a local
-runtime, then create a Work policy for Hecate Chat (or Any) with Tools enabled.
+To use browser tools, open **Settings → Browser setup** on a local runtime, select an
+installed browser, and choose **Enable browser**. Discovery does not run the
+browser. A configured browser is usable immediately without a restart or Check;
+the first successful approved use confirms it as working. See
+[browser setup](agent-runtime.md#browser-setup) for persistence, environment
+overrides, and troubleshooting. Then create a Work policy for Hecate Chat
+(or Any) with Tools enabled.
 Enable **Static browser evidence**, **Browser interaction**, or both, and list
 the exact allowed HTTP(S) origins. Select that policy when creating a new chat;
 the policy preview and Chat settings show the frozen grants and origins.
@@ -216,6 +221,7 @@ flowchart LR
     Policy["Selected Chat Work policy"] --> Snapshot["Frozen Chat grants and exact origins"]
     Snapshot --> Task["Tools-on backing Task snapshot"]
     Task --> Gate["Runtime and origin checks"]
+    Setup["Explicit browser selection in Settings<br/>or environment override"] --> Gate
     Gate --> Approval["Operator approval in Chat"]
     Approval --> Browser["Fresh browser inspection or click/wait flow"]
     Browser --> Evidence["Bounded text evidence and Task artifacts"]

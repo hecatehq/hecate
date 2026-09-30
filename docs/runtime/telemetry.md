@@ -427,6 +427,25 @@ or a browser artifact is a verified test result. Contract version, report
 content, and evidence IDs remain on the Task/Run and artifacts rather than
 high-cardinality OTel attributes.
 
+### Browser Setup and Runtime Spans
+
+`browserapp` emits `browser.setup.discover`, `browser.setup.enable`, and
+`browser.setup.disable` for passive discovery and explicit configuration, plus
+`browser.runtime.admit`, `browser.runtime.inspect`, and `browser.runtime.flow`
+for execution admission and approved calls. Discovery and enable spans do not
+indicate that a browser process ran.
+
+These spans carry only closed classifications. `hecate.browser.outcome` is
+`success`, `local_only`, `environment_managed`, `candidate_changed`,
+`settings_unavailable`, `unavailable`, `cancelled`, `blocked`, or `failed`.
+When present, `hecate.browser.readiness` is `not_configured`, `configured`,
+`working`, `unavailable`, or `local_only`. Error status uses the outcome
+classification, not raw error text. They never include installation paths,
+browser names, candidate IDs, URLs, page data, OS errors, or browser diagnostics.
+Working readiness reflects a successful approved call for the current selection
+in this process, not publisher verification or site permission. Per-call
+approval and bounded evidence remain on the existing Task/Chat audit path.
+
 ### Chat Turn Spans
 
 Chat turns emit OTel-shaped trace data as well. `POST

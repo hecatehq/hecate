@@ -81,6 +81,18 @@ mandatory approval. This is Hecate execution
 state, not Cairnline coordination; it must not create or mutate portable
 Projects, roles, assignments, or handoffs.
 
+Native browser setup belongs to `browserapp`: passive discovery, explicit
+host-scoped selection in the configured memory/SQLite/Postgres backend, and
+dynamic runtime admission. Discovery never executes candidates. The explicit
+executable environment override wins without fallback; enabling a path is not
+publisher verification or immutable-byte trust. Configured means eligible for
+use, while working means a successful approved call in this process for the
+current selection generation. Disabling prevents future admissions without
+cancelling already-admitted calls. Local setup routes may show installation
+paths only behind the local-runtime and loopback boundary; shared Settings
+readiness remains path-free. Browser setup cannot broaden frozen Work-policy
+grants or bypass per-call approval.
+
 When a standard standalone native Task selects `agent_preset_id`, resolve it in
 `taskapp` at creation and accept only a `hecate_task` or `any` surface. Freeze
 the preset execution profile (falling back to its id), fill only omitted
@@ -282,6 +294,8 @@ internal/taskschedule/     Task Schedule validation, CRUD, occurrence claims,
                              claim renewal, and due-dispatch loop
 internal/taskworkflow/     small built-in Task workflow contracts; no scheduler,
                              Project coordination, or durable workflow store
+internal/browserapp/       passive browser discovery, host-scoped selection,
+                             readiness, and live runtime admission
 internal/browserrunner/    narrow local Chromium seam for native static evidence
                              and approved accessibility flows; fresh process/profile,
                              exact origin, bounded text evidence

@@ -272,11 +272,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		return nil, err
 	}
 	conversation := newAgentLoopConversation(spec)
+	dispatcher, approvalGate := e.browserRuntimeSnapshot()
 	tools := agentToolDefinitionsForExecution(spec.Task, spec.Run, agentToolDefinitionOptions{
-		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
-		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
-		IncludeBrowserInspection:     e.toolDispatcher != nil && e.toolDispatcher.browserInspector != nil,
-		IncludeBrowserFlow:           e.toolDispatcher != nil && e.toolDispatcher.browserFlowRunner != nil,
+		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, dispatcher.projectAssistantDraftTool),
+		IncludeWebSearch:             dispatcher.webSearch != nil,
+		IncludeBrowserInspection:     dispatcher.browserInspector != nil,
+		IncludeBrowserFlow:           dispatcher.browserFlowRunner != nil,
 		IncludeAttachments:           spec.AttachmentReader != nil && attachmentContextBudget(spec) > 0,
 	})
 	codeIntelligenceDocumented := false
@@ -449,7 +450,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// recovery may have checkpointed an assistant response before its
 			// approval record existed.
 			if !pendingToolCallsApproved {
-				pause, approvalRequired := e.approvalGate.EvaluateForModelCallRefAdvertised(spec, modelCallRef, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls, tools)
+				pause, approvalRequired := approvalGate.EvaluateForModelCallRefAdvertised(spec, modelCallRef, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls, tools)
 				if approvalRequired {
 					conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt)
 					if artifactErr != nil {
@@ -495,8 +496,8 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 				applyCodeIntelligenceSelfDocumentation(
 					tools,
 					spec,
-					e.approvalGate,
-					e.toolDispatcher != nil && e.toolDispatcher.codeIntelligence != nil,
+					approvalGate,
+					dispatcher.codeIntelligence != nil,
 				)
 				codeIntelligenceDocumented = true
 			}
@@ -546,7 +547,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// the same run is re-queued and we re-enter the loop
 			// with the same conversation tail — this branch is
 			// short-circuited by the resume-detection above.
-			pause, ok := e.approvalGate.EvaluateAdvertised(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, assistantMsg.ToolCalls, tools)
+			pause, ok := approvalGate.EvaluateAdvertised(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, assistantMsg.ToolCalls, tools)
 			if ok {
 				if err := runState.AddStep(spec, pause.Step); err != nil {
 					return nil, err
@@ -577,10 +578,10 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			}
 			var dispatch agentLoopToolDispatchResult
 			var dispatchErr error
-			if e.approvalGate.isBlockedByAgentPreset(toolCall, spec, &tools) {
-				dispatch = e.toolDispatcher.blockedAgentPresetApprovalCall(ctx, spec, toolCall, intent.Index, time.Now().UTC())
+			if approvalGate.isBlockedByAgentPreset(toolCall, spec, &tools) {
+				dispatch = dispatcher.blockedAgentPresetApprovalCall(ctx, spec, toolCall, intent.Index, time.Now().UTC())
 			} else {
-				dispatch, dispatchErr = e.toolDispatcher.Dispatch(ctx, spec, toolCall, intent.Index, mcpHost, terminals)
+				dispatch, dispatchErr = dispatcher.Dispatch(ctx, spec, toolCall, intent.Index, mcpHost, terminals)
 			}
 			finalStep, artifacts := finalizeAgentToolDispatch(intent, toolCall, dispatch, dispatchErr, time.Now().UTC())
 			if err := runState.FinalizeStep(spec, finalStep); err != nil {

@@ -659,6 +659,20 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
   weaken those policies. Hard denials run first. Pre-execution approval,
   direct Chat turns, legacy Chat snapshots without the field, External Agents,
   QA, and non-preset Tasks are unchanged.
+- **Browser setup and execution are separate ownership boundaries.**
+  `browserapp` owns passive installed-browser discovery, host-scoped saved
+  selection, live admission, and path-free readiness. `browserrunner` owns the
+  actual fresh-process browser boundary. Settings reads never launch candidates;
+  an explicit enable makes future eligible calls available without restart.
+  An environment override takes precedence and fails closed. Selection authorizes
+  the installation path, not pinned executable bytes or publisher identity.
+  A successful approved call marks only its current selection generation as
+  working; that evidence lasts for the process. Disable blocks future admission
+  without cancelling calls already admitted. Each execution attempt freezes the
+  same availability snapshot for its catalog, approval gate, and dispatcher, so
+  a mid-attempt enable cannot authorize an unadvertised, ungated call. Live
+  dispatch still rechecks for later disable. Installation details are restricted
+  to local-runtime, loopback-only routes; general Settings stays path-free.
 - **Browser grants are independent runtime capabilities.** Only a native
   Work-policy-backed Task whose immutable snapshot grants the
   requested capability and shared exact origins can reach the local browser
@@ -669,8 +683,9 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
   origin and `GET`/`HEAD` URL-loader traffic, block downloads, use one bounded
   deadline, response budget, and browser-to-Hecate DevTools relay budget, and
   always require approval when otherwise available. A frozen `block` posture
-  therefore refuses the configured call instead of pausing. Hecate Chat,
-  External Agents, QA, non-preset Tasks, and remote-runtime execution never
+  therefore refuses the configured call instead of pausing. Tools-on Hecate Chat
+  uses its frozen policy on backing Tasks. External Agents, QA, non-preset
+  Tasks, and remote-runtime execution never
   receive them. Fresh-profile isolation does not override OS or enterprise browser
   identity policy, and origin/private-IP checks are application controls, not
   OS-level browser network isolation.
@@ -685,6 +700,11 @@ flowchart LR
     ResolveAssignment --> Snapshot
     Preset["Work policy<br/>browser_interactions_allowed + origins"] --> Resolve
     Preset --> ResolveAssignment
+    Chat["New Chat freezes compatible Work policy"] --> ChatTask["Tools-on backing Task"]
+    ChatTask --> Snapshot
+    Settings["Passive installed-browser list<br/>explicit operator enable"] --> Setup["browserapp<br/>host-scoped selection and live readiness"]
+    Environment["Explicit executable override<br/>wins without fallback"] --> Setup
+    Setup --> Eligibility
     Snapshot --> Eligibility{"Grant, exact origin,<br/>and runtime available?"}
     Eligibility -->|"no"| HardDenied["Authoritative hard denial<br/>no approval"]
     Eligibility -->|"yes"| PresetPolicy{"Frozen approval policy"}
@@ -694,6 +714,8 @@ flowchart LR
     Browser --> Relay["Loopback bounded DevTools relay<br/>per-message + per-call budgets"]
     Relay --> Evidence["Bounded browser_flow_evidence<br/>complete or partial action audit"]
     Evidence --> Teardown["Process-tree drain + profile removal<br/>cleanup failure is explicit"]
+    Teardown -->|"successful call for current selection"| Working["Process-lifetime working evidence"]
+    Working --> Setup
 ```
 
 ## Storage tiers
@@ -751,6 +773,10 @@ The full storage reference lives in [`docs/operator/deployment.md`](../operator/
 - SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.
 - Postgres uses `pgx` through `database/sql`; shared SQL stores keep `?`
   placeholders and the storage layer rebinds them to `$N`.
+- Browser installation choices use the configured control-plane backend, keyed
+  by runtime host so one host does not inherit another host's executable path.
+  Memory choices are process-lifetime; SQLite and Postgres choices survive
+  restart. Browser working evidence is process-lifetime for every backend.
 - Chat attachment bodies follow the chat backend and live in a separate
   session-scoped store; chat message rows persist metadata and digests only.
   Before serving, startup reconciliation resolves durable message-id claim

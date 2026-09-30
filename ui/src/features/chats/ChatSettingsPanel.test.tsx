@@ -224,7 +224,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
     expect(within(origins).getByText("https://app.example.test")).toBeTruthy();
     expect(within(origins).getByText("https://status.example.test:8443")).toBeTruthy();
     expect(browserSummary).toHaveTextContent(
-      "Browser runtime: Unavailable · No supported browser is configured. Install Chromium or configure its executable.",
+      "Browser runtime: Not configured · No supported browser is configured. Install Chromium or configure its executable.",
     );
     expect(browserSummary).toHaveTextContent("Tools alone does not grant browser access");
   });

@@ -7,6 +7,7 @@ import type {
 } from "../types/runtime";
 import type { ModelResponse, ModelToolCapabilityProbeResponse } from "../types/model";
 import type { ContextPacketResponse } from "../types/context";
+import type { BrowserSettingsResponse } from "../types/browser";
 import type {
   ConfiguredStateResponse,
   LocalProviderDiscoveryResponse,
@@ -1466,6 +1467,28 @@ export async function getUsageEvents(limit = 20): Promise<UsageEventsResponse> {
 
 export async function getSettingsConfig(): Promise<ConfiguredStateResponse> {
   return fetchJSON<ConfiguredStateResponse>(`${HECATE_API}/settings`);
+}
+
+export async function getBrowserSettings(signal?: AbortSignal): Promise<BrowserSettingsResponse> {
+  return fetchJSON<BrowserSettingsResponse>(`${HECATE_API}/settings/browser`, { signal });
+}
+
+export async function enableBrowser(
+  candidateID: string,
+  signal?: AbortSignal,
+): Promise<BrowserSettingsResponse> {
+  return fetchJSON<BrowserSettingsResponse>(`${HECATE_API}/settings/browser`, {
+    method: "PUT",
+    body: { candidate_id: candidateID },
+    signal,
+  });
+}
+
+export async function disableBrowser(signal?: AbortSignal): Promise<BrowserSettingsResponse> {
+  return fetchJSON<BrowserSettingsResponse>(`${HECATE_API}/settings/browser`, {
+    method: "DELETE",
+    signal,
+  });
 }
 
 export async function upsertPolicyRule(payload: PolicyRuleUpsertPayload): Promise<unknown> {
