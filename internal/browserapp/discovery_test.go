@@ -50,7 +50,13 @@ func TestPlatformInstallationsAreBoundedAndDoNotReadPATH(t *testing.T) {
 				t.Fatalf("unbounded/empty discovery entries: %d", len(entries))
 			}
 			for _, entry := range entries {
-				if !filepath.IsAbs(entry.path) || entry.name == "" {
+				absolute := filepath.IsAbs(entry.path)
+				if goos == "darwin" || goos == "linux" {
+					// Cross-platform table cases contain POSIX system roots even
+					// when this test runs on Windows, whose IsAbs requires a drive.
+					absolute = absolute || strings.HasPrefix(filepath.ToSlash(entry.path), "/")
+				}
+				if !absolute || entry.name == "" {
 					t.Fatalf("invalid known installation: %#v", entry)
 				}
 			}
