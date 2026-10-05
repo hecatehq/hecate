@@ -139,6 +139,7 @@ func TestHecateChatBrowserChromiumSmokeE2E(t *testing.T) {
 	}
 	waitForE2ETaskRunStatus(t, baseURL, linked.Data.TaskID, linked.Data.LatestRunID, "completed", 45*time.Second)
 	waitForE2EBrowserMessage(t, settled)
+	assertE2EBrowserChatArtifactProvenance(t, baseURL, created.Data.ID, linked.Data.TaskID, linked.Data.LatestRunID)
 	assertE2EBrowserReadiness(t, baseURL, nil, "working", true, executable)
 	if pageLoads.Load() != 2 || scriptCalls.Load() != 1 || reusedCookie.Load() {
 		t.Fatalf("browser lifecycle: page loads=%d scripts=%d reused cookie=%t", pageLoads.Load(), scriptCalls.Load(), reusedCookie.Load())
@@ -171,7 +172,67 @@ type e2eChatBrowserResponse struct {
 			BrowserInteractionsAllowed bool     `json:"browser_interactions_allowed"`
 			BrowserAllowedOrigins      []string `json:"browser_allowed_origins"`
 		} `json:"agent_preset"`
+		Messages []struct {
+			Role       string `json:"role"`
+			TaskID     string `json:"task_id"`
+			RunID      string `json:"run_id"`
+			Activities []struct {
+				Type       string `json:"type"`
+				Kind       string `json:"kind"`
+				Status     string `json:"status"`
+				StepID     string `json:"step_id"`
+				ArtifactID string `json:"artifact_id"`
+			} `json:"activities"`
+		} `json:"messages"`
 	} `json:"data"`
+}
+
+func assertE2EBrowserChatArtifactProvenance(t *testing.T, baseURL, sessionID, taskID, runID string) {
+	t.Helper()
+	session := getJSON[e2eChatBrowserResponse](t, baseURL+"/hecate/v1/chat/sessions/"+sessionID)
+	var evidenceCount int
+	for _, message := range session.Data.Messages {
+		if message.Role != "assistant" {
+			continue
+		}
+		for _, artifact := range message.Activities {
+			if artifact.Type != "artifact" || (artifact.Kind != "browser_evidence" && artifact.Kind != "browser_flow_evidence") {
+				continue
+			}
+			evidenceCount++
+			if message.TaskID != taskID || message.RunID != runID || artifact.StepID == "" || artifact.ArtifactID == "" || artifact.Status != "ready" {
+				t.Fatalf("browser artifact provenance: message task/run=%q/%q artifact=%+v", message.TaskID, message.RunID, artifact)
+			}
+			var matchedSteps int
+			for _, activity := range message.Activities {
+				if activity.Type == "tool_call" && activity.StepID == artifact.StepID {
+					matchedSteps++
+					if activity.Status != "completed" {
+						t.Fatalf("ready browser artifact has non-completed originating step: %+v", activity)
+					}
+				}
+			}
+			if matchedSteps != 1 {
+				t.Fatalf("browser artifact %q matched %d original-message tool steps, want one", artifact.ArtifactID, matchedSteps)
+			}
+			retained := getJSON[struct {
+				Data struct {
+					ID     string `json:"id"`
+					TaskID string `json:"task_id"`
+					RunID  string `json:"run_id"`
+					StepID string `json:"step_id"`
+					Kind   string `json:"kind"`
+					Status string `json:"status"`
+				} `json:"data"`
+			}](t, baseURL+"/hecate/v1/tasks/"+message.TaskID+"/runs/"+message.RunID+"/artifacts/"+artifact.ArtifactID)
+			if retained.Data.ID != artifact.ArtifactID || retained.Data.TaskID != taskID || retained.Data.RunID != runID || retained.Data.StepID != artifact.StepID || retained.Data.Kind != artifact.Kind || retained.Data.Status != "ready" {
+				t.Fatalf("retained browser artifact does not match Chat provenance: %+v", retained.Data)
+			}
+		}
+	}
+	if evidenceCount != 2 {
+		t.Fatalf("Chat browser evidence activities = %d, want inspection and flow", evidenceCount)
+	}
 }
 
 func createE2EBrowserChat(t *testing.T, upstream, executable, marker, origin, approvalPolicy string) (string, e2eChatBrowserResponse) {

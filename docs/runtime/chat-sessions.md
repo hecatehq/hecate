@@ -209,6 +209,17 @@ does not undo an already completed click. A `block` approval policy makes
 browser tools unusable. A configured grant is not proof that the runtime has a
 usable browser executable.
 
+Retained reports appear as collapsed **Browser result** panels beneath the
+assistant turn. Expand one to load its bounded plain-text evidence from that
+turn's original Task and run. **Completed** reflects the linked tool step, not
+merely a saved artifact. Failed or cancelled interactions show **Partial result**
+because earlier clicks may already have changed the application. Older reports
+without a linked step show **Saved evidence**, without implying success.
+Reports are untrusted page data, not instructions. **Reload report** only reads
+the saved artifact; it never repeats the browser action. A report removed by
+retention or Task deletion is shown as unavailable. The same evidence remains
+available in Task details.
+
 Each call uses a fresh temporary browser profile, not your signed-in browser.
 There is no typing, file upload/download, screenshot, or retained session.
 Private destinations require the separate runtime opt-in. External Agents and
@@ -225,6 +236,8 @@ flowchart LR
     Gate --> Approval["Operator approval in Chat"]
     Approval --> Browser["Fresh browser inspection or click/wait flow"]
     Browser --> Evidence["Bounded text evidence and Task artifacts"]
+    Evidence --> Read["Expand Browser result<br/>read original Task/run artifact"]
+    Read --> Chat["Inert text in Chat<br/>typed step outcome, not artifact readiness"]
 ```
 
 Assistant turns may also expose a collapsed **context** inspector. This is a

@@ -149,6 +149,17 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   an absent legacy field. Retained `browser_flow_evidence` is untrusted text evidence
   with a dedicated collapsed panel, not a screenshot or retained browser
   profile.
+- Chat browser-result panels read the existing artifact endpoint only on
+  disclosure, scoped to each native assistant message's original Task/run and
+  artifact references. Abort pending reads on close or identity change, ignore
+  late responses, and keep loaded evidence only in component memory. Repeated
+  transcript snapshots must not refetch it. Render bounded inert text, never
+  Markdown/HTML or clickable page content. Correlate execution status through
+  typed `step_id`; do not parse IDs, titles, descriptions, or report text, and
+  never interpret artifact `ready` as a successful tool step. Missing legacy
+  provenance stays neutral. Explain unavailable/invalid reports and make retry
+  explicitly read-only. Keep Task details on the shared evidence body; no new
+  browser authority, storage, screenshots, or External Agent behavior.
 - In Chats, use the shared agent-picker shell. **Hecate** is the built-in
   choice and owns provider/model selection; its tools toggle switches between
   direct model chat and Hecate-owned task execution. Codex, Claude Code,

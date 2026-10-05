@@ -24,6 +24,11 @@ import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTi
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 import { readAloudStatusIsBlocked } from "./readAloudEligibility";
 import {
+  ChatBrowserResults,
+  isBrowserArtifact,
+  type BrowserRunReference,
+} from "./ChatBrowserResults";
+import {
   activityDisplay,
   activityEffectiveStatus,
   capturedToolOutput,
@@ -74,6 +79,7 @@ export function TranscriptMessageRow({
   turnPrompt,
   copiedDebug,
   onOpenProjectProposal,
+  browserRun,
 }: {
   id: string;
   role: "user" | "assistant";
@@ -121,6 +127,7 @@ export function TranscriptMessageRow({
   turnPrompt?: string;
   copiedDebug?: boolean;
   onOpenProjectProposal?: (activity: ChatActivityRecord) => void;
+  browserRun?: BrowserRunReference;
 }) {
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
@@ -160,6 +167,9 @@ export function TranscriptMessageRow({
   const inlineMCPAppActivities =
     isAssistant && visibleActivities?.length ? visibleActivities.filter(hasMCPApp) : [];
   const inlineMCPAppActivitySet = new Set<ChatActivityRecord>(inlineMCPAppActivities);
+  const timelineActivities = browserRun
+    ? visibleActivities?.filter((activity) => !isBrowserArtifact(activity))
+    : visibleActivities;
   const renderActivityAdvanced =
     isAssistant && visibleActivities?.length
       ? (activity: ChatActivityRecord) => {
@@ -407,9 +417,12 @@ export function TranscriptMessageRow({
               ))}
             </div>
           )}
-          {isAssistant && visibleActivities && visibleActivities.length > 0 && (
+          {isAssistant && browserRun && visibleActivities && (
+            <ChatBrowserResults run={browserRun} activities={visibleActivities} />
+          )}
+          {isAssistant && timelineActivities && timelineActivities.length > 0 && (
             <TranscriptActivityTimeline
-              activities={visibleActivities}
+              activities={timelineActivities}
               renderAdvancedActivity={renderActivityAdvanced}
             />
           )}

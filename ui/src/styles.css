@@ -1932,6 +1932,75 @@ diffs-container.diff-viewer-file {
   animation: settings-focus-flash 2.2s ease-out;
 }
 
+.browser-evidence-panel {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg1);
+  overflow-wrap: anywhere;
+}
+
+.browser-evidence-panel > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font: 12px/1.6 var(--font-mono);
+  color: var(--t1);
+}
+
+.browser-evidence-panel > summary > span + span {
+  margin-left: 10px;
+  color: var(--t2);
+}
+
+.browser-evidence-panel > summary > .browser-evidence-title {
+  display: block;
+  margin: 3px 0 0 16px;
+  font-size: 11px;
+}
+
+.browser-evidence-panel > summary > .browser-evidence-warning-label {
+  color: var(--amber);
+}
+
+.browser-evidence-body {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  font-size: 12px;
+  color: var(--t1);
+}
+
+.browser-evidence-body > p {
+  margin: 0 0 10px;
+}
+
+.browser-evidence-body > button {
+  margin-top: 10px;
+}
+
+.browser-evidence-warning {
+  border-top: 1px solid var(--border);
+  border-left: 2px solid var(--amber);
+  padding: 8px 12px;
+  color: var(--t1);
+  font-size: 12px;
+}
+
+.browser-evidence-description,
+.browser-evidence-notice {
+  font-size: 12px;
+  color: var(--t2);
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+
+.browser-evidence-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--t1);
+  font: 12px/1.6 var(--font-mono);
+}
+
 /* ─── Scrollbar ─── */
 * {
   scrollbar-width: thin;
