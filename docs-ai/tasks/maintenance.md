@@ -125,8 +125,16 @@ is intentional; scheduled automation never overrides the guard. Never replace
 those failures with an unreviewed checksum.
 
 `.github/workflows/cursor-agent-update.yml` runs the same check weekly and on
-manual dispatch. A repository-scoped GitHub App opens or refreshes one
-deterministic review PR; the workflow never approves or merges it, and the
+manual dispatch. With neither App setting configured, it is explicitly
+check-only: artifact validation still runs and can fail, while a
+warning and summary state that no write token or PR will be created. A partial
+App configuration fails with setup guidance. Use `just cursor-agent-update` to
+prepare a manual review PR while publication is unconfigured; do not claim a
+successful check-only run updated the repository.
+
+With both App settings configured, a repository-scoped GitHub App opens or
+refreshes one deterministic review PR after the protection gate; the workflow
+never approves or merges it, and the
 normal PR event runs the full affected CI surface. Review the advertised version,
 installer digest, both artifact URLs and hashes, and CI before merging.
 An open proposal is a review boundary: if its version's bytes mutate or the

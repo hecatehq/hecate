@@ -2,7 +2,8 @@ name: Cursor Agent Update
 
 # Cursor's public installer points at a mutable latest release. This workflow
 # parses that installer as bounded metadata, validates and hashes both official
-# Linux archives, and opens a human-reviewed pin update. It never executes the
+# Linux archives, and opens a human-reviewed pin update when publication is
+# configured. Otherwise it reports check-only results. It never executes the
 # installer, approves its own PR, or merges it.
 
 on:
@@ -38,6 +39,33 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Resolve publication mode
+        id: publication
+        env:
+          HAS_APP_CLIENT_ID: ${{ vars.CURSOR_UPDATE_APP_CLIENT_ID != '' }}
+          HAS_APP_PRIVATE_KEY: ${{ secrets.CURSOR_UPDATE_APP_PRIVATE_KEY != '' }}
+        run: |
+          case "${HAS_APP_CLIENT_ID}:${HAS_APP_PRIVATE_KEY}" in
+            true:true)
+              echo 'mode=publish' >>"${GITHUB_OUTPUT}"
+              ;;
+            false:false)
+              echo 'mode=check-only' >>"${GITHUB_OUTPUT}"
+              echo '::warning::Cursor Agent updates are check-only: the updater App is not configured. Artifacts will still be validated, but no PR will be published.'
+              {
+                echo '## Publication setup'
+                echo
+                echo 'Check-only: neither CURSOR_UPDATE_APP_CLIENT_ID nor CURSOR_UPDATE_APP_PRIVATE_KEY is configured. No write token will be created and no PR will be published.'
+                echo
+                echo 'Review docs/contributor/release.md before enabling publication: require protected master with reviewed PRs, latest-push approval, strict Required checks, and no updater App bypass. Then configure both App values. To prepare a reviewed update manually, run just cursor-agent-update.'
+              } >>"${GITHUB_STEP_SUMMARY}"
+              ;;
+            *)
+              echo '::error::Incomplete updater App configuration. Configure both CURSOR_UPDATE_APP_CLIENT_ID and CURSOR_UPDATE_APP_PRIVATE_KEY after meeting the publication protection requirements, or remove both to use check-only mode.'
+              exit 1
+              ;;
+          esac
 
       - name: Prepare deterministic update branch
         env:
@@ -108,6 +136,7 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLICATION_MODE: ${{ steps.publication.outputs.mode }}
         run: |
           report="${RUNNER_TEMP}/cursor-agent-update.json"
           updater_args=()
@@ -144,6 +173,12 @@ jobs:
             publish=false
             echo "Existing PR #${EXISTING_PROPOSAL_PR} already contains this proposal on current master."
           fi
+          if [ "${PUBLICATION_MODE}" = 'check-only' ]; then
+            publish=false
+            if [ "${changed}" = 'true' ]; then
+              echo '::warning::A validated Cursor Agent update is available, but check-only mode will not publish it. Review this run summary and run just cursor-agent-update to prepare a manual review PR.'
+            fi
+          fi
           {
             echo "changed=${changed}"
             echo "publish=${publish}"
@@ -162,13 +197,14 @@ jobs:
             echo "- Previous pin: \`${previous_version}\`"
             echo "- Advertised version: \`${version}\`"
             echo "- Changed: \`${changed}\`"
+            echo "- Publication mode: \`${PUBLICATION_MODE}\`"
             echo "- Publish proposal: \`${publish}\`"
             echo
             echo 'The installer was parsed as metadata and was not executed.'
           } >>"${GITHUB_STEP_SUMMARY}"
 
       - name: Require protected default branch
-        if: steps.update.outputs.publish == 'true'
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -204,7 +240,7 @@ jobs:
       # Contents and Pull requests read/write. Its PRs trigger normal CI;
       # the built-in workflow token remains read-only.
       - name: Create updater App token
-        if: steps.update.outputs.publish == 'true'
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -214,7 +250,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Resolve updater App identity
-        if: steps.update.outputs.publish == 'true'
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         id: app-user
         env:
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
@@ -225,7 +261,7 @@ jobs:
           echo "id=$(gh api "/users/${app_user}" --jq .id)" >>"${GITHUB_OUTPUT}"
 
       - name: Commit and push reviewed inputs
-        if: steps.update.outputs.publish == 'true'
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         env:
           APP_NAME: ${{ steps.app-user.outputs.name }}
           APP_USER_ID: ${{ steps.app-user.outputs.id }}
@@ -247,7 +283,7 @@ jobs:
           fi
 
       - name: Open or refresh review PR
-        if: steps.update.outputs.publish == 'true'
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PREVIOUS_VERSION: ${{ steps.update.outputs.previous_version }}

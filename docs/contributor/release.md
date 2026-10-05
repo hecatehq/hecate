@@ -445,10 +445,19 @@ confirming the same-day release is intentional, rerun
 `go run ./scripts/cursoragentupdate --allow-same-date-transition`; scheduled
 automation never supplies this override.
 
-The weekly `cursor-agent-update.yml` workflow performs the same check and opens
-or refreshes a PR from `automation/cursor-agent-update` when a new version is
-available. Generated PRs go through normal CI and are never auto-approved or
-auto-merged. An open proposal is immutable release evidence: neither changed
+The weekly `cursor-agent-update.yml` workflow always performs the same artifact
+validation. When neither `CURSOR_UPDATE_APP_CLIENT_ID` nor
+`CURSOR_UPDATE_APP_PRIVATE_KEY` is configured, it runs in **check-only** mode:
+the run warns and summarizes any available update, but creates no write token,
+push, or PR. Prepare a manual review PR with `just cursor-agent-update` if
+publication is not enabled. Configuring only one App value is an error, not a
+silent fallback; artifact validation failures also remain failures in check-only
+mode.
+
+When both App values are configured, the workflow opens or refreshes a PR from
+`automation/cursor-agent-update` when a new version is available and publication
+protections pass. Generated PRs go through normal CI and are never auto-approved
+or auto-merged. An open proposal is immutable release evidence: neither changed
 bytes for the same version nor a later advertised version may replace it.
 Review and merge or close that PR before automation can propose another
 release. An identical proposal on the same `master` parent is not rewritten,
