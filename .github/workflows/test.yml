@@ -229,6 +229,8 @@ jobs:
             echo "::error::The Linux runner has no Chromium-compatible executable for the required browser smoke matrix"
             exit 1
           fi
+          printf 'Browser smoke executable: %s\n' "$browser"
+          "$browser" --version
           HECATE_BROWSER_SMOKE=1 HECATE_TASK_BROWSER_EXECUTABLE="$browser" go test -count=1 -timeout 10m ./internal/browserrunner
 
   test-go-windows-bootstrap:

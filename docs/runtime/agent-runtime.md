@@ -619,7 +619,9 @@ guidance and does not claim that no browser state remains. The profile base is
 canonicalized and must pass Hecate's known-local filesystem classification both
 before creation and through the created directory's opened handle.
 One `HECATE_TASK_BROWSER_TIMEOUT` deadline covers origin preflight, browser
-startup, and the complete capture or flow. Hecate cancels after CDP observes
+startup, and the complete capture or flow. A cold browser launch may use the
+remaining call budget; there is no separate shorter startup timeout and no
+automatic retry. Hecate cancels after CDP observes
 more than 4 MiB of aggregate streamed response data, including unknown-length
 responses. That is a cancellation threshold rather than a wire-byte guarantee:
 browser, socket, and peer buffers can overshoot before cancellation reaches

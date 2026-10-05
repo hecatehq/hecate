@@ -410,11 +410,10 @@ func autoAttachRelatedTargets(ctx context.Context, primary target.ID) error {
 }
 
 func browserStartupTimeout(timeout time.Duration) time.Duration {
-	const maximum = 10 * time.Second
-	if timeout < maximum {
-		return timeout
-	}
-	return maximum
+	// Cold Chromium launches can take more than ten seconds. Startup shares
+	// the already-bounded inspection/flow deadline; a second, shorter ceiling
+	// would fail before the operator's configured budget is exhausted.
+	return timeout
 }
 
 // inspectionTimeRemaining returns the remaining wall-clock budget inherited
