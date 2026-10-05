@@ -1677,9 +1677,11 @@ export async function getTaskRunArtifact(
   taskID: string,
   runID: string,
   artifactID: string,
+  signal?: AbortSignal,
 ): Promise<TaskArtifactResponse> {
   return fetchJSON<TaskArtifactResponse>(
     `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts/${encodeURIComponent(artifactID)}`,
+    { signal },
   );
 }
 

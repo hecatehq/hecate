@@ -1,10 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { disableBrowser, enableBrowser, getBrowserSettings } from "./api";
+import { disableBrowser, enableBrowser, getBrowserSettings, getTaskRunArtifact } from "./api";
 import { browserReadinessLabel } from "./browser-readiness";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("browser setup API", () => {
+  it("loads retained reports through the scoped artifact route with cancellation", async () => {
+    const response = { object: "task_artifact", data: { id: "report/1" } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { signal } = new AbortController();
+    expect(await getTaskRunArtifact("task/a", "run/b", "report/1", signal)).toEqual(response);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/hecate/v1/tasks/task%2Fa/runs/run%2Fb/artifacts/report%2F1",
+    );
+    expect(fetchMock.mock.calls[0][1]?.signal).toBe(signal);
+    expect(fetchMock.mock.calls[0][1]?.method ?? "GET").toBe("GET");
+  });
   it("uses the typed response envelope, opaque candidate id, and abort signal", async () => {
     const response = {
       object: "browser_settings",

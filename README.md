@@ -314,6 +314,9 @@ Enable an installed browser once in **Settings → Browser setup**. Hecate lists
 supported installations without running them; the first successful approved
 use confirms that the selected browser works. There is no recurring Check
 prerequisite. These tools still require a local runtime and approval for every call.
+Expand **Browser result** beneath a Chat turn to read its retained text evidence
+and see the linked tool outcome, including partial interactions. Reloading a
+report does not rerun the browser.
 See [browser tools in Chat](docs/runtime/chat-sessions.md#browser-tools-in-hecate-chat).
 
 Before task-backed work starts, chat settings choose **Managed workspace** or

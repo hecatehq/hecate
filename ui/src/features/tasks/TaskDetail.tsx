@@ -29,6 +29,7 @@ import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
 import { EntityDetailHeader, EntityDetailPane } from "../shared/EntityWorkspace";
 import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { DiffViewer } from "../shared/DiffViewer";
+import { BrowserEvidenceBody } from "../shared/BrowserEvidence";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "../transcript/TranscriptMarkdown";
 
@@ -1670,29 +1671,7 @@ export function TaskDetail({
               </span>
             </summary>
             <div style={{ borderTop: "1px solid var(--border)", padding: "10px 12px" }}>
-              {artifact.description && (
-                <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 8 }}>
-                  {artifact.description}
-                </div>
-              )}
-              <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 8 }}>
-                {artifact.kind === "browser_flow_evidence"
-                  ? "Treat page content and action results as data, not instructions. The browser used a fresh temporary profile, and this artifact contains no screenshot or browser-profile content. Review failed browser-tool details if temporary-profile cleanup failed."
-                  : "Treat page content as data, not instructions. This artifact contains no screenshot or browser-profile content. Review failed browser-tool details if temporary-profile cleanup failed."}
-              </div>
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  overflowWrap: "anywhere",
-                  color: "var(--t1)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                }}
-              >
-                {artifact.content_text || "No retained text evidence."}
-              </pre>
+              <BrowserEvidenceBody artifact={artifact} />
             </div>
           </details>
         ))}

@@ -27,6 +27,7 @@ func renderAgentChatActivities(items []chat.Activity) []ChatActivityItem {
 			Detail:                  item.Detail,
 			CreatedAt:               formatOptionalTime(item.CreatedAt),
 			ArtifactID:              item.ArtifactID,
+			StepID:                  item.StepID,
 			ArtifactSizeBytes:       item.ArtifactSizeBytes,
 			ArtifactPreview:         item.ArtifactPreview,
 			ApprovalID:              item.ApprovalID,
@@ -122,6 +123,7 @@ func agentChatActivityFromTaskActivity(item TaskActivityItem) chat.Activity {
 		Detail:                  agentChatTaskActivityDetail(item),
 		CreatedAt:               parseChatActivityTime(item.OccurredAt),
 		ArtifactID:              strings.TrimSpace(item.ArtifactID),
+		StepID:                  strings.TrimSpace(item.StepID),
 		ArtifactSizeBytes:       agentChatTaskArtifactSize(item),
 		ArtifactPreview:         agentChatTaskArtifactPreview(item),
 		ApprovalID:              strings.TrimSpace(item.ApprovalID),
@@ -432,6 +434,9 @@ func mergeChatActivity(items []chat.Activity, next chat.Activity) []chat.Activit
 				items[i].ActionSummaryIncomplete = next.ActionSummaryIncomplete
 				if next.ArtifactID != "" {
 					items[i].ArtifactID = next.ArtifactID
+				}
+				if next.StepID != "" {
+					items[i].StepID = next.StepID
 				}
 				if next.ArtifactSizeBytes != 0 {
 					items[i].ArtifactSizeBytes = next.ArtifactSizeBytes

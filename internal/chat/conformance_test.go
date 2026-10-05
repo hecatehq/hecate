@@ -77,6 +77,10 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreActivityOnlyUpdateDoesNotReprojectSessionStatus(t, factory(t))
 	})
+	t.Run(name+"/ActivityStepProvenanceRoundTrip", func(t *testing.T) {
+		t.Parallel()
+		runStoreActivityStepProvenanceRoundTrip(t, factory(t))
+	})
 	t.Run(name+"/MessageRequestIdempotency", func(t *testing.T) {
 		t.Parallel()
 		runStoreMessageRequestIdempotency(t, factory(t))

@@ -1333,6 +1333,7 @@ type ChatActivityItem struct {
 	Detail                  string          `json:"detail,omitempty"`
 	CreatedAt               string          `json:"created_at,omitempty"`
 	ArtifactID              string          `json:"artifact_id,omitempty"`
+	StepID                  string          `json:"step_id,omitempty"`
 	ArtifactSizeBytes       int64           `json:"artifact_size_bytes,omitempty"`
 	ArtifactPreview         string          `json:"artifact_preview,omitempty"`
 	ApprovalID              string          `json:"approval_id,omitempty"`

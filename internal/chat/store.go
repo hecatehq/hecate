@@ -184,6 +184,9 @@ type Activity struct {
 	Detail     string    `json:"detail,omitempty"`
 	CreatedAt  time.Time `json:"created_at,omitempty"`
 	ArtifactID string    `json:"artifact_id,omitempty"`
+	// StepID preserves native Task provenance so retained artifacts can be
+	// correlated with execution status; legacy and ACP activities leave it empty.
+	StepID string `json:"step_id,omitempty"`
 	// ArtifactSizeBytes is populated for task artifact activities.
 	// It lets chat diagnostics hide empty stdout/stderr captures while
 	// still linking useful non-empty run output.

@@ -601,6 +601,14 @@ click, Hecate retains the bounded partial action evidence and explicitly warns
 that the application may already have changed; the tool never reports that
 partial flow as completed.
 
+Task details and native Hecate Chat display these artifacts as collapsed,
+plain-text evidence. Chat loads a report only when expanded, using that message's
+original Task/run and artifact references. Its outcome label comes from the
+linked native tool step; artifact `ready` means saved, not successful. Missing
+legacy step provenance stays neutral. Reloading evidence is a read-only artifact
+request, not a new execution or approval. Reports remain subject to existing
+Task access and retention rules.
+
 #### Shared process, network, and identity boundary
 
 Every inspection or flow starts a new owned Chromium process tree with a fresh

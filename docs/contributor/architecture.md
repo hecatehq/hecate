@@ -644,6 +644,14 @@ sequenceDiagram
     end
 ```
 
+Native Chat projects Task activity with optional typed `step_id` provenance.
+Its browser-result disclosure reads the existing authenticated artifact endpoint
+using the assistant message's original Task/run references, not the session's
+latest run. The view correlates artifact and tool-step status without parsing
+report text, renders evidence as bounded inert text, and cancels pending reads
+when closed or replaced. Artifact readiness is not execution success; legacy
+unlinked reports remain neutral. This adds no execution path or artifact store.
+
 Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](../runtime/agent-runtime.md)):
 
 - **Workspace environment system message.** The loop prepends a machine-generated system message naming the workspace path so the model uses the cloned cwd. See [`agent-runtime.md#workspace-environment-system-message`](../runtime/agent-runtime.md#workspace-environment-system-message) for the wire shape and rationale.

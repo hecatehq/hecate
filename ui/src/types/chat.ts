@@ -197,6 +197,7 @@ export type ChatActivityRecord = {
   title: string;
   detail?: string;
   created_at?: string;
+  step_id?: string;
   artifact_id?: string;
   artifact_size_bytes?: number;
   artifact_preview?: string;

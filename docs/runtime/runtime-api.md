@@ -6396,8 +6396,13 @@ the structured progress model for the Chats UI: it records lifecycle markers
 such as starting, running, output, files changed, failed, cancelled, and final
 answer. Task-backed MCP Apps tool calls can include `activities[].mcp_app` so
 the UI can render the captured `text/html;profile=mcp-app` resource inline
-while retaining the text fallback. Failures from the ACP adapter are still
-represented as assistant
+while retaining the text fallback. Native Task activities may include optional
+`step_id`, copied from the originating Task step or artifact. Within the
+message's Task/Run, this correlates retained artifacts with their execution
+step; an artifact's `status="ready"` describes retention, not successful tool
+execution. Legacy activities and external ACP activities omit `step_id`; clients
+must not infer it from activity identifiers or prose. Failures from the ACP
+adapter are still represented as assistant
 messages with `"status": "failed"` and `error` so the transcript stays intact.
 Transport or request validation failures still use the normal Hecate error
 envelope.

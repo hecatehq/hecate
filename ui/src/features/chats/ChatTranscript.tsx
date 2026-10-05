@@ -666,6 +666,11 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
           : undefined
       }
       activities={role === "assistant" ? m.activities : undefined}
+      browserRun={
+        role === "assistant" && isHecateAgentChat && taskID && taskRunID
+          ? { taskID, runID: taskRunID }
+          : undefined
+      }
       onOpenProjectProposal={
         role === "assistant" ? (activity) => onOpenProjectProposal(m, activity) : undefined
       }
