@@ -84,6 +84,56 @@ func TestChromiumInspectorDeadlineSpansPreflightAndStartup(t *testing.T) {
 	}
 }
 
+func TestBrowserStartupTimeoutUsesRemainingCallBudget(t *testing.T) {
+	t.Parallel()
+	for _, remaining := range []time.Duration{time.Millisecond, 2 * time.Second, 20 * time.Second, 30 * time.Second} {
+		if got := browserStartupTimeout(remaining); got != remaining {
+			t.Errorf("browserStartupTimeout(%s) = %s, want remaining call budget", remaining, got)
+		}
+	}
+}
+
+func TestChromiumFlowDeadlineSpansPreflightAndStartup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the slow browser fixture uses a POSIX shell script")
+	}
+	slowBrowser := filepath.Join(t.TempDir(), "slow-browser")
+	if err := os.WriteFile(slowBrowser, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profileRoot := t.TempDir()
+	inspector := &ChromiumInspector{
+		executablePath: slowBrowser, timeout: 2 * time.Second, allowPrivateIPs: true,
+		profileRoot: profileRoot,
+		lookupIPAddrs: func(ctx context.Context, _ string) ([]net.IPAddr, error) {
+			timer := time.NewTimer(500 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-timer.C:
+				return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}}, nil
+			}
+		},
+	}
+	started := time.Now()
+	_, err := inspector.RunFlow(context.Background(), FlowRequest{
+		URL: "https://example.test/", AllowedOrigin: "https://example.test",
+		Actions: []FlowAction{{Kind: FlowActionWaitFor, Role: "status", Name: "Ready"}},
+	})
+	elapsed := time.Since(started)
+	if !errors.Is(err, ErrInspectionFailed) {
+		t.Fatalf("RunFlow() error = %v, want ErrInspectionFailed", err)
+	}
+	if elapsed < 1500*time.Millisecond || elapsed > 2500*time.Millisecond {
+		t.Fatalf("RunFlow() took %s, want one 2s deadline across preflight and startup", elapsed)
+	}
+	entries, err := os.ReadDir(profileRoot)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("profiles after startup timeout = %v, error = %v, want removed", entries, err)
+	}
+}
+
 func TestChromiumInspectorSurfacesPathFreeProfileCleanupFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the failing browser fixture uses a POSIX shell script")

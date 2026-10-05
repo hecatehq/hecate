@@ -8,11 +8,47 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// The real browser starts after the old ten-second startup ceiling, but still
+// inside the single configured call deadline. No warmup or retry can hide a
+// regression in first-launch behavior.
+func TestChromiumInspectorSmokeDelayedStartup(t *testing.T) {
+	requireBrowserSmoke(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the delayed browser fixture uses a POSIX shell script")
+	}
+	wrapper := filepath.Join(t.TempDir(), "delayed-browser")
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nsleep 11\nexec \"$HECATE_TASK_BROWSER_EXECUTABLE\" \"$@\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprint(w, "<!doctype html><html><head><title>Delayed startup</title></head><body>Evidence after cold startup</body></html>")
+	}))
+	defer page.Close()
+	inspector, err := New(Config{ExecutablePath: wrapper, Timeout: 30 * time.Second, AllowPrivateIPs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspector.profileRoot = t.TempDir()
+	result, err := inspector.Inspect(context.Background(), InspectRequest{
+		URL: page.URL, AllowedOrigins: []string{browserSmokeOrigin(t, page.URL)},
+	})
+	if err != nil || result.Title != "Delayed startup" || len(result.Accessibility) == 0 {
+		t.Fatalf("delayed Inspect() result = %+v, error = %v", result, err)
+	}
+	entries, err := os.ReadDir(inspector.profileRoot)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("profiles after delayed startup = %v, error = %v, want removed", entries, err)
+	}
+}
 
 // TestChromiumInspectorSmoke is deliberately opt-in: ordinary unit tests do
 // not need a locally installed browser. It gives release and developer checks
