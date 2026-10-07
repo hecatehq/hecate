@@ -128,6 +128,7 @@ func TestCursorAgentUpdateWorkflowIsReviewOnly(t *testing.T) {
 		"persist-credentials: false",
 		"permission-contents: write",
 		"permission-pull-requests: write",
+		"permission-administration: read",
 		"go run ./scripts/cursoragentupdate",
 		"--existing-proposal-root",
 		"automation/cursor-agent-update",
@@ -141,12 +142,15 @@ func TestCursorAgentUpdateWorkflowIsReviewOnly(t *testing.T) {
 		"refs/remotes/origin/${UPDATE_BRANCH}^",
 		"git diff --quiet \"refs/remotes/origin/${UPDATE_BRANCH}\" --",
 		"publish=false",
-		"repos/${GITHUB_REPOSITORY}/rules/branches/master?per_page=100",
-		`.type == "deletion"`,
-		`.type == "non_fast_forward"`,
-		`.parameters.require_last_push_approval`,
-		`.context == "Required checks"`,
-		`.parameters.strict_required_status_checks_policy`,
+		"repos/${GITHUB_REPOSITORY}/branches/master/protection",
+		`.allow_deletions.enabled == false`,
+		`.allow_force_pushes.enabled == false`,
+		`.enforce_admins.enabled == true`,
+		`.restrictions.apps == []`,
+		`.permissions.administration == "read"`,
+		`(.required_pull_request_reviews | type) == "object"`,
+		`any(.required_status_checks.contexts[]?; . == "Required checks")`,
+		`.required_status_checks.strict == true`,
 		"--force-with-lease",
 		"gh pr create",
 	} {
@@ -157,6 +161,7 @@ func TestCursorAgentUpdateWorkflowIsReviewOnly(t *testing.T) {
 	for _, forbidden := range []string{
 		"pull_request_target:",
 		"actions: write",
+		"permission-administration: write",
 		"gh pr merge",
 		"--auto",
 		"mapfile -t open_pr_numbers < <(gh pr list",
@@ -168,10 +173,11 @@ func TestCursorAgentUpdateWorkflowIsReviewOnly(t *testing.T) {
 		}
 	}
 	validationAt := strings.Index(workflow, "go run ./scripts/cursoragentupdate")
+	readTokenAt := strings.Index(workflow, "name: Create protection reader token")
 	protectionAt := strings.Index(workflow, "name: Require protected default branch")
 	writeTokenAt := strings.Index(workflow, "name: Create updater App token")
-	if validationAt == -1 || protectionAt == -1 || writeTokenAt == -1 ||
-		protectionAt < validationAt || writeTokenAt < protectionAt {
+	if validationAt == -1 || readTokenAt == -1 || protectionAt == -1 || writeTokenAt == -1 ||
+		readTokenAt < validationAt || protectionAt < readTokenAt || writeTokenAt < protectionAt {
 		t.Error("cursor-agent-update.yml must mint its write token only after artifact and branch-rule validation")
 	}
 }

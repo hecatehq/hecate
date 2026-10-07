@@ -251,33 +251,67 @@ lightweight detector and aggregator so that required context is never absent.
 The Website workflow runs Oxc lint and Oxfmt format checks before Astro /
 TypeScript checks and the production build.
 
+### Cursor Agent update publication
+
 The Cursor Agent updater uses a dedicated GitHub App so its PRs trigger the
 same CI as maintainer-authored PRs without enabling the repository-wide Actions
-setting that also permits workflow tokens to approve PRs. Before creating,
-installing, or storing credentials for that App, create an active branch
-[ruleset](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository)
+setting that also permits workflow tokens to approve PRs. Publication is
+optional: with neither App setting configured, follow the check-only behavior
+documented in [the release guide](release.md#image-build). Configuring only one
+App value fails with setup guidance.
+
+Before installing the App or storing its key, a repository administrator must
+configure classic
+[branch protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 for `master` that:
 
-- blocks branch deletion and force-pushes;
-- requires a PR, at least one approving review, approval of the latest push,
-  and stale-review dismissal after any new push;
+- requires a pull request; zero required approving reviews is accepted;
 - requires strict status checks, including the stable `Required checks` job
-  from `test.yml`; and
-- gives the updater App no bypass, including no pull-request-only bypass.
+  from `test.yml`;
+- blocks branch deletion and force-pushes;
+- enables **Do not allow bypassing the above settings**, including administrator
+  enforcement; and
+- restricts pushes to an explicit, nonempty allowlist of maintainer users or
+  teams, with **no Apps** allowed.
 
-Only after those rules are active, install the App on `hecatehq/hecate`, grant
-repository **Contents: read/write** and **Pull requests: read/write** with no
-other write permissions, store its client ID as the repository variable
-`CURSOR_UPDATE_APP_CLIENT_ID`, and store one private key as the repository
-secret `CURSOR_UPDATE_APP_PRIVATE_KEY`. The workflow verifies the effective
-rule types on `master` before minting a write token, but GitHub does not expose
-private bypass actors to its read-only workflow token, so confirming the App is
-absent from the ruleset bypass list remains a mandatory setup review. The
-workflow requests only those two App permissions, scopes the installation token
-to the current repository, checks out and validates with the read-only workflow
-token, mints the write token only when a real update exists, pins every action
-in that privileged workflow to an immutable commit, and never approves or
-merges its generated PR.
+Choosing the maintainer allowlist is an operator decision, not something the
+workflow changes. The empty App allowlist, together with the updater's verified
+non-administrative permissions, prevents the updater from updating `master`,
+including through PR merges. This also affects other non-administrative Apps
+that rely on allowlisted push or merge access; it does not establish a boundary
+against administrative Apps. Human maintainers on the allowlist can review and
+merge updater PRs. This does not require a second human to approve every
+maintainer-authored PR. Existing
+rulesets are left unchanged and
+[continue to layer with classic protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets).
+Rulesets alone do not satisfy the updater's publication gate: its read-only
+inspection cannot prove exclusion from private ruleset bypass lists.
+
+Install a dedicated App only on `hecatehq/hecate`, with exactly these repository
+permissions: **Administration: read-only**, **Contents: read/write**,
+**Pull requests: read/write**, and the automatic **Metadata: read-only**.
+Do not grant Administration write or any additional permissions. Store its
+client ID as repository variable `CURSOR_UPDATE_APP_CLIENT_ID` and one private
+key as repository secret `CURSOR_UPDATE_APP_PRIVATE_KEY`.
+
+After artifact validation identifies an update to publish, the workflow mints
+a separate repository-scoped App token narrowed to Administration read (plus
+automatic Metadata read). It checks the App registration against the configured client ID
+and permission allowlist, then inspects the full classic `master` protection.
+Missing, malformed, inaccessible, or insufficient protection fails closed;
+missing allowlist data is never treated as an empty App list. Only after that
+gate passes does it mint the separate Contents-write/Pull-requests-write token
+used to push the proposal and open its PR. The workflow pins its actions to
+immutable commits and never approves or merges its generated PR.
+
+The workflow never changes repository settings, installs an App, or creates its
+credentials. Trusted administrators can change protection after inspection;
+the gate is not a defense against repository administrators. To disable
+publication, remove **both** the client-ID variable and private-key secret.
+The next run returns to check-only mode; removing just one value is a setup
+error. Revoke the App key or uninstall the dedicated App when retiring it.
+
+### Release delivery and desktop packaging
 
 Release delivery deliberately does not reuse that privileged shape. The
 repository-wide setting that lets `GITHUB_TOKEN` create or approve pull
@@ -285,7 +319,7 @@ requests remains disabled, and `release-delivery.yml` has read-only repository
 permission. It validates the canonical Release asset, then uploads an
 allowlisted patch plus checksummed provenance. A maintainer applies the
 proposal on current `master` and opens the PR, which preserves ordinary
-Required checks, Website, Links, and human latest-push review without another
+Required checks, Website, Links, and maintainer review without another
 App/PAT secret or ruleset bypass.
 
 Desktop packaging is intentionally gated inside `test.yml`: the

@@ -144,11 +144,28 @@ automation to publish another version. If the proposal, its master parent, and
 its open PR are unchanged, the workflow leaves the commit alone so it does not
 churn CI or dismiss review state.
 
-Do not install the updater App or store its key until `master` has an active
-ruleset requiring a reviewed PR, approval of the latest push, strict status
-checks through `Required checks`, and deletion/force-push protection. The App
-must have no bypass. The workflow verifies effective rules before minting its
-token, but the read-only workflow token cannot audit private bypass metadata.
+Publication requires the classic `master` branch protection described in
+[`development.md`](../../docs/contributor/development.md#cursor-agent-update-publication):
+PRs and strict `Required checks`, deletion/force-push protection, administrator
+enforcement, and an explicit human/team push allowlist with no Apps. Together
+with the updater's verified non-administrative permissions, this prevents the
+updater from updating or merging into `master`. It also affects other
+non-administrative Apps that rely on allowlisted push or merge access; selecting
+the maintainer allowlist is an operator decision. Zero required approving reviews
+is accepted, so automation does not impose a second-human approval requirement
+on every PR.
+Existing rulesets remain in force alongside this protection.
+
+The dedicated App has only Administration read, Contents write, Pull requests
+write, and automatic Metadata read. After validating artifacts, the workflow
+uses a separate narrowed read-only App token to inspect the App registration
+and full classic protection before minting its publication token. Never grant
+Administration write to make the inspection pass or interpret missing data as
+an empty allowlist. The workflow does not change GitHub settings. Trusted
+administrators can still change protection after inspection; this is not a
+boundary against repository administrators. To return to check-only mode,
+remove both `CURSOR_UPDATE_APP_CLIENT_ID` and `CURSOR_UPDATE_APP_PRIVATE_KEY`;
+removing only one deliberately fails configuration validation.
 
 ## Commit shape
 

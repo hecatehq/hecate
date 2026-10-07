@@ -461,10 +461,27 @@ or auto-merged. An open proposal is immutable release evidence: neither changed
 bytes for the same version nor a later advertised version may replace it.
 Review and merge or close that PR before automation can propose another
 release. An identical proposal on the same `master` parent is not rewritten,
-avoiding needless CI and review-state churn. The updater refuses to mint its
-write token unless active `master` rules require reviewed PRs, latest-push
-approval, strict status checks, and protection from deletion and force-pushes;
-the dedicated App must also be absent from every bypass list.
+avoiding needless CI and review-state churn.
+
+Publication requires the explicit setup in
+[`development.md`](development.md#cursor-agent-update-publication): classic
+`master` protection must require PRs and strict `Required checks`, block deletion
+and force-pushes, enforce protection for administrators, and configure an
+explicit human/team push allowlist with no Apps. Together with the updater's
+verified non-administrative permissions, this prevents the updater from updating
+or merging into `master`. The empty App allowlist also affects other
+non-administrative Apps relying on allowlisted push or merge access, but does not
+establish a boundary against administrative Apps. Zero required approving reviews
+is accepted; no additional second-human approval requirement is imposed. Existing
+rulesets continue to apply alongside classic protection.
+
+The dedicated App has Administration read, Contents write, Pull requests write,
+and automatic Metadata read only. A separate read-only App token verifies the
+App registration and full classic protection before the publication token is
+minted. The workflow does not configure GitHub settings or choose the maintainer
+allowlist. Trusted administrators can still change protection after inspection.
+To return to check-only mode, remove both `CURSOR_UPDATE_APP_CLIENT_ID` and
+`CURSOR_UPDATE_APP_PRIVATE_KEY`; removing only one remains an error.
 
 For published images, pin by tag in deployment examples and release notes.
 Avoid recommending `latest` for anything beyond quick experiments.

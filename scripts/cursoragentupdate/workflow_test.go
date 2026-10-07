@@ -51,7 +51,7 @@ func TestUpdaterWorkflowPublicationModes(t *testing.T) {
 				if !strings.Contains(result, "::warning::") {
 					t.Fatal("check-only mode must warn that publication is unavailable")
 				}
-				for _, want := range []string{"No write token", "no PR", "just cursor-agent-update", "latest-push approval"} {
+				for _, want := range []string{"No write token", "no PR", "just cursor-agent-update", "human-only push allowlist"} {
 					if !strings.Contains(readWorkflowTestFile(t, summary), want) {
 						t.Errorf("check-only summary missing %q", want)
 					}
@@ -65,6 +65,7 @@ func TestUpdaterWorkflowPublicationKeepsProtectionGate(t *testing.T) {
 	workflow := updaterWorkflow(t)
 	const condition = "if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'"
 	for _, name := range []string{
+		"Create protection reader token",
 		"Require protected default branch",
 		"Create updater App token",
 		"Resolve updater App identity",
@@ -77,6 +78,23 @@ func TestUpdaterWorkflowPublicationKeepsProtectionGate(t *testing.T) {
 	}
 	if strings.Index(workflow, "- name: Require protected default branch") > strings.Index(workflow, "- name: Create updater App token") {
 		t.Fatal("protection gate must run before creating a write token")
+	}
+	reader := workflowStep(t, workflow, "Create protection reader token")
+	if !strings.Contains(reader, "permission-administration: read") || strings.Contains(reader, ": write") {
+		t.Fatal("protection inspection must use an explicitly read-only token")
+	}
+	writer := workflowStep(t, workflow, "Create updater App token")
+	if strings.Contains(writer, "permission-administration:") || !strings.Contains(writer, "permission-contents: write") || !strings.Contains(writer, "permission-pull-requests: write") {
+		t.Fatal("publication token must request only Contents and Pull requests write")
+	}
+	for _, token := range []string{reader, writer} {
+		if strings.Contains(token, "owner:") || strings.Contains(token, "repositories:") || strings.Contains(token, "skip-token-revoke:") {
+			t.Fatal("tokens must retain current-repository scope and automatic revocation")
+		}
+	}
+	gate := workflowStep(t, workflow, "Require protected default branch")
+	if !strings.Contains(gate, "GH_TOKEN: ${{ steps.protection-token.outputs.token }}") {
+		t.Fatal("protection gate must use the read-only App token")
 	}
 	validation := workflowStep(t, workflow, "Validate artifacts and update pins")
 	if strings.Contains(validation, "        if:") || !strings.Contains(validation, "go run ./scripts/cursoragentupdate") {
@@ -106,73 +124,120 @@ func TestUpdaterWorkflowProtectionRulesRemainFailClosed(t *testing.T) {
 		t.Skip("jq is required to execute the workflow's protection filter")
 	}
 	for _, test := range []struct {
-		name       string
-		mutate     func([]map[string]any) []map[string]any
-		wantError  bool
-		apiFailure bool
+		name         string
+		mutate       func(map[string]any)
+		mutateApp    func(map[string]any)
+		wantError    bool
+		apiFailure   string
+		malformedAPI string
 	}{
-		{name: "fully protected"},
-		{name: "current repository requires no approval", wantError: true, mutate: func(rules []map[string]any) []map[string]any {
-			parameters := rules[2]["parameters"].(map[string]any)
-			parameters["required_approving_review_count"] = 0
-			parameters["require_last_push_approval"] = false
-			return rules
+		{name: "human maintainer with zero required approvals"},
+		{name: "team allowlist", mutate: func(p map[string]any) {
+			r := p["restrictions"].(map[string]any)
+			r["users"] = []any{}
+			r["teams"] = []any{map[string]any{"id": 42}}
 		}},
-		{name: "missing deletion protection", wantError: true, mutate: func(rules []map[string]any) []map[string]any { return rules[1:] }},
-		{name: "missing force push protection", wantError: true, mutate: func(rules []map[string]any) []map[string]any { return append(rules[:1], rules[2:]...) }},
-		{name: "stale reviews allowed", wantError: true, mutate: func(rules []map[string]any) []map[string]any {
-			rules[2]["parameters"].(map[string]any)["dismiss_stale_reviews_on_push"] = false
-			return rules
+		{name: "additional review policy accepted", mutate: func(p map[string]any) {
+			p["required_pull_request_reviews"] = map[string]any{"required_approving_review_count": 2, "require_last_push_approval": true}
 		}},
-		{name: "last push not approved", wantError: true, mutate: func(rules []map[string]any) []map[string]any {
-			rules[2]["parameters"].(map[string]any)["require_last_push_approval"] = false
-			return rules
+		{name: "missing deletion protection", wantError: true, mutate: func(p map[string]any) { delete(p, "allow_deletions") }},
+		{name: "deletion allowed", wantError: true, mutate: func(p map[string]any) { p["allow_deletions"] = map[string]any{"enabled": true} }},
+		{name: "force push allowed", wantError: true, mutate: func(p map[string]any) { p["allow_force_pushes"] = map[string]any{"enabled": true} }},
+		{name: "missing force push setting", wantError: true, mutate: func(p map[string]any) { delete(p, "allow_force_pushes") }},
+		{name: "administrator bypass", wantError: true, mutate: func(p map[string]any) { p["enforce_admins"] = map[string]any{"enabled": false} }},
+		{name: "missing administrator setting", wantError: true, mutate: func(p map[string]any) { delete(p, "enforce_admins") }},
+		{name: "malformed administrator setting", wantError: true, mutate: func(p map[string]any) { p["enforce_admins"] = map[string]any{"enabled": "true"} }},
+		{name: "no required PR", wantError: true, mutate: func(p map[string]any) { p["required_pull_request_reviews"] = nil }},
+		{name: "malformed PR requirement", wantError: true, mutate: func(p map[string]any) { p["required_pull_request_reviews"] = []any{} }},
+		{name: "non strict checks", wantError: true, mutate: func(p map[string]any) { p["required_status_checks"].(map[string]any)["strict"] = false }},
+		{name: "wrong required check", wantError: true, mutate: func(p map[string]any) { p["required_status_checks"].(map[string]any)["contexts"] = []string{"Other"} }},
+		{name: "missing required checks", wantError: true, mutate: func(p map[string]any) { delete(p, "required_status_checks") }},
+		{name: "no restrictions", wantError: true, mutate: func(p map[string]any) { p["restrictions"] = nil }},
+		{name: "app allowed", wantError: true, mutate: func(p map[string]any) { p["restrictions"].(map[string]any)["apps"] = []any{map[string]any{"id": 77}} }},
+		{name: "hidden apps", wantError: true, mutate: func(p map[string]any) { delete(p["restrictions"].(map[string]any), "apps") }},
+		{name: "null apps", wantError: true, mutate: func(p map[string]any) { p["restrictions"].(map[string]any)["apps"] = nil }},
+		{name: "malformed apps", wantError: true, mutate: func(p map[string]any) { p["restrictions"].(map[string]any)["apps"] = map[string]any{} }},
+		{name: "no maintainers", wantError: true, mutate: func(p map[string]any) { p["restrictions"].(map[string]any)["users"] = []any{} }},
+		{name: "missing users", wantError: true, mutate: func(p map[string]any) { delete(p["restrictions"].(map[string]any), "users") }},
+		{name: "missing teams", wantError: true, mutate: func(p map[string]any) { delete(p["restrictions"].(map[string]any), "teams") }},
+		{name: "bot user", wantError: true, mutate: func(p map[string]any) {
+			p["restrictions"].(map[string]any)["users"] = []any{map[string]any{"id": 77, "type": "Bot"}}
 		}},
-		{name: "non strict checks", wantError: true, mutate: func(rules []map[string]any) []map[string]any {
-			rules[3]["parameters"].(map[string]any)["strict_required_status_checks_policy"] = false
-			return rules
+		{name: "malformed user", wantError: true, mutate: func(p map[string]any) {
+			p["restrictions"].(map[string]any)["users"] = []any{map[string]any{"type": "User"}}
 		}},
-		{name: "wrong required check", wantError: true, mutate: func(rules []map[string]any) []map[string]any {
-			rules[3]["parameters"].(map[string]any)["required_status_checks"] = []map[string]string{{"context": "unrelated"}}
-			return rules
+		{name: "malformed team", wantError: true, mutate: func(p map[string]any) {
+			p["restrictions"].(map[string]any)["teams"] = []any{map[string]any{"id": "42"}}
 		}},
-		{name: "rules API failure", wantError: true, apiFailure: true},
+		{name: "app admin write", wantError: true, mutateApp: func(a map[string]any) { a["permissions"].(map[string]any)["administration"] = "write" }},
+		{name: "missing app admin read", wantError: true, mutateApp: func(a map[string]any) { delete(a["permissions"].(map[string]any), "administration") }},
+		{name: "extra app write", wantError: true, mutateApp: func(a map[string]any) { a["permissions"].(map[string]any)["workflows"] = "write" }},
+		{name: "missing contents write", wantError: true, mutateApp: func(a map[string]any) { a["permissions"].(map[string]any)["contents"] = "read" }},
+		{name: "missing PR write", wantError: true, mutateApp: func(a map[string]any) { delete(a["permissions"].(map[string]any), "pull_requests") }},
+		{name: "wrong app", wantError: true, mutateApp: func(a map[string]any) { a["slug"] = "another-app" }},
+		{name: "wrong client", wantError: true, mutateApp: func(a map[string]any) { a["client_id"] = "Iv.different" }},
+		{name: "protection API failure", wantError: true, apiFailure: "protection"},
+		{name: "app API failure", wantError: true, apiFailure: "app"},
+		{name: "malformed protection JSON", wantError: true, malformedAPI: "protection"},
+		{name: "malformed app JSON", wantError: true, malformedAPI: "app"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			rules := []map[string]any{
-				{"type": "deletion"},
-				{"type": "non_fast_forward"},
-				{"type": "pull_request", "parameters": map[string]any{
-					"required_approving_review_count": 1,
-					"dismiss_stale_reviews_on_push":   true,
-					"require_last_push_approval":      true,
-				}},
-				{"type": "required_status_checks", "parameters": map[string]any{
-					"strict_required_status_checks_policy": true,
-					"required_status_checks":               []map[string]string{{"context": "Required checks"}},
-				}},
+			protection := map[string]any{
+				"enforce_admins":                map[string]any{"enabled": true},
+				"allow_deletions":               map[string]any{"enabled": false},
+				"allow_force_pushes":            map[string]any{"enabled": false},
+				"required_pull_request_reviews": map[string]any{"required_approving_review_count": 0},
+				"required_status_checks":        map[string]any{"strict": true, "contexts": []string{"Required checks"}},
+				"restrictions": map[string]any{
+					"apps": []any{}, "users": []any{map[string]any{"id": 42, "type": "User"}}, "teams": []any{},
+				},
+			}
+			app := map[string]any{
+				"slug": "cursor-updater", "client_id": "Iv.test",
+				"permissions": map[string]any{"administration": "read", "contents": "write", "pull_requests": "write", "metadata": "read"},
 			}
 			if test.mutate != nil {
-				rules = test.mutate(rules)
+				test.mutate(protection)
 			}
-			body, err := json.Marshal(rules)
-			if err != nil {
-				t.Fatal(err)
+			if test.mutateApp != nil {
+				test.mutateApp(app)
 			}
 			root := t.TempDir()
-			fixture := filepath.Join(root, "rules.json")
-			if err := os.WriteFile(fixture, body, 0o600); err != nil {
-				t.Fatal(err)
+			for name, value := range map[string]any{"protection": protection, "app": app} {
+				body, err := json.Marshal(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if test.malformedAPI == name {
+					body = []byte("not JSON")
+				}
+				if err := os.WriteFile(filepath.Join(root, name+".json"), body, 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			// Replace only the read-only API client. Execute the actual workflow
 			// filter so protection expectations cannot drift from the test.
-			prefix := "gh() { cat \"${RULE_FIXTURE}\"; };\n"
-			if test.apiFailure {
-				prefix = "gh() { return 1; };\n"
-			}
-			result, err := runWorkflowShell(t, prefix+script, "RULE_FIXTURE="+fixture, "RUNNER_TEMP="+root, "GITHUB_REPOSITORY=hecatehq/hecate")
+			prefix := `gh() {
+  case "${*: -1}" in
+    apps/cursor-updater) fixture=app ;;
+    repos/hecatehq/hecate/branches/master/protection) fixture=protection ;;
+    *) return 99 ;;
+  esac
+  [ "${API_FAILURE}" != "${fixture}" ] || return 1
+  cat "${RUNNER_TEMP}/${fixture}.json"
+};
+`
+			result, err := runWorkflowShell(t, prefix+script, "API_FAILURE="+test.apiFailure, "RUNNER_TEMP="+root,
+				"GITHUB_REPOSITORY=hecatehq/hecate", "APP_SLUG=cursor-updater", "APP_CLIENT_ID=Iv.test", "GITHUB_STEP_SUMMARY="+filepath.Join(root, "summary"))
 			if (err != nil) != test.wantError {
 				t.Fatalf("protection gate error = %v, output = %s", err, result)
+			}
+			if test.wantError {
+				if _, err := os.Stat(filepath.Join(root, "summary")); !os.IsNotExist(err) {
+					t.Fatal("failed gate must never report a verified publication boundary")
+				}
+			} else if !strings.Contains(readWorkflowTestFile(t, filepath.Join(root, "summary")), "cannot push or merge") {
+				t.Fatal("successful gate must report the verified publication boundary")
 			}
 		})
 	}
