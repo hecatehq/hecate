@@ -58,7 +58,7 @@ jobs:
                 echo
                 echo 'Check-only: neither CURSOR_UPDATE_APP_CLIENT_ID nor CURSOR_UPDATE_APP_PRIVATE_KEY is configured. No write token will be created and no PR will be published.'
                 echo
-                echo 'Review docs/contributor/release.md before enabling publication: require protected master with reviewed PRs, latest-push approval, strict Required checks, and no updater App bypass. Then configure both App values. To prepare a reviewed update manually, run just cursor-agent-update.'
+                echo 'Review docs/contributor/development.md before enabling publication: require protected master with a human-only push allowlist, required PRs, strict Required checks, and no administrator bypass. Then configure both App values. To prepare a reviewed update manually, run just cursor-agent-update.'
               } >>"${GITHUB_STEP_SUMMARY}"
               ;;
             *)
@@ -203,42 +203,74 @@ jobs:
             echo 'The installer was parsed as metadata and was not executed.'
           } >>"${GITHUB_STEP_SUMMARY}"
 
+      # Reading classic branch protection needs Administration read, but not
+      # settings-edit access. Ruleset bypass lists are hidden from read-only
+      # callers, so they cannot establish the App exclusion we need here.
+      - name: Create protection reader token
+        if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
+        id: protection-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.CURSOR_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CURSOR_UPDATE_APP_PRIVATE_KEY }}
+          permission-administration: read
+
       - name: Require protected default branch
         if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.protection-token.outputs.token }}
+          APP_SLUG: ${{ steps.protection-token.outputs.app-slug }}
+          APP_CLIENT_ID: ${{ vars.CURSOR_UPDATE_APP_CLIENT_ID }}
         run: |
-          rules="${RUNNER_TEMP}/master-rules.json"
-          gh api --paginate \
-            --header 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/${GITHUB_REPOSITORY}/rules/branches/master?per_page=100" >"${rules}"
-
-          if ! jq -e '
-            (any(.[]; .type == "deletion")) and
-            (any(.[]; .type == "non_fast_forward")) and
-            (any(.[];
-              .type == "pull_request" and
-              (.parameters.required_approving_review_count // 0) >= 1 and
-              (.parameters.dismiss_stale_reviews_on_push // false) == true and
-              (.parameters.require_last_push_approval // false) == true
-            )) and
-            (any(.[];
-              .type == "required_status_checks" and
-              (any(.parameters.required_status_checks[]?;
-                .context == "Required checks"
-              )) and
-              (.parameters.strict_required_status_checks_policy // false) == true
-            ))
-          ' "${rules}" >/dev/null; then
-            echo "master must have active rules that block deletion and force-pushes, require a PR with approval of the latest push, dismiss stale approvals, and require strict status checks." >&2
-            echo "Do not install or configure the updater App until that ruleset exists without an App bypass." >&2
+          app="${RUNNER_TEMP}/cursor-updater-app.json"
+          protection="${RUNNER_TEMP}/master-protection.json"
+          gh api --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "apps/${APP_SLUG}" >"${app}"
+          if ! jq -e --arg slug "${APP_SLUG}" --arg client "${APP_CLIENT_ID}" '
+            .slug == $slug and
+            .client_id == $client and
+            .permissions.administration == "read" and
+            .permissions.contents == "write" and
+            .permissions.pull_requests == "write" and
+            ((.permissions.metadata // "read") == "read") and
+            ((.permissions | keys - ["administration", "contents", "pull_requests", "metadata"] | length) == 0)
+          ' "${app}" >/dev/null; then
+            echo '::error::The updater App must grant only Administration read, Contents write, Pull requests write, and automatic Metadata read. Remove extra permissions before publishing.'
             exit 1
           fi
 
+          if ! gh api \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/branches/master/protection" >"${protection}"; then
+            echo '::error::Cannot read classic master protection. Configure the human-only publication boundary in docs/contributor/development.md and grant the updater App Administration read, not write.'
+            exit 1
+          fi
+
+          if ! jq -e '
+            .enforce_admins.enabled == true and
+            .allow_deletions.enabled == false and
+            .allow_force_pushes.enabled == false and
+            (.required_pull_request_reviews | type) == "object" and
+            .required_status_checks.strict == true and
+            (any(.required_status_checks.contexts[]?; . == "Required checks")) and
+            (.restrictions | type) == "object" and
+            .restrictions.apps == [] and
+            (.restrictions.users | type) == "array" and
+            (.restrictions.teams | type) == "array" and
+            ((.restrictions.users | length) + (.restrictions.teams | length) > 0) and
+            (all(.restrictions.users[]; .type == "User" and (.id | type) == "number" and .id > 0)) and
+            (all(.restrictions.teams[]; (.id | type) == "number" and .id > 0))
+          ' "${protection}" >/dev/null; then
+            echo '::error::master must have classic protection with a nonempty human/team push allowlist and no Apps, no administrator bypass, required PRs, strict Required checks, and deletion/force-push protection. See docs/contributor/development.md.'
+            exit 1
+          fi
+          echo 'Verified publication boundary: the App may propose updates but cannot push or merge into master.' >>"${GITHUB_STEP_SUMMARY}"
+
       # Mint the write token only after trusted code has validated a real
       # change. The App is installed only on this repository and grants
-      # Contents and Pull requests read/write. Its PRs trigger normal CI;
-      # the built-in workflow token remains read-only.
+      # Contents and Pull requests read/write plus Administration read. This
+      # writer token omits Administration; the built-in token stays read-only.
+      # The verified master allowlist excludes this non-administrative App.
       - name: Create updater App token
         if: steps.publication.outputs.mode == 'publish' && steps.update.outputs.publish == 'true'
         id: app-token
