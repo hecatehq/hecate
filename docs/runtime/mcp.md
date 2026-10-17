@@ -29,6 +29,7 @@ Both sides speak [MCP spec](https://modelcontextprotocol.io/) `2025-11-25`.
   - [Shutdown](#shutdown)
   - [Error handling](#error-handling)
   - [End-to-end examples](#end-to-end-examples)
+    - [Parallel web research](#parallel-web-research)
 
 ---
 
@@ -517,3 +518,54 @@ The `$GITHUB_TOKEN` reference resolves from Hecate's process environment at spaw
   ]
 }
 ```
+
+#### Parallel web research
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+adds web search and page fetching without a Parallel account or API key.
+Anonymous searches use Fast mode. This is an optional external MCP server;
+it does not replace Hecate's configured native `web_search` provider.
+
+With your local Hecate runtime running, probe the server before adding it to a
+task. Add `X-Hecate-Runtime-Token` if your runtime requires it:
+
+```bash
+curl -fsS http://127.0.0.1:8765/hecate/v1/mcp/probe \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "parallel",
+    "url": "https://search.parallel.ai/mcp",
+    "headers": { "User-Agent": "Hecate" }
+  }'
+```
+
+The response's `data.tools` should include `web_search` and `web_fetch` with
+their input schemas. The probe discovers tools without creating a task or
+running a search.
+
+Merge these fields into your usual `POST /hecate/v1/tasks` request, keeping
+your workspace and tools-capable provider/model selections:
+
+```json
+{
+  "execution_kind": "agent_loop",
+  "prompt": "Use mcp__parallel__web_search to find the current MCP Streamable HTTP transport specification. Use mcp__parallel__web_fetch to read the relevant official page, then summarize the requirements with source URLs.",
+  "mcp_servers": [
+    {
+      "name": "parallel",
+      "url": "https://search.parallel.ai/mcp",
+      "headers": { "User-Agent": "Hecate" },
+      "approval_policy": "require_approval"
+    }
+  ]
+}
+```
+
+Keep any other servers you need in `mcp_servers`. Start the created task with
+`POST /hecate/v1/tasks/{id}/start` and resolve pending approvals in Task Detail.
+The server's tools appear as `mcp__parallel__web_search` and
+`mcp__parallel__web_fetch`; `require_approval` asks before each tool call.
+Tools must be enabled for the task, and stricter runtime or preset policy still
+applies. Queries and requested URLs are sent to Parallel. Anonymous access is
+rate limited; see the linked Parallel setup guide for authenticated access with
+higher limits.
