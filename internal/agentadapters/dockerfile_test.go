@@ -124,7 +124,7 @@ func TestCursorAgentUpdateWorkflowIsReviewOnly(t *testing.T) {
 		"github.ref == 'refs/heads/master'",
 		"actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
 		"actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-		"actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+		"actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
 		"persist-credentials: false",
 		"permission-contents: write",
 		"permission-pull-requests: write",
