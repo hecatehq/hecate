@@ -1128,6 +1128,12 @@ For errors that should surface before a run is created (bad config, missing requ
   writes. Scan PostgreSQL timestamps as typed values and normalize to UTC
   before formatting; a string round-trip can lose seconds from historical
   time-zone offsets and turn an unset Go timestamp into a nonzero time.
+- **Postgres attachment locks are transaction-scoped.** Keep total-quota
+  admission before the session lock on creates, and use the same session key
+  for claim, release, commit, and delete. Lock-key components must be escaped
+  and purpose-scoped: PostgreSQL text rejects NUL, and a session named
+  `total_quota` must not alias the global quota fence. Keep the real-database
+  lock-scope and concurrent-quota regressions when changing this path.
 - **Storage selector coverage** — when adding a persisted surface or moving a
   surface between backend selectors, update `internal/config/config_test.go`,
   `cmd/hecate/banner_test.go`, and the opt-in `cmd/hecate/postgres_smoke_test.go`.

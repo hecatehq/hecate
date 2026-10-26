@@ -435,19 +435,25 @@ func (s *SQLStore) beginLockedTx(ctx context.Context, sessionID string, globalQu
 	}
 	if s.client.Dialect() == storage.DialectPostgres {
 		if globalQuota {
-			globalLockKey := s.table + "\x00total_quota"
+			globalLockKey := postgresAttachmentLockKey(s.table, "total_quota", "")
 			if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, globalLockKey); err != nil {
 				_ = tx.Rollback()
 				return nil, fmt.Errorf("lock %s total chat attachment quota: %w", s.backend, err)
 			}
 		}
-		lockKey := s.table + "\x00" + sessionID
+		lockKey := postgresAttachmentLockKey(s.table, "session", sessionID)
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, lockKey); err != nil {
 			_ = tx.Rollback()
 			return nil, fmt.Errorf("lock %s chat attachment session: %w", s.backend, err)
 		}
 	}
 	return tx, nil
+}
+
+// Quoted components keep scope boundaries unambiguous and escape NUL bytes,
+// which PostgreSQL text parameters reject before acquiring the advisory lock.
+func postgresAttachmentLockKey(table, scope, sessionID string) string {
+	return fmt.Sprintf("%q:%q:%q", table, scope, sessionID)
 }
 
 func (s *SQLStore) getInTx(ctx context.Context, tx storage.Tx, sessionID, id string) (StoredAttachment, lifecycleState, string, error) {
