@@ -1123,7 +1123,11 @@ For errors that should surface before a run is created (bad config, missing requ
   `t.UTC().Format(time.RFC3339Nano)` when lexical ordering matters. Postgres
   does not accept empty-string timestamps; SQL stores that pass `time.Time`
   values should use the shared `storage.TimestampColumn*` helpers instead of
-  ad-hoc TEXT columns.
+  ad-hoc TEXT columns. When a shared store preserves SQLite's empty unset
+  timestamp representation, use `storage.TimestampValue` for dialect-safe
+  writes. Scan PostgreSQL timestamps as typed values and normalize to UTC
+  before formatting; a string round-trip can lose seconds from historical
+  time-zone offsets and turn an unset Go timestamp into a nonzero time.
 - **Storage selector coverage** — when adding a persisted surface or moving a
   surface between backend selectors, update `internal/config/config_test.go`,
   `cmd/hecate/banner_test.go`, and the opt-in `cmd/hecate/postgres_smoke_test.go`.

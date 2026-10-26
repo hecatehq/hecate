@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"strings"
+	"time"
 )
 
 type Dialect string
@@ -192,6 +193,18 @@ func TimestampColumnDefaultZero(client SQLClient) string {
 		return "TIMESTAMPTZ NOT NULL DEFAULT '0001-01-01T00:00:00Z'"
 	}
 	return "TIMESTAMP NOT NULL DEFAULT ''"
+}
+
+// TimestampValue preserves SQLite's text representation, including an empty
+// unset value, while PostgreSQL needs a typed timestamp even for Go's zero time.
+func TimestampValue(client SQLClient, value time.Time) any {
+	if client != nil && client.Dialect() == DialectPostgres {
+		return value.UTC()
+	}
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func BinaryColumn(client SQLClient) string {

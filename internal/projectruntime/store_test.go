@@ -3,7 +3,10 @@ package projectruntime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ func TestStoreConformance_AssignmentRuntimeLifecycle(t *testing.T) {
 	}{
 		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
 		{name: "sqlite", new: func(t *testing.T) Store { return newSQLiteTestStore(t) }},
+		{name: "postgres", new: newPostgresTestStore},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -133,6 +137,7 @@ func TestStoreConformance_RuntimeDefaultsLifecycle(t *testing.T) {
 	}{
 		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
 		{name: "sqlite", new: func(t *testing.T) Store { return newSQLiteTestStore(t) }},
+		{name: "postgres", new: newPostgresTestStore},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -236,6 +241,45 @@ func TestStoreConformance_RuntimeDefaultsLifecycle(t *testing.T) {
 	}
 }
 
+func TestStoreConformance_UnsetRuntimeTimestamps(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		new  func(*testing.T) Store
+	}{
+		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
+		{name: "sqlite", new: newSQLiteTestStore},
+		{name: "postgres", new: newPostgresTestStore},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := tc.new(t)
+			started := time.Date(2026, 10, 26, 12, 0, 0, 123456000, time.FixedZone("test", 2*60*60))
+			for _, times := range []struct{ start, end time.Time }{
+				{},
+				{start: started},
+				{start: started, end: started.Add(time.Minute)},
+				{},
+			} {
+				input := AssignmentRuntime{ProjectID: "project", AssignmentID: "assignment", StartedAt: times.start, CompletedAt: times.end}
+				if _, err := store.Upsert(t.Context(), input); err != nil {
+					t.Fatalf("Upsert(%+v): %v", times, err)
+				}
+				got, ok, err := store.Get(t.Context(), input.ProjectID, input.AssignmentID)
+				if err != nil || !ok {
+					t.Fatalf("Get: found=%v err=%v", ok, err)
+				}
+				if !got.StartedAt.Equal(times.start) || !got.CompletedAt.Equal(times.end) || got.UpdatedAt.IsZero() {
+					t.Fatalf("timestamps = %v, %v, %v; want %+v and nonzero updated time", got.StartedAt, got.CompletedAt, got.UpdatedAt, times)
+				}
+				if got.StartedAt.Location() != time.UTC || got.CompletedAt.Location() != time.UTC || got.UpdatedAt.Location() != time.UTC {
+					t.Fatalf("timestamps must round-trip in UTC: %+v", got)
+				}
+			}
+		})
+	}
+}
+
 func TestApply_OverlaysRuntimeOnAssignment(t *testing.T) {
 	assignment := projectwork.Assignment{
 		ID:          "asgn_1",
@@ -282,6 +326,34 @@ func newSQLiteTestStore(t *testing.T) Store {
 	store, err := NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	return store
+}
+
+func newPostgresTestStore(t *testing.T) Store {
+	t.Helper()
+	databaseURL := strings.TrimSpace(os.Getenv("HECATE_POSTGRES_TEST_URL"))
+	if databaseURL == "" {
+		t.Skip("set HECATE_POSTGRES_TEST_URL to run Postgres project-runtime conformance")
+	}
+	client, err := storage.NewPostgresClient(t.Context(), storage.PostgresConfig{
+		DatabaseURL: databaseURL,
+		TablePrefix: fmt.Sprintf("runtime_test_%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, name := range []string{"project_assignment_runtime", "project_runtime_defaults", "project_role_runtime_defaults"} {
+			if _, err := client.DB().ExecContext(context.Background(), "DROP TABLE IF EXISTS "+client.QualifiedTable(name)); err != nil {
+				t.Errorf("drop %s: %v", name, err)
+			}
+		}
+		_ = client.Close()
+	})
+	store, err := NewPostgresStore(t.Context(), client)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return store
 }

@@ -125,9 +125,9 @@ ON CONFLICT(project_id, assignment_id) DO UPDATE SET
 		runtime.AssignmentID,
 		encodedRef,
 		string(runtime.ContextPacket),
-		formatRuntimeTime(runtime.StartedAt),
-		formatRuntimeTime(runtime.CompletedAt),
-		formatRuntimeTime(runtime.UpdatedAt),
+		storage.TimestampValue(s.client, runtime.StartedAt),
+		storage.TimestampValue(s.client, runtime.CompletedAt),
+		storage.TimestampValue(s.client, runtime.UpdatedAt),
 	)
 	if err != nil {
 		return AssignmentRuntime{}, err
@@ -196,7 +196,7 @@ ON CONFLICT(project_id) DO UPDATE SET
 		defaults.DefaultWorkspaceMode,
 		defaults.DefaultSystemPrompt,
 		formatRuntimeBoolPtr(defaults.DefaultCompactToolOutput),
-		formatRuntimeTime(defaults.UpdatedAt),
+		storage.TimestampValue(s.client, defaults.UpdatedAt),
 	)
 	if err != nil {
 		return ProjectDefaults{}, err
@@ -257,7 +257,7 @@ ON CONFLICT(project_id, role_id) DO UPDATE SET
 		defaults.DefaultProvider,
 		defaults.DefaultModel,
 		defaults.DefaultAgentProfile,
-		formatRuntimeTime(defaults.UpdatedAt),
+		storage.TimestampValue(s.client, defaults.UpdatedAt),
 	)
 	if err != nil {
 		return RoleDefaults{}, err
@@ -370,7 +370,8 @@ type scanner interface {
 
 func scanRuntime(row scanner) (AssignmentRuntime, error) {
 	var runtime AssignmentRuntime
-	var executionRef, contextPacket, startedAt, completedAt, updatedAt string
+	var executionRef, contextPacket string
+	var startedAt, completedAt, updatedAt any
 	if err := row.Scan(&runtime.ProjectID, &runtime.AssignmentID, &executionRef, &contextPacket, &startedAt, &completedAt, &updatedAt); err != nil {
 		return AssignmentRuntime{}, err
 	}
@@ -394,7 +395,8 @@ func scanRuntime(row scanner) (AssignmentRuntime, error) {
 
 func scanProjectDefaults(row scanner) (ProjectDefaults, error) {
 	var defaults ProjectDefaults
-	var toolsEnabled, compactToolOutput, updatedAt string
+	var toolsEnabled, compactToolOutput string
+	var updatedAt any
 	if err := row.Scan(
 		&defaults.ProjectID,
 		&defaults.DefaultProvider,
@@ -423,7 +425,7 @@ func scanProjectDefaults(row scanner) (ProjectDefaults, error) {
 
 func scanRoleDefaults(row scanner) (RoleDefaults, error) {
 	var defaults RoleDefaults
-	var updatedAt string
+	var updatedAt any
 	if err := row.Scan(
 		&defaults.ProjectID,
 		&defaults.RoleID,
@@ -462,19 +464,21 @@ func decodeRuntimeExecutionRef(value string) (projectwork.AssignmentExecutionRef
 	return projectwork.NormalizeAssignmentExecutionRef(ref), nil
 }
 
-func formatRuntimeTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
+func parseRuntimeTime(value any) (time.Time, error) {
+	// Do not format a driver's time.Time through RFC3339: historical zone
+	// offsets may include seconds, which RFC3339 drops before we can use UTC.
+	if timestamp, ok := value.(time.Time); ok {
+		return timestamp.UTC(), nil
 	}
-	return value.UTC().Format(time.RFC3339Nano)
-}
-
-func parseRuntimeTime(value string) (time.Time, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	text, ok := value.(string)
+	if !ok {
+		return time.Time{}, fmt.Errorf("unsupported runtime timestamp type %T", value)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
 		return time.Time{}, nil
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, value)
+	parsed, err := time.Parse(time.RFC3339Nano, text)
 	if err != nil {
 		return time.Time{}, err
 	}
