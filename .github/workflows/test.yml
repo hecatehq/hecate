@@ -53,7 +53,7 @@ jobs:
 
       - name: Validate release workflows
         run: |
-          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts
+          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts scripts/postgres-workflow.test.ts
           bun scripts/check-release-workflows.ts
 
       - uses: dorny/paths-filter@v4
@@ -232,6 +232,48 @@ jobs:
           printf 'Browser smoke executable: %s\n' "$browser"
           "$browser" --version
           HECATE_BROWSER_SMOKE=1 HECATE_TASK_BROWSER_EXECUTABLE="$browser" go test -count=1 -timeout 10m ./internal/browserrunner
+
+  test-postgres:
+    name: Postgres (${{ matrix.toolchain }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [minimum, stable]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hecate_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hecate_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        if: matrix.toolchain == 'minimum'
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-go@v7
+        if: matrix.toolchain == 'stable'
+        with:
+          go-version: stable
+          cache: true
+      - uses: extractions/setup-just@v4
+      - name: Test Postgres stores and binary API
+        run: just test-postgres
+        env:
+          HECATE_POSTGRES_TEST_URL: postgres://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/hecate_test?sslmode=disable
 
   test-go-windows-bootstrap:
     name: Go tests (Windows)
@@ -547,6 +589,7 @@ jobs:
       - test-tauri-rust
       - lint-go
       - test-go-linux-race
+      - test-postgres
       - test-go-windows-bootstrap
       - test-go-macos-bootstrap
       - build-hecate
@@ -566,6 +609,7 @@ jobs:
       contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
       contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-linux-race.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-postgres.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-windows-bootstrap.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-macos-bootstrap.result) &&
       contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
@@ -590,6 +634,7 @@ jobs:
       - test-tauri-rust
       - lint-go
       - test-go-linux-race
+      - test-postgres
       - test-go-windows-bootstrap
       - test-go-macos-bootstrap
       - build-hecate
@@ -612,6 +657,7 @@ jobs:
       contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
       contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-linux-race.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-postgres.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-windows-bootstrap.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go-macos-bootstrap.result) &&
       contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
@@ -639,6 +685,7 @@ jobs:
       - test-tauri-rust
       - lint-go
       - test-go-linux-race
+      - test-postgres
       - test-go-windows-bootstrap
       - test-go-macos-bootstrap
       - build-hecate

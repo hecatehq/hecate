@@ -812,7 +812,9 @@ The full storage reference lives in [`docs/operator/deployment.md`](../operator/
   Schedule deletion cascades its occurrences.
 - The SQLite task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for
   atomic claim under WAL. The Postgres queue uses `FOR UPDATE SKIP LOCKED`.
-  Both are race-tested; the opt-in Postgres smoke covers real dialect behavior.
+  Both are race-tested; the required disposable-Postgres CI job covers real
+  dialect behavior. Run it locally with `just test-postgres` against a
+  disposable database, as described in [development](development.md#postgres-storage-checks).
 
 ## Why two flows share one gateway
 

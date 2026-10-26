@@ -171,6 +171,7 @@ just serve --reset    # reset local state, then start the prebuilt binary
 just test              # go test ./...
 just vet               # go vet ./...
 just test-race         # go test -race ./...
+just test-postgres     # real Postgres stores + binary API; requires disposable database URL
 just coverage          # go test -coverprofile + writes coverage.html
 just go-format-check   # Go gofmt -s formatting check
 just go-format         # format Go source with gofmt -s
@@ -204,6 +205,34 @@ the cheaper checks pass. The manual `tauri-mobile-build` Actions workflow also
 uploads a simulator bundle and debug APK for short-lived testing.
 
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. Gateway e2e helpers auto-set `PROVIDER_<NAME>_PRECONFIGURED=1` for providers described with `PROVIDER_<NAME>_*` vars; when a test posts an explicit model that the fake `/v1/models` endpoint does not advertise, seed it with `PROVIDER_<NAME>_MODELS` instead of reintroducing provider default-model env vars. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `verify-desktop` runs the Tauri Rust test suite and requires Rust/Cargo. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits. The native smoke is opt-in because it opens a real GUI window.
+
+### Postgres storage checks
+
+`just test-postgres` requires `HECATE_POSTGRES_TEST_URL` and fails before
+running tests when it is unset or blank. Use a **disposable database**: the
+migration smoke clears test-prefixed data, and the store and binary API tests
+create tables and records. Never point this command at an operator database.
+
+```bash
+docker run --rm -d --name hecate-postgres-test \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=hecate_test \
+  -p 127.0.0.1:15432:5432 postgres:17-alpine
+# Wait until `docker exec hecate-postgres-test pg_isready -U postgres` succeeds.
+HECATE_POSTGRES_TEST_URL='postgres://postgres:postgres@127.0.0.1:15432/hecate_test?sslmode=disable' just test-postgres
+docker stop hecate-postgres-test
+```
+
+The recipe runs migration, storage conformance, quota/lock, and timestamp
+regressions with the race detector, then exercises attachment upload, content,
+session isolation, and deletion through the real Hecate binary. SQLite runs
+the same attachment API journey in the ordinary e2e suite. When adding a
+Postgres-tested package, include it in this recipe.
+
+CI provides a fresh PostgreSQL 17 service for each of two toolchains: the
+minimum from `go.mod` and current Go stable. Both run `just test-postgres`;
+failure blocks the required-check gate and the expensive native builds.
+Ordinary `just test` and `just test-race` still skip the database-specific
+checks when the URL is absent.
 
 The [code-intelligence model dogfood](code-intelligence-dogfood.md) is also
 opt-in because it sends fixed repository questions to an operator-configured

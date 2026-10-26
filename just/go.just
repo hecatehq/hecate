@@ -20,6 +20,13 @@ test: _go-cache
 test-race: _go-cache
 	{{go_env}} go test -race -timeout 10m ./...
 
+# Run real Postgres conformance, migration, and binary API checks. The URL
+# must point at a disposable database; unlike normal tests this fails if unset.
+test-postgres: _go-cache
+	@case "${HECATE_POSTGRES_TEST_URL:-}" in *[![:space:]]*) ;; *) echo "Set HECATE_POSTGRES_TEST_URL to a disposable Postgres database."; exit 1 ;; esac
+	{{go_env}} go test -race -count=1 -timeout 10m ./cmd/hecate ./internal/storage ./internal/taskstate ./internal/chat ./internal/chatattachments ./internal/projectruntime ./internal/browserapp
+	{{go_env}} go test -tags e2e -count=1 -timeout 3m -run '^TestPostgres' ./e2e/...
+
 # Run Go end-to-end tests that do not require optional services.
 test-e2e: _go-cache
 	{{go_env}} go test -tags e2e -count=1 -timeout 3m ./e2e/...

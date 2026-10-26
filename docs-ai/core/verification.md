@@ -64,6 +64,15 @@ The race suite is the floor — not a nice-to-have — for any change that touch
 
 E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and `docker` sub-tags. Use `PROVIDER_FAKE_KIND=local` for synthetic local-model scenarios.
 
+For shared SQL/storage changes, also run `just test-postgres` with
+`HECATE_POSTGRES_TEST_URL` pointing to a disposable database. The recipe
+rejects a missing or blank URL, runs migration and affected store suites with
+the race detector, and runs the Postgres binary API smoke. CI runs this gate
+against PostgreSQL 17 using both the minimum Go version and current stable.
+The ordinary race suite without this URL is not proof of Postgres parity.
+See the [local setup](../../docs/contributor/development.md#postgres-storage-checks)
+and include new Postgres-tested packages in the recipe.
+
 ## UI verification ladder
 
 | Step              | Command                         | When                                                                  |

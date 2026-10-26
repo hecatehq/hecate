@@ -17,13 +17,43 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func TestChatAttachmentPublicAPIE2E(t *testing.T) {
-	baseURL := gatewayServer(t, "HECATE_BACKEND=sqlite")
+	runChatAttachmentPublicAPIE2E(t, gatewayServer(t, "HECATE_BACKEND=sqlite"))
+}
+
+func TestPostgresChatAttachmentPublicAPIE2E(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("HECATE_POSTGRES_TEST_URL"))
+	if databaseURL == "" {
+		t.Skip("set HECATE_POSTGRES_TEST_URL to run Postgres attachment API coverage")
+	}
+	prefix := fmt.Sprintf("e2epg%x", time.Now().UnixNano())
+	client, err := storage.NewPostgresClient(t.Context(), storage.PostgresConfig{DatabaseURL: databaseURL, TablePrefix: prefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := client.ClearData(ctx); err != nil {
+			t.Errorf("clear test Postgres data: %v", err)
+		}
+		_ = client.Close()
+	})
+	baseURL := gatewayServer(t, "HECATE_BACKEND=postgres", "HECATE_POSTGRES_URL="+databaseURL, "HECATE_POSTGRES_TABLE_PREFIX="+prefix)
+	runChatAttachmentPublicAPIE2E(t, baseURL)
+}
+
+func runChatAttachmentPublicAPIE2E(t *testing.T, baseURL string) {
+	t.Helper()
 	first := postJSONDecode[e2eChatSessionResponse](t, baseURL+"/hecate/v1/chat/sessions", `{
 		"agent_id": "hecate",
 		"title": "attachment owner"
