@@ -255,6 +255,7 @@ func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSna
 	}
 	browserAllowed := profile.BrowserAllowed
 	browserInteractionsAllowed := profile.BrowserInteractionsAllowed
+	browserTextEntryAllowed := profile.BrowserTextEntryAllowed
 	return &chat.AgentPresetSnapshot{
 		ID:                         strings.TrimSpace(profile.ID),
 		Name:                       strings.TrimSpace(profile.Name),
@@ -267,6 +268,7 @@ func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSna
 		NetworkAllowed:             profile.NetworkAllowed,
 		BrowserAllowed:             &browserAllowed,
 		BrowserInteractionsAllowed: &browserInteractionsAllowed,
+		BrowserTextEntryAllowed:    &browserTextEntryAllowed,
 		BrowserAllowedOrigins:      append([]string(nil), profile.BrowserAllowedOrigins...),
 		ApprovalPolicy:             approvalPolicy,
 	}

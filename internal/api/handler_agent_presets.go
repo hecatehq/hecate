@@ -116,6 +116,7 @@ func agentPresetFromCreate(req CreateAgentPresetRequest) agentprofiles.Profile {
 		NetworkAllowed:             req.NetworkAllowed,
 		BrowserAllowed:             req.BrowserAllowed,
 		BrowserInteractionsAllowed: req.BrowserInteractionsAllowed,
+		BrowserTextEntryAllowed:    req.BrowserTextEntryAllowed,
 		BrowserAllowedOrigins:      req.BrowserAllowedOrigins,
 		ApprovalPolicy:             req.ApprovalPolicy,
 		ProjectMemoryPolicy:        req.ProjectMemoryPolicy,
@@ -163,6 +164,9 @@ func applyAgentPresetUpdate(profile *agentprofiles.Profile, req UpdateAgentPrese
 	if req.BrowserInteractionsAllowed != nil {
 		profile.BrowserInteractionsAllowed = *req.BrowserInteractionsAllowed
 	}
+	if req.BrowserTextEntryAllowed != nil {
+		profile.BrowserTextEntryAllowed = *req.BrowserTextEntryAllowed
+	}
 	if req.BrowserAllowedOrigins != nil {
 		profile.BrowserAllowedOrigins = req.BrowserAllowedOrigins
 	}
@@ -196,6 +200,9 @@ func clearIneligibleBrowserCapabilities(profile *agentprofiles.Profile) {
 	if profile == nil {
 		return
 	}
+	if !profile.BrowserInteractionsAllowed {
+		profile.BrowserTextEntryAllowed = false
+	}
 	surface := strings.TrimSpace(profile.Surface)
 	if surface == "" {
 		surface = agentprofiles.SurfaceAny
@@ -209,6 +216,7 @@ func clearIneligibleBrowserCapabilities(profile *agentprofiles.Profile) {
 	}
 	profile.BrowserAllowed = false
 	profile.BrowserInteractionsAllowed = false
+	profile.BrowserTextEntryAllowed = false
 	profile.BrowserAllowedOrigins = nil
 }
 
@@ -227,6 +235,7 @@ func renderAgentPreset(profile agentprofiles.Profile) AgentPresetResponseItem {
 		NetworkAllowed:             profile.NetworkAllowed,
 		BrowserAllowed:             profile.BrowserAllowed,
 		BrowserInteractionsAllowed: profile.BrowserInteractionsAllowed,
+		BrowserTextEntryAllowed:    profile.BrowserTextEntryAllowed,
 		BrowserAllowedOrigins:      append([]string(nil), profile.BrowserAllowedOrigins...),
 		ApprovalPolicy:             profile.ApprovalPolicy,
 		ProjectMemoryPolicy:        profile.ProjectMemoryPolicy,

@@ -72,6 +72,27 @@ func TestChatBrowserSnapshotCannotBeForgedByCreateRequest(t *testing.T) {
 	}
 }
 
+func TestChatBrowserTextEntryAPIFreezesExplicitGrant(t *testing.T) {
+	t.Parallel()
+	client := newTaskTestClient(t, newAgentPresetsTestServer())
+	preset := mustRequestJSONStatus[AgentPresetResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-presets", `{"id":"text","name":"Text","surface":"hecate_chat","tools_enabled":true,"browser_interactions_allowed":true,"browser_text_entry_allowed":true,"browser_allowed_origins":["https://app.example.test"]}`)
+	if !preset.Data.BrowserTextEntryAllowed {
+		t.Fatal("preset did not retain text grant")
+	}
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"agent_preset_id":"text"}`)
+	if session.Data.AgentPreset == nil || session.Data.AgentPreset.BrowserTextEntryAllowed == nil || !*session.Data.AgentPreset.BrowserTextEntryAllowed {
+		t.Fatal("chat did not freeze text grant")
+	}
+	updated := mustRequestJSON[AgentPresetResponse](client, http.MethodPatch, "/hecate/v1/agent-presets/text", `{"browser_interactions_allowed":false}`)
+	if updated.Data.BrowserTextEntryAllowed {
+		t.Fatal("disabling interaction retained text grant")
+	}
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+session.Data.ID, "")
+	if got.Data.AgentPreset.BrowserTextEntryAllowed == nil || !*got.Data.AgentPreset.BrowserTextEntryAllowed {
+		t.Fatal("later preset edit changed frozen text grant")
+	}
+}
+
 func TestChatBrowserSnapshotCopiesAreIndependentAndExplicit(t *testing.T) {
 	t.Parallel()
 	profile := agentprofiles.Profile{ID: "browser", BrowserAllowed: true, BrowserAllowedOrigins: []string{"https://app.example.test"}}
@@ -145,7 +166,7 @@ func TestHecateAgentTaskOrchestrator_NewSegmentsCopyFrozenBrowserPolicy(t *testi
 			},
 			resourceID: func(prefix string) string { return prefix + "_fixed" }, now: time.Now,
 		}
-		snapshot := &chat.AgentPresetSnapshot{ID: "frozen", ToolsEnabled: true, BrowserAllowed: &grants.inspect, BrowserInteractionsAllowed: &grants.interact}
+		snapshot := &chat.AgentPresetSnapshot{ID: "frozen", ToolsEnabled: true, BrowserAllowed: &grants.inspect, BrowserInteractionsAllowed: &grants.interact, BrowserTextEntryAllowed: &grants.interact}
 		if grants.inspect || grants.interact {
 			snapshot.BrowserAllowedOrigins = []string{"https://app.example.test"}
 		}
@@ -160,6 +181,13 @@ func TestHecateAgentTaskOrchestrator_NewSegmentsCopyFrozenBrowserPolicy(t *testi
 			}
 			*task.AgentPresetBrowserAllowed = !grants.inspect
 			*task.AgentPresetBrowserInteractionsAllowed = !grants.interact
+			if task.AgentPresetBrowserTextEntryAllowed == nil || *task.AgentPresetBrowserTextEntryAllowed != grants.interact {
+				t.Fatal("text grant was not copied")
+			}
+			*task.AgentPresetBrowserTextEntryAllowed = !grants.interact
+			if *snapshot.BrowserTextEntryAllowed != grants.interact {
+				t.Fatal("text grant aliases session")
+			}
 			if len(task.AgentPresetBrowserAllowedOrigins) > 0 {
 				task.AgentPresetBrowserAllowedOrigins[0] = "https://mutated.example.test"
 			}

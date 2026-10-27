@@ -164,10 +164,15 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   enable the other. Tools-off Chat, External Agent sessions, QA, non-preset
   Tasks, and remote runtime receive neither tool.
 - Every `browser_flow` contains 1–6 exact accessibility `click` / `wait_for`
-  actions and stays on the query-free start URL's exact origin. It supports no
-  typing, secret entry, selectors, coordinates, arbitrary JavaScript, uploads,
+  actions, optionally `fill_text` with the separate immutable
+  `browser_text_entry_allowed` grant, and stays on the query-free start URL's
+  exact origin. Text entry is limited to ordinary non-secret text/search inputs
+  and textareas, with exact-value approval and 1024 UTF-8 bytes per action.
+  Text is disclosed to page scripts and normal tool-call history; known
+  password/autofill fields are rejected, but this is not secret detection.
+  It supports no secret entry, selectors, coordinates, arbitrary JavaScript, uploads,
   downloads, screenshots, or retained session. Page scripts are enabled, and
-  same-origin `GET`/`HEAD` requests plus approved clicks may change the
+  same-origin `GET`/`HEAD` requests, approved clicks, and input/change handlers may change the
   application. Approval is authorization for the complete ordered flow, not a
   promise that it is read-only.
 - Each browser call launches a fresh owned process tree/profile and emits only

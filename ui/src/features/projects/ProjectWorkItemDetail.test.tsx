@@ -1446,7 +1446,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(readiness).getByText("tools off · writes off · network off")).toBeTruthy();
     expect(within(readiness).getByText("Browser evidence")).toBeTruthy();
     expect(within(readiness).getByText("Browser interaction")).toBeTruthy();
-    expect(within(readiness).getAllByText("Disabled")).toHaveLength(2);
+    expect(within(readiness).getAllByText("Disabled")).toHaveLength(3);
   });
 
   it("shows External Agent launch posture before preparing chat", async () => {

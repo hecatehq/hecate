@@ -378,6 +378,9 @@ func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Sess
 	if preset.BrowserInteractionsAllowed != nil {
 		metadata["browser_interactions_allowed"] = fmt.Sprintf("%t", *preset.BrowserInteractionsAllowed)
 	}
+	if preset.BrowserTextEntryAllowed != nil {
+		metadata["browser_text_entry_allowed"] = fmt.Sprintf("%t", *preset.BrowserTextEntryAllowed)
+	}
 	if len(preset.BrowserAllowedOrigins) != 0 {
 		origins, _ := json.Marshal(preset.BrowserAllowedOrigins)
 		metadata["browser_allowed_origins"] = string(origins)
@@ -1049,6 +1052,7 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 	} else {
 		body = append(body, "Browser evidence allowed: "+boolLabel(profile.BrowserAllowed))
 		body = append(body, "Browser interaction allowed: "+boolLabel(profile.BrowserInteractionsAllowed))
+		body = append(body, "Browser non-secret text entry allowed: "+boolLabel(profile.BrowserTextEntryAllowed))
 		if (profile.BrowserAllowed || profile.BrowserInteractionsAllowed) && len(profile.BrowserAllowedOrigins) > 0 {
 			body = append(body, "Browser allowed origins: "+strings.Join(profile.BrowserAllowedOrigins, ", "))
 		}

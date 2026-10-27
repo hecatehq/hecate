@@ -35,6 +35,7 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
     network_allowed: false,
     browser_allowed: true,
     browser_interactions_allowed: true,
+    browser_text_entry_allowed: true,
     browser_allowed_origins: ["https://app.example.test", "https://status.example.test:8443"],
     approval_policy: "require",
     project_memory_policy: "inherit",
@@ -81,6 +82,7 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
           network_allowed: policy.network_allowed,
           browser_allowed: policy.browser_allowed,
           browser_interactions_allowed: policy.browser_interactions_allowed,
+          browser_text_entry_allowed: policy.browser_text_entry_allowed,
           browser_allowed_origins: policy.browser_allowed_origins,
           approval_policy: policy.approval_policy,
         },
@@ -100,9 +102,9 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
                 kind: "approval",
                 title: "Awaiting approval — browser_flow",
                 detail:
-                  'Agent requested tools that require approval: browser_flow destination=https://app.example.test/account; actions: 1. click button "Delete account"; 2. wait status "Account deleted". Warning: clicks can run page scripts and may change state in the allowed app. - awaiting_approval',
+                  'Agent requested tools that require approval: browser_flow destination=https://app.example.test/account; actions: 1. fill_text textbox "Display name" text="Example name"; 2. click button "Save name"; 3. wait status "Name saved". Warning: text is disclosed to the page and retained in tool-call history; page handlers may change state in the allowed app. - awaiting_approval',
                 approval_id: "approval-browser-policy-e2e",
-                action_summary: ["browser_flow url=https://app.example.test/account actions=2"],
+                action_summary: ["browser_flow url=https://app.example.test/account actions=3"],
                 action_summary_incomplete: false,
                 needs_action: true,
               },
@@ -148,7 +150,8 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
   await policySelect.selectOption(policy.id);
 
   const preview = page.getByRole("group", { name: "Browser permissions" });
-  await expect(preview.getByText("Configured · per-call approval", { exact: true })).toHaveCount(2);
+  await expect(preview.getByText("Configured · per-call approval", { exact: true })).toHaveCount(3);
+  await expect(preview).toContainText("Non-secret text entry");
   const previewOrigins = preview.getByRole("list", { name: "Allowed browser origins" });
   await expect(previewOrigins.getByText("https://app.example.test", { exact: true })).toBeVisible();
   await expect(
@@ -163,18 +166,20 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
   expect(createBody).toMatchObject({ agent_id: "hecate" });
   expect(createBody).not.toHaveProperty("browser_allowed");
   expect(createBody).not.toHaveProperty("browser_interactions_allowed");
+  expect(createBody).not.toHaveProperty("browser_text_entry_allowed");
   expect(createBody).not.toHaveProperty("browser_allowed_origins");
 
   const approval = page.getByTestId("hecate-task-approval-banner");
   await expect(approval.getByText("Browser interaction", { exact: true })).toBeVisible();
   await expect(approval).toContainText("destination=https://app.example.test/account");
-  await expect(approval).toContainText('1. click button "Delete account"');
-  await expect(approval).toContainText('2. wait status "Account deleted"');
+  await expect(approval).toContainText('1. fill_text textbox "Display name" text="Example name"');
+  await expect(approval).toContainText('2. click button "Save name"');
+  await expect(approval).toContainText('3. wait status "Name saved"');
   await expect(approval).toContainText(
-    "clicks can run page scripts and may change state in the allowed app",
+    "text is disclosed to the page and retained in tool-call history",
   );
   await expect(approval).toContainText(
-    "browser_flow url=https://app.example.test/account actions=2",
+    "browser_flow url=https://app.example.test/account actions=3",
   );
   await expect(approval.getByRole("button", { name: "Approve Browser interaction" })).toBeEnabled();
 
@@ -183,7 +188,7 @@ test("previews and freezes Hecate Chat browser grants before browser approval", 
   const frozen = settings.getByRole("group", { name: "Browser permissions" });
   await expect(
     frozen.getByText("Configured · approval required for each call", { exact: true }),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
   const frozenOrigins = frozen.getByRole("list", { name: "Allowed browser origins" });
   await expect(frozenOrigins.getByText("https://app.example.test", { exact: true })).toBeVisible();
   await expect(

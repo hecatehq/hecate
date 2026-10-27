@@ -661,6 +661,7 @@ func renderTaskItem(task types.Task) TaskItem {
 		AgentPresetApprovalPolicy:             task.AgentPresetApprovalPolicy,
 		AgentPresetBrowserAllowed:             task.AgentPresetBrowserAllowed,
 		AgentPresetBrowserInteractionsAllowed: task.AgentPresetBrowserInteractionsAllowed,
+		AgentPresetBrowserTextEntryAllowed:    task.AgentPresetBrowserTextEntryAllowed,
 		AgentPresetBrowserAllowedOrigins:      append([]string(nil), task.AgentPresetBrowserAllowedOrigins...),
 		SystemPrompt:                          task.SystemPrompt,
 		WorkspaceSystemPromptPolicy:           task.WorkspaceSystemPromptPolicy,

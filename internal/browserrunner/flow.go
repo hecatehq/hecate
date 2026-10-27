@@ -16,8 +16,10 @@ const (
 	// MaxFlowAccessibilityNodes bounds each initial/final evidence snapshot.
 	MaxFlowAccessibilityNodes = 64
 
-	FlowActionClick   = "click"
-	FlowActionWaitFor = "wait_for"
+	FlowActionClick    = "click"
+	FlowActionWaitFor  = "wait_for"
+	FlowActionFillText = "fill_text"
+	MaxFlowTextBytes   = 1024
 
 	FlowActionStatusCompleted = "completed"
 	FlowActionStatusFailed    = "failed"
@@ -59,11 +61,15 @@ type FlowRequest struct {
 
 // FlowAction addresses one accessibility node by exact computed role and
 // exact accessible name. Selectors, XPath, coordinates, arbitrary JavaScript,
-// typing, and uploaded values are deliberately absent from this contract.
+// keyboard commands and uploaded values are deliberately absent. Text is
+// supported only for separately granted, approved non-secret fill actions.
 type FlowAction struct {
 	Kind string
 	Role string
 	Name string
+	// Text is ordinary, operator-reviewed application data, never credentials.
+	// A pointer distinguishes an explicit clear from a missing fill value.
+	Text *string
 }
 
 // FlowActionResult is safe, ordered evidence for an attempted action. A failed
@@ -119,13 +125,17 @@ func ValidateFlowRequest(req FlowRequest) (FlowRequest, error) {
 		if !validFlowAction(action) {
 			return FlowRequest{}, fmt.Errorf("%w: action %d", ErrInvalidFlow, index+1)
 		}
+		if action.Text != nil {
+			value := *action.Text
+			action.Text = &value
+		}
 		out.Actions[index] = action
 	}
 	return out, nil
 }
 
 func validFlowAction(action FlowAction) bool {
-	if action.Kind != FlowActionClick && action.Kind != FlowActionWaitFor {
+	if action.Kind != FlowActionClick && action.Kind != FlowActionWaitFor && action.Kind != FlowActionFillText {
 		return false
 	}
 	if !validFlowSelectorText(action.Role, 64) || !validFlowSelectorText(action.Name, 256) {
@@ -133,6 +143,24 @@ func validFlowAction(action FlowAction) bool {
 	}
 	if action.Kind == FlowActionClick && !clickableAccessibilityRole(action.Role) {
 		return false
+	}
+	if action.Kind == FlowActionFillText {
+		return (action.Role == "textbox" || action.Role == "searchbox") && action.Text != nil && validFlowInputText(*action.Text)
+	}
+	if action.Text != nil {
+		return false
+	}
+	return true
+}
+
+func validFlowInputText(value string) bool {
+	if len(value) > MaxFlowTextBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if (unicode.IsControl(r) && r != '\n' && r != '\t') || isBidiControl(r) {
+			return false
+		}
 	}
 	return true
 }

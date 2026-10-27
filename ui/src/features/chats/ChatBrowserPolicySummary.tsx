@@ -5,7 +5,11 @@ import { browserReadinessLabel } from "../../lib/browser-readiness";
 
 type BrowserPolicyPreset = Pick<
   AgentPresetRecord | ChatAgentPresetSnapshotRecord,
-  "browser_allowed" | "browser_interactions_allowed" | "browser_allowed_origins" | "approval_policy"
+  | "browser_allowed"
+  | "browser_interactions_allowed"
+  | "browser_text_entry_allowed"
+  | "browser_allowed_origins"
+  | "approval_policy"
 >;
 
 export function ChatBrowserPolicySummary({
@@ -88,6 +92,14 @@ export function ChatBrowserPolicySummary({
         <BrowserPolicyField
           label="Browser interaction"
           value={grantLabel(interactionsAllowed, preset?.browser_interactions_allowed)}
+          compact={compact}
+        />
+        <BrowserPolicyField
+          label="Non-secret text entry"
+          value={grantLabel(
+            interactionsAllowed && preset?.browser_text_entry_allowed === true,
+            preset?.browser_text_entry_allowed,
+          )}
           compact={compact}
         />
         <div

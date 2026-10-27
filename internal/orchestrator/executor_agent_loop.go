@@ -733,6 +733,7 @@ type agentToolDefinitionOptions struct {
 	IncludeWebSearch             bool
 	IncludeBrowserInspection     bool
 	IncludeBrowserFlow           bool
+	IncludeBrowserTextEntry      bool
 	IncludeAttachments           bool
 }
 
@@ -1084,6 +1085,11 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 				}`),
 			},
 		})
+		if opts.IncludeBrowserTextEntry {
+			tool := &tools[len(tools)-1]
+			tool.Function.Description = "Run one approved browser flow with up to six exact accessible click, wait_for, or fill_text actions. fill_text requires text and only sets ordinary non-secret text/search inputs or textareas; it never enters passwords, uploads files, presses Enter, or issues a submit command. Every flow requires operator approval of all targets and exact text. Text is disclosed to page scripts and retained in tool-call history, so never supply credentials or private secrets. Fresh profile, exact start origin, GET/HEAD-only transport, no saved state or clipboard/device access remain enforced; scripts and input/change handlers may cause effects."
+			tool.Function.Parameters = json.RawMessage(strings.ReplaceAll(strings.ReplaceAll(string(tool.Function.Parameters), `"enum": ["click", "wait_for"]`, `"enum": ["click", "wait_for", "fill_text"]`), `"name": {"type": "string", "description": "Exact computed accessible name."}`, `"name": {"type": "string", "description": "Exact computed accessible name."}, "text": {"type": "string", "maxLength": 1024, "description": "Required only for fill_text; non-secret UTF-8 text, at most 1024 encoded bytes. Empty clears the field."}`))
+		}
 	}
 	if opts.IncludeProjectAssistantDraft {
 		tools = append(tools, types.Tool{
@@ -1124,6 +1130,7 @@ func agentToolDefinitionsForWorkflow(task types.Task, workflowMode types.Workflo
 	if agentPresetDisablesTools(task) {
 		return nil
 	}
+	opts.IncludeBrowserTextEntry = task.AgentPresetBrowserTextEntryAllowed != nil && *task.AgentPresetBrowserTextEntryAllowed
 	tools := agentToolDefinitionsWithOptions(opts)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {

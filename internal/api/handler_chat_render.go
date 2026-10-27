@@ -155,6 +155,7 @@ func renderChatAgentPresetSnapshot(snapshot *chat.AgentPresetSnapshot) *ChatAgen
 		NetworkAllowed:             snapshot.NetworkAllowed,
 		BrowserAllowed:             cloneBool(snapshot.BrowserAllowed),
 		BrowserInteractionsAllowed: cloneBool(snapshot.BrowserInteractionsAllowed),
+		BrowserTextEntryAllowed:    cloneBool(snapshot.BrowserTextEntryAllowed),
 		BrowserAllowedOrigins:      append([]string(nil), snapshot.BrowserAllowedOrigins...),
 		ApprovalPolicy:             snapshot.ApprovalPolicy,
 	}

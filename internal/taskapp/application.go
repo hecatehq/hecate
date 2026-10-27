@@ -368,6 +368,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		toolsEnabled := resolvedPreset.ToolsEnabled
 		browserAllowed := resolvedPreset.BrowserAllowed
 		browserInteractionsAllowed := resolvedPreset.BrowserInteractionsAllowed
+		browserTextEntryAllowed := resolvedPreset.BrowserTextEntryAllowed
 		approvalPolicy := strings.TrimSpace(resolvedPreset.ApprovalPolicy)
 		if approvalPolicy == "" {
 			approvalPolicy = agentprofiles.ApprovalInherit
@@ -376,6 +377,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		task.AgentPresetApprovalPolicy = approvalPolicy
 		task.AgentPresetBrowserAllowed = &browserAllowed
 		task.AgentPresetBrowserInteractionsAllowed = &browserInteractionsAllowed
+		task.AgentPresetBrowserTextEntryAllowed = &browserTextEntryAllowed
 		task.AgentPresetBrowserAllowedOrigins = append([]string(nil), resolvedPreset.BrowserAllowedOrigins...)
 	}
 	return app.store.CreateTask(ctx, task)

@@ -60,16 +60,19 @@ type Profile struct {
 	// approval-gated browser interaction tool. Static evidence does not imply
 	// interaction, and interaction does not imply static evidence.
 	BrowserInteractionsAllowed bool
-	BrowserAllowedOrigins      []string
-	ApprovalPolicy             string
-	ProjectMemoryPolicy        string
-	ContextSourcePolicy        string
-	SkillIDs                   []string
-	ExternalAgentKind          string
-	ExternalAgentOptions       map[string]string
-	BuiltIn                    bool
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+	// BrowserTextEntryAllowed adds non-secret form filling to approved flows.
+	// It never follows implicitly from an existing interaction grant.
+	BrowserTextEntryAllowed bool
+	BrowserAllowedOrigins   []string
+	ApprovalPolicy          string
+	ProjectMemoryPolicy     string
+	ContextSourcePolicy     string
+	SkillIDs                []string
+	ExternalAgentKind       string
+	ExternalAgentOptions    map[string]string
+	BuiltIn                 bool
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // SupportsSurface reports whether a saved Agent Preset can be selected by the
@@ -248,6 +251,9 @@ func validateProfile(profile Profile) error {
 		return ErrInvalid
 	}
 	if !oneOf(profile.ContextSourcePolicy, ContextInherit, ContextIncludeEnabled, ContextVisibleOnly, ContextExclude) {
+		return ErrInvalid
+	}
+	if profile.BrowserTextEntryAllowed && !profile.BrowserInteractionsAllowed {
 		return ErrInvalid
 	}
 	if profile.BrowserAllowed || profile.BrowserInteractionsAllowed {

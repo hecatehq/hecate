@@ -242,7 +242,7 @@ func browserFlowCallAllowed(task types.Task, call types.ToolCall) bool {
 		return false
 	}
 	origin, err := browserrunner.InspectionOriginForURL(args.URL)
-	return err == nil && browserFlowOriginAllowed(task, origin)
+	return err == nil && browserFlowOriginAllowed(task, origin) && browserFlowTextEntryAllowed(task, args)
 }
 
 func browserApprovalDetail(calls []types.ToolCall, task types.Task) string {
