@@ -48,6 +48,7 @@ import type {
 } from "../types/chat";
 import type {
   TaskApprovalsResponse,
+  RunSteeringRecord,
   TaskArtifactResponse,
   TaskArtifactsResponse,
   TaskPatchResponse,
@@ -1640,6 +1641,21 @@ export async function getTaskScheduleOccurrences(
 
 export async function getTaskRuns(taskID: string): Promise<TaskRunsResponse> {
   return fetchJSON<TaskRunsResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs`);
+}
+
+export async function steerTaskRun(
+  taskID: string,
+  runID: string,
+  content: string,
+  clientRequestID: string,
+): Promise<{ object: string; data: RunSteeringRecord }> {
+  return fetchJSON(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/steer`,
+    {
+      method: "POST",
+      body: { client_request_id: clientRequestID, content },
+    },
+  );
 }
 
 export async function deleteTask(taskID: string): Promise<void> {

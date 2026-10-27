@@ -171,6 +171,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   pending task approvals inline; Tasks remains canonical for artifacts,
   retry/resume, full event history, and patch review. While a task-backed
   segment is active, the whole Hecate Chat session is busy: keep
+  the default submit/Enter action as Queue message. A separate Send now action
+  may submit bounded text guidance to a queued/running native Run; preserve all
+  ownership/deletion/attachment/workspace fences, keep the draft until an
+  authoritative reply, and reuse persisted request identity after ambiguous
+  delivery. Never pass files or silently turn failed guidance into a new turn.
+  Show durable guidance status without claiming that applied means followed.
+  Approval pauses remain unsupported. Keep
   provider/model controls locked to the segment snapshot. If the operator
   submits another prompt, queue it locally in the composer and send it after
   the task finishes, is stopped, or reaches a terminal approval outcome. Treat

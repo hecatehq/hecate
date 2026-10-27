@@ -296,6 +296,18 @@ export type TaskRunStreamModelCallCost = {
   tool_calls?: number;
 };
 
+export type RunSteeringRecord = {
+  id: string;
+  content: string;
+  status: "pending" | "applied" | "not_applied";
+  sequence: number;
+  reason?: string;
+  created_at: string;
+  applied_at?: string;
+  model_call_index?: number;
+  replay: boolean;
+};
+
 export type TaskRunStreamEventData = {
   sequence: number;
   terminal?: boolean;
