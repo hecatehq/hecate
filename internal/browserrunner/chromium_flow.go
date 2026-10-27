@@ -160,10 +160,8 @@ func (i *ChromiumInspector) RunFlow(ctx context.Context, request FlowRequest) (r
 	if err != nil {
 		return FlowResult{}, ErrInspectionFailed
 	}
-	browserCtx, cancelBrowser := chromedp.NewContext(allocatorCtx,
-		chromedp.WithBrowserOption(chromedp.WithDialTimeout(startupTimeout)),
-	)
-	if err := chromedp.Run(browserCtx); err != nil {
+	browserCtx, cancelBrowser := chromedp.NewContext(allocatorCtx)
+	if err := chromedp.Do(browserCtx); err != nil {
 		cancelBrowser()
 		cancelAllocator()
 		cancelBrowserRoot()
@@ -182,16 +180,16 @@ func (i *ChromiumInspector) RunFlow(ctx context.Context, request FlowRequest) (r
 	monitor := newFlowEventMonitor(policy)
 	listenerDrain := newListenerDrain()
 	hardAbortFlow := func() {
-		browserProcess.stop()
+		browserProcess.proxy.abortProcess()
 		cancelFlow()
 	}
-	monitor.startWithDrain(flowCtx, hardAbortFlow, listenerDrain)
+	monitor.startWithDrain(flowCtx, hardAbortFlow, listenerDrain, &browserProcess.proxy.events)
 	childTargets := newChildTargetGuard(browserState.Target.TargetID)
 	childTargets.startWithDrain(flowCtx, func() {
 		monitor.markPolicyViolation()
 		hardAbortFlow()
-	}, listenerDrain)
-	startFlowPolicyGuards(flowCtx, monitor, hardAbortFlow, listenerDrain)
+	}, listenerDrain, &browserProcess.proxy.events)
+	startFlowPolicyGuards(flowCtx, monitor, hardAbortFlow, listenerDrain, &browserProcess.proxy.events)
 	defer func() {
 		result.Network = monitor.networkSummary()
 	}()
@@ -217,52 +215,31 @@ func (i *ChromiumInspector) RunFlow(ctx context.Context, request FlowRequest) (r
 	}()
 
 	var guardReady bool
-	err = chromedp.Run(flowCtx,
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
+	err = chromedp.Do(flowCtx,
+		chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
 			return autoAttachRelatedTargets(actionCtx, browserState.Target.TargetID)
 		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorDeny).
-				WithEventsEnabled(true).
-				Do(actionCtx)
+		chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
+			_, err := chromedp.CallBrowser(actionCtx, browser.SetDownloadBehavior, browser.SetDownloadBehaviorParams{Behavior: browser.SetDownloadBehaviorBehaviorDeny, EventsEnabled: new(true)})
+			return err
 		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return page.SetInterceptFileChooserDialog(true).WithCancel(true).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.Enable().
-				WithMaxTotalBufferSize(browserResponseCancellationThresholdBytes).
-				WithMaxResourceBufferSize(browserResponseCancellationThresholdBytes).
-				Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetCacheDisabled(true).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetBypassServiceWorker(true).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetBlockedURLs().WithURLPatterns(browserNetworkBlockPatterns(policy)).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return cdpstorage.OverrideQuotaForOrigin(request.AllowedOrigin).
-				WithQuotaSize(browserFlowStorageQuotaBytes).
-				Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			_, scriptErr := page.AddScriptToEvaluateOnNewDocument(flowTransportGuardScript).WithRunImmediately(true).Do(actionCtx)
-			return scriptErr
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
-				URLPattern:   "*",
-				RequestStage: fetch.RequestStageRequest,
-			}}).Do(actionCtx)
-		}),
+		protocolAction(page.SetInterceptFileChooserDialog, page.SetInterceptFileChooserDialogParams{Enabled: true, Cancel: new(true)}),
+		protocolAction(network.Enable, network.EnableParams{MaxTotalBufferSize: new(int64(browserResponseCancellationThresholdBytes)), MaxResourceBufferSize: new(int64(browserResponseCancellationThresholdBytes))}),
+		protocolAction(network.SetCacheDisabled, network.SetCacheDisabledParams{CacheDisabled: true}),
+		protocolAction(network.SetBypassServiceWorker, network.SetBypassServiceWorkerParams{Bypass: true}),
+		protocolAction(network.SetBlockedURLs, network.SetBlockedURLsParams{URLPatterns: browserNetworkBlockPatterns(policy)}),
+		protocolAction(cdpstorage.OverrideQuotaForOrigin, cdpstorage.OverrideQuotaForOriginParams{Origin: request.AllowedOrigin, QuotaSize: new(float64(browserFlowStorageQuotaBytes))}),
+		protocolAction(page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: flowTransportGuardScript, RunImmediately: new(true)}),
+		protocolAction(fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{
+			URLPattern:   "*",
+			RequestStage: fetch.RequestStageRequest,
+		}}}),
 		chromedp.Navigate(policy.targetURL),
-		chromedp.WaitReady("html", chromedp.ByQuery),
-		chromedp.Evaluate(`globalThis.__hecateBrowserFlowGuardReady === true`, &guardReady),
+		chromedp.WaitReady(chromedp.CSS("html")),
 	)
+	if err == nil {
+		guardReady, err = chromedp.Run(flowCtx, chromedp.Evaluate[bool](`globalThis.__hecateBrowserFlowGuardReady === true`))
+	}
 	if err != nil || !guardReady {
 		if monitor.policyWasViolated() {
 			return result, ErrFlowPolicyViolation
@@ -336,8 +313,8 @@ func (i *ChromiumInspector) RunFlow(ctx context.Context, request FlowRequest) (r
 }
 
 func flowScriptPolicyWasViolated(ctx context.Context) (bool, error) {
-	var violated bool
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`globalThis.__hecateBrowserFlowPolicyViolated === true`, &violated)); err != nil {
+	violated, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`globalThis.__hecateBrowserFlowPolicyViolated === true`))
+	if err != nil {
 		return false, ErrInspectionFailed
 	}
 	return violated, nil
@@ -359,7 +336,7 @@ func flowTerminalError(monitor *eventMonitor, relayFailed bool, current error) e
 	return nil
 }
 
-func startFlowPolicyGuards(ctx context.Context, monitor *eventMonitor, abort func(), drain *listenerDrain) {
+func startFlowPolicyGuards(ctx context.Context, monitor *eventMonitor, abort func(), drain *listenerDrain, events *browserProtocolEvents) {
 	var once sync.Once
 	fail := func() {
 		if monitor != nil {
@@ -399,8 +376,8 @@ func startFlowPolicyGuards(ctx context.Context, monitor *eventMonitor, abort fun
 		targetListener = drain.wrap(targetListener)
 		browserListener = drain.wrap(browserListener)
 	}
-	chromedp.ListenTarget(ctx, targetListener)
-	chromedp.ListenBrowser(ctx, browserListener)
+	events.listen(chromedp.FromContext(ctx).Target.SessionID, targetListener)
+	events.listen("", browserListener)
 }
 
 func runFlowAction(ctx context.Context, action FlowAction, beforeFinalClickHitTest func(context.Context) error) error {
@@ -435,15 +412,7 @@ func flowActionWaitError(parent context.Context) error {
 }
 
 func exactFlowAccessibilityTarget(ctx context.Context, action FlowAction) (*accessibility.Node, error) {
-	var target *accessibility.Node
-	var targetErr error
-	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		target, targetErr = exactFlowAccessibilityTargetDirect(actionCtx, action)
-		return nil
-	})); err != nil {
-		return nil, ErrInspectionFailed
-	}
-	return target, targetErr
+	return exactFlowAccessibilityTargetDirect(ctx, action)
 }
 
 func exactFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction) (*accessibility.Node, error) {
@@ -452,12 +421,12 @@ func exactFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction) 
 	// Chromium releases. The bounded DevTools relay caps this response before
 	// chromedp decodes it, so a hostile wide tree fails closed instead of
 	// allocating an unbounded protocol frame in Hecate.
-	nodes, err := accessibility.GetFullAXTree().Do(ctx)
+	snapshot, err := chromedp.Call(ctx, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
 	if err != nil {
 		return nil, ErrInspectionFailed
 	}
 	byBackend := make(map[cdp.BackendNodeID]*accessibility.Node)
-	for _, node := range nodes {
+	for _, node := range snapshot.Nodes {
 		if node == nil || node.Ignored || node.BackendDOMNodeID == 0 || accessibilityValue(node.Role) != action.Role || accessibilityValue(node.Name) != action.Name {
 			continue
 		}
@@ -479,14 +448,7 @@ func exactFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction) 
 }
 
 func clickFlowAccessibilityTarget(ctx context.Context, action FlowAction, targetNode *accessibility.Node, beforeFinalClickHitTest func(context.Context) error) error {
-	var clickErr error
-	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		clickErr = clickFlowAccessibilityTargetDirect(actionCtx, action, targetNode, beforeFinalClickHitTest)
-		return nil
-	})); err != nil {
-		return ErrInspectionFailed
-	}
-	return clickErr
+	return clickFlowAccessibilityTargetDirect(ctx, action, targetNode, beforeFinalClickHitTest)
 }
 
 func clickFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, targetNode *accessibility.Node, beforeFinalClickHitTest func(context.Context) error) error {
@@ -498,10 +460,10 @@ func clickFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, 
 	// enabled only for this short click-critical section; wait actions and
 	// evidence snapshots use one-shot full-tree queries without subscribing to
 	// page-controlled AX update floods.
-	if err := accessibility.Enable().Do(ctx); err != nil {
+	if _, err := chromedp.Call(ctx, accessibility.Enable, cdp.Empty{}); err != nil {
 		return ErrInspectionFailed
 	}
-	defer func() { _ = accessibility.Disable().Do(ctx) }()
+	defer func() { _, _ = chromedp.Call(ctx, accessibility.Disable, cdp.Empty{}) }()
 	backendID := targetNode.BackendDOMNodeID
 	// Re-query immediately before dispatch so a stale node cannot inherit the
 	// approved role/name after page mutation.
@@ -512,7 +474,7 @@ func clickFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, 
 	if rechecked.BackendDOMNodeID != backendID {
 		return ErrFlowTargetUnavailable
 	}
-	if err := dom.ScrollIntoViewIfNeeded().WithBackendNodeID(backendID).Do(ctx); err != nil {
+	if _, err := chromedp.Call(ctx, dom.ScrollIntoViewIfNeeded, dom.ScrollIntoViewIfNeededParams{BackendNodeID: backendID}); err != nil {
 		return ErrFlowTargetUnavailable
 	}
 	// Scrolling executes page-controlled handlers. Revalidate the exact
@@ -552,7 +514,7 @@ func clickFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, 
 	if err != nil {
 		return ErrFlowTargetUnavailable
 	}
-	if err := chromedp.MouseClickXY(x, y).Do(ctx); err != nil {
+	if err := chromedp.Do(ctx, chromedp.MouseClickXY(x, y)); err != nil {
 		return ErrInspectionFailed
 	}
 	timer := time.NewTimer(flowActionSettleDelay)
@@ -566,11 +528,11 @@ func clickFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, 
 }
 
 func flowSafeClickPoint(ctx context.Context, backendID cdp.BackendNodeID) (float64, float64, error) {
-	quads, err := dom.GetContentQuads().WithBackendNodeID(backendID).Do(ctx)
-	if err != nil || len(quads) == 0 {
+	quads, err := chromedp.Call(ctx, dom.GetContentQuads, dom.GetContentQuadsParams{BackendNodeID: backendID})
+	if err != nil || len(quads.Quads) == 0 {
 		return 0, 0, ErrFlowTargetUnavailable
 	}
-	x, y, ok := flowQuadCenter(quads)
+	x, y, ok := flowQuadCenter(quads.Quads)
 	if !ok {
 		return 0, 0, ErrFlowTargetUnavailable
 	}
@@ -578,12 +540,12 @@ func flowSafeClickPoint(ctx context.Context, backendID cdp.BackendNodeID) (float
 	if !ok {
 		return 0, 0, ErrFlowTargetUnavailable
 	}
-	hitBackendID, _, _, err := dom.GetNodeForLocation(int64(clickX), int64(clickY)).Do(ctx)
-	if err != nil || hitBackendID == 0 {
+	hit, err := chromedp.Call(ctx, dom.GetNodeForLocation, dom.GetNodeForLocationParams{X: int64(clickX), Y: int64(clickY)})
+	if err != nil || hit.BackendNodeID == 0 {
 		return 0, 0, ErrFlowTargetUnavailable
 	}
-	ancestry, err := accessibility.GetAXNodeAndAncestors().WithBackendNodeID(hitBackendID).Do(ctx)
-	if err != nil || !flowAXHitBelongsToApprovedTarget(ancestry, hitBackendID, backendID) {
+	ancestry, err := chromedp.Call(ctx, accessibility.GetAXNodeAndAncestors, accessibility.GetAXNodeAndAncestorsParams{BackendNodeID: hit.BackendNodeID})
+	if err != nil || !flowAXHitBelongsToApprovedTarget(ancestry.Nodes, hit.BackendNodeID, backendID) {
 		return 0, 0, ErrFlowTargetUnavailable
 	}
 	return clickX, clickY, nil
@@ -675,18 +637,11 @@ func accessibilityPropertyTrue(node *accessibility.Node, name accessibility.Prop
 }
 
 func ensureFlowNavigation(ctx context.Context, policy requestPolicy, result *FlowResult) error {
-	var (
-		index   int64
-		entries []*page.NavigationEntry
-	)
-	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		var err error
-		index, entries, err = page.GetNavigationHistory().Do(actionCtx)
-		return err
-	})); err != nil {
+	history, err := chromedp.Call(ctx, page.GetNavigationHistory, cdp.Empty{})
+	if err != nil {
 		return ErrInspectionFailed
 	}
-	finalURL, title, ok := currentNavigation(entries, index)
+	finalURL, title, ok := currentNavigation(history.Entries, history.CurrentIndex)
 	if !ok || !policy.allowsURL(finalURL) {
 		return ErrFlowPolicyViolation
 	}
@@ -699,31 +654,20 @@ func ensureFlowNavigation(ctx context.Context, policy requestPolicy, result *Flo
 }
 
 func collectFlowAccessibility(ctx context.Context, limit int) ([]AccessibilityNode, bool, error) {
-	var (
-		nodes      []AccessibilityNode
-		truncated  bool
-		collectErr error
-	)
-	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		nodes, truncated, collectErr = collectFlowAccessibilityDirect(actionCtx, limit)
-		return nil
-	})); err != nil {
-		return nil, false, err
-	}
-	return nodes, truncated, collectErr
+	return collectFlowAccessibilityDirect(ctx, limit)
 }
 
 func collectFlowAccessibilityDirect(ctx context.Context, limit int) ([]AccessibilityNode, bool, error) {
 	if limit <= 0 {
 		return nil, true, nil
 	}
-	nodes, err := accessibility.GetFullAXTree().Do(ctx)
+	snapshot, err := chromedp.Call(ctx, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
 	if err != nil {
 		return nil, false, err
 	}
 	out := make([]AccessibilityNode, 0, limit)
 	truncated := false
-	for _, node := range nodes {
+	for _, node := range snapshot.Nodes {
 		if node == nil {
 			continue
 		}

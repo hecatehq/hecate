@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/remote"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
@@ -36,6 +36,7 @@ const (
 var (
 	errBrowserProtocolMessageTooLarge = errors.New("browser protocol message exceeds limit")
 	errBrowserProtocolBudgetExceeded  = errors.New("browser protocol session budget exceeded")
+	errBrowserProtocolEventMalformed  = errors.New("browser protocol event is malformed")
 )
 
 // boundedChromiumProcess owns a manually launched Chromium process and a
@@ -247,6 +248,7 @@ func chromiumCommandArgs(profileDir, resolverRules string) []string {
 }
 
 type boundedCDPProxy struct {
+	events          browserProtocolEvents
 	listener        net.Listener
 	upstream        *boundedWebSocketConn
 	downstream      *boundedWebSocketConn
@@ -411,6 +413,13 @@ func (p *boundedCDPProxy) forward(label string, source, destination *boundedWebS
 			p.abortProcess()
 			return
 		}
+		if budget != nil {
+			if err := p.events.observe(payload); err != nil {
+				p.recordTerminalFailure(err)
+				p.abortProcess()
+				return
+			}
+		}
 		if err := destination.writeMessage(writeState, opcode, payload); err != nil {
 			p.recordTerminalFailure(err)
 			p.reportError(label, err)
@@ -456,6 +465,7 @@ func (p *boundedCDPProxy) recordTerminalFailure(err error) {
 func browserProtocolFailureMustPersist(err error) bool {
 	if errors.Is(err, errBrowserProtocolMessageTooLarge) ||
 		errors.Is(err, errBrowserProtocolBudgetExceeded) ||
+		errors.Is(err, errBrowserProtocolEventMalformed) ||
 		errors.Is(err, wsutil.ErrFrameTooLarge) ||
 		errors.Is(err, wsutil.ErrInvalidUTF8) {
 		return true
@@ -541,6 +551,6 @@ func boundedBrowserAllocator(ctx context.Context, process *boundedChromiumProces
 	if process == nil || process.websocketURL() == "" {
 		return nil, nil, fmt.Errorf("%w: browser process", ErrInspectionFailed)
 	}
-	allocatorCtx, cancel := chromedp.NewRemoteAllocator(ctx, process.websocketURL(), chromedp.NoModifyURL)
+	allocatorCtx, cancel := remote.NewAllocator(ctx, process.websocketURL(), remote.NoModifyURL, remote.WithDialTimeout(inspectionTimeRemaining(ctx)))
 	return allocatorCtx, cancel, nil
 }

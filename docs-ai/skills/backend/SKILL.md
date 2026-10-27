@@ -212,6 +212,13 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   deadline; do not add an independent shorter startup cap, reset the deadline
   after preflight, or retry failed launches automatically. Preserve process
   teardown and temporary-profile cleanup when startup is cancelled.
+  Update `chromedp` and `cdproto` as a compatible pair. Security event
+  observation stays synchronous inside the bounded DevTools relay, before
+  forwarding to the client; do not substitute asynchronous event iterators.
+  Preserve exact-session dispatch, fail-closed malformed events, bounded
+  request admission, and listener drain before terminal evidence. An observer
+  may kill the browser process unit but must not wait for its own relay
+  goroutine; the owning call joins transport and process cleanup.
 - **Cost is in micro-USD when present.** Money fields stay `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money. The gateway records usage events for visibility; it does not enforce global spend controls.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
 - **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
