@@ -30,9 +30,6 @@ type StoreFactory func(t *testing.T) Store
 // assertion) stay as standalone tests in their backend's _test.go.
 func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 	t.Helper()
-	t.Run(name+"/RunSteering", func(t *testing.T) {
-		runSteeringConformance(t, factory)
-	})
 	t.Run(name+"/TaskRunStepRoundTrip", func(t *testing.T) {
 		t.Parallel()
 		runStoreTaskRunStepRoundTrip(t, factory(t))
@@ -172,6 +169,9 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 	t.Run(name+"/WakesOnRunScopedMutations", func(t *testing.T) {
 		t.Parallel()
 		runStoreWakesOnRunScopedMutations(t, factory(t))
+	})
+	t.Run(name+"/RunSteering", func(t *testing.T) {
+		runSteeringConformance(t, factory)
 	})
 }
 
