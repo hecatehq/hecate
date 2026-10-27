@@ -1241,6 +1241,16 @@ export function TaskDetail({
                 [
                   ["Model", run.model || "—"],
                   ["Duration", formatDurationRange(run.started_at, run.finished_at) || "—"],
+                  ...(task.workspace_skills?.length
+                    ? [
+                        [
+                          "Workspace skills",
+                          task.workspace_skills
+                            .map((skill) => `${skill.name} · ${skill.sha256.slice(0, 8)}`)
+                            .join(", "),
+                        ],
+                      ]
+                    : []),
                   ...(run.orchestrator === "agent_loop" || task.execution_kind === "agent_loop"
                     ? [["Model calls", String(run.model_call_count)]]
                     : []),

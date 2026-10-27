@@ -106,6 +106,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		Prompt:             cmd.Prompt,
 		ProjectID:          cmd.Session.ProjectID,
 		SystemPrompt:       strings.TrimSpace(cmd.SystemPrompt),
+		WorkspaceSkills:    append([]types.WorkspaceSkillSnapshot(nil), cmd.Session.WorkspaceSkills...),
 		ExecutionKind:      "agent_loop",
 		ExecutionProfile:   hecateChatExecutionProfile(cmd.Session),
 		OriginKind:         "chat",

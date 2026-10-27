@@ -299,6 +299,7 @@ func (h *Handler) contextPacketForStrictEmbeddedCairnlineRuntimeAssignment(ctx c
 
 func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
+	appendWorkspaceSkillContext(&packet, session.WorkspaceSkills)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	packet.ExecutionProfile = hecateChatExecutionProfile(session)
@@ -401,6 +402,7 @@ func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Sess
 
 func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string, forceNewTask bool) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
+	appendWorkspaceSkillContext(&packet, session.WorkspaceSkills)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	packet.ExecutionProfile = hecateChatExecutionProfile(session)

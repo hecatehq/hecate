@@ -44,6 +44,7 @@ type Session struct {
 	// skills and external-agent options are deliberately
 	// outside this small Chat contract.
 	AgentPreset       *AgentPresetSnapshot
+	WorkspaceSkills   []types.WorkspaceSkillSnapshot
 	ConfigOptions     []agentcontrols.ConfigOption
 	AvailableCommands []agentcontrols.Command
 	// AvailableCommandsAuthoritative records that an ACP peer has published a
@@ -803,6 +804,7 @@ func (s *MemoryStore) removeWorkspaceOwnerIDLocked(id string) {
 }
 
 func cloneSession(session Session) Session {
+	session.WorkspaceSkills = append([]types.WorkspaceSkillSnapshot(nil), session.WorkspaceSkills...)
 	session.AgentPreset = cloneAgentPresetSnapshot(session.AgentPreset)
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.AvailableCommands = cloneCommands(session.AvailableCommands)

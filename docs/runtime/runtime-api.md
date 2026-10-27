@@ -5255,6 +5255,54 @@ GET /hecate/v1/chat/sessions
 }
 ```
 
+### `POST /hecate/v1/workspace-skills`
+
+Inspects a local workspace's supported `SKILL.md` files without changing a
+registry or activating instructions. This local-only route accepts
+`{"workspace":"/absolute/workspace"}` and returns
+`{"object":"workspace_skills","data":[{"path":".agents/skills/review/SKILL.md","name":"review","sha256":"<64 lowercase hex characters>","bytes":1024}]}`.
+The response is private/no-store and never contains skill bodies. Invalid or
+unreadable workspaces and catalogs exceeding 128 entries return
+`400 invalid_request`.
+
+Supported roots are `.agents/skills`, `.hecate/skills`, `.cairnline/skills`,
+`.claude/skills`, `.gemini/skills`, and `docs-ai/skills`; only their direct
+`<name>/SKILL.md` children are eligible. Files must be nonempty UTF-8 text, at
+most 64 KiB each. Unsafe paths, symlinks, and binary files are not offered.
+
+`POST /hecate/v1/chat/sessions` for `agent_id="hecate"` and
+`POST /hecate/v1/tasks` for standard native `agent_loop` execution accept the
+independent optional field:
+
+```json
+{
+  "workspace_skills": [
+    { "path": ".agents/skills/review/SKILL.md", "sha256": "<catalog fingerprint>" }
+  ]
+}
+```
+
+Supply `workspace` for Chat or `working_directory` for a Task. Up to four
+distinct files and 128 KiB combined are accepted. Creation performs stable,
+workspace-confined reads and rejects stale fingerprints, missing files, invalid
+paths, excess bounds, QA/non-agent-loop Tasks, and External Agent sessions with
+`400 invalid_request`. Clients submit paths and hashes, never instruction
+bodies or permission snapshots. Successful Chat and Task responses expose only
+the frozen metadata array (`path`, `name`, `sha256`, `bytes`) in
+`workspace_skills`; update routes cannot change it.
+For an explicit Task skill selection, an omitted `execution_kind` is normalized
+to `agent_loop`, so the instructions cannot be accepted by a non-native fallback.
+
+Hecate persists the exact bytes in private Chat/Task runtime storage so later
+turns, restarts, retries, and continuations use the creation-time version. It
+injects those bytes only into transient model requests and omits them from API
+renderers, Context Inspector packets, traces, and conversation checkpoint/review
+artifacts. The chosen model provider receives the instructions. Normal runtime
+storage access, backup, and retention rules apply; the bodies are not separately
+encrypted. Model output may quote supplied instructions. This mechanism does
+not resolve role/preset `skill_ids`, alter Cairnline metadata, install anything,
+autoload references, execute scripts, or grant permissions.
+
 ### `POST /hecate/v1/chat/sessions`
 
 Creates a chat session. `agent_id` chooses the session owner:
@@ -5266,6 +5314,10 @@ Creates a chat session. `agent_id` chooses the session owner:
 - Any registered external-agent id, such as `codex`, `claude_code`,
   `cursor_agent`, or `grok_build`, creates an External Agent chat and requires
   `workspace`.
+
+Native Chat creation also accepts explicit `workspace_skills` as described
+above. External Agent sessions reject that field; their native skill loading
+is unchanged.
 
 Hecate Chat sessions may be created as empty shells before a model or workspace
 is chosen. Hecate validates the selected model when the first message is sent.
@@ -6524,7 +6576,7 @@ Section values currently used by the runtime are:
 
 - `profile` for resolved Hecate Agent Preset metadata and preset-resolution warnings
 - `instructions` for system-prompt, prompt-context, and instruction-layer metadata
-- `skills` for resolved, skipped, or chat-visible project skill metadata; `SKILL.md` bodies are not included
+- `skills` for resolved, skipped, or chat-visible project skill metadata and explicitly activated workspace-skill fingerprints; `SKILL.md` bodies are not included
 - `memory` for project memory entries
 - `workspace` for the selected workspace path
 - `project` for project identity metadata

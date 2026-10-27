@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "../../app/state/chat";
-import { getAgentPresets } from "../../lib/api";
+import { getAgentPresets, getWorkspaceSkills } from "../../lib/api";
 import {
   queuedChatDeletedSessionStorageKey,
   queuedChatMessageStorageKey,
@@ -19,6 +19,7 @@ import type { ChatAgentOptionID } from "./ChatAgentControls";
 
 vi.mock("../../lib/api", () => ({
   getAgentPresets: vi.fn(),
+  getWorkspaceSkills: vi.fn(),
 }));
 
 const mockedGetAgentPresets = vi.mocked(getAgentPresets);
@@ -53,10 +54,43 @@ describe("ChatSidebar new-chat creation", () => {
   beforeEach(() => {
     window.localStorage.clear();
     mockedGetAgentPresets.mockReset();
+    vi.mocked(getWorkspaceSkills).mockReset();
   });
   afterEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
+  });
+  it("passes only explicitly selected workspace skill fingerprints to new native chat creation", async () => {
+    const skill = {
+      path: ".agents/skills/review/SKILL.md",
+      name: "review",
+      sha256: "a".repeat(64),
+      bytes: 42,
+    };
+    vi.mocked(getWorkspaceSkills).mockResolvedValue({ object: "workspace_skills", data: [skill] });
+    const onCreateChat = vi.fn();
+    render(
+      withRuntimeConsole(
+        <ChatSidebar
+          isAgentChat
+          onSelectSession={async () => true}
+          onCreateChat={onCreateChat}
+          onChooseWorkspace={() => undefined}
+          onOpenAgentSetup={() => undefined}
+        />,
+        {
+          state: createRuntimeConsoleFixture({ agentWorkspace: "/workspace" }),
+          actions: createRuntimeConsoleActions(),
+        },
+      ),
+    );
+    expect(getWorkspaceSkills).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose skills" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New Hecate chat" }));
+    expect(onCreateChat).toHaveBeenCalledWith("hecate", "", "", [
+      { path: skill.path, sha256: skill.sha256 },
+    ]);
   });
   it("atomically ignores a second same-tick creation intent before deselecting", () => {
     const onCreateChat = vi.fn();

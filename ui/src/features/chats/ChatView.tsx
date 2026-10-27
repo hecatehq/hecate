@@ -1440,14 +1440,14 @@ export function ChatView({
             textareaRef.current?.focus();
             return true;
           }}
-          onCreateChat={(agentID, projectID, agentPresetID) => {
+          onCreateChat={(agentID, projectID, agentPresetID, workspaceSkills) => {
             if (blockForWorkspaceDiscard()) return;
             createdChatNavigationPendingRef.current = true;
             setApprovalModal(null);
             setChatSettingsOpen(false);
             setDraftChatStarted(true);
             focusComposerWhenReady();
-            void actions.createChatSession({ agentID, projectID, agentPresetID });
+            void actions.createChatSession({ agentID, projectID, agentPresetID, workspaceSkills });
           }}
           onChooseWorkspace={() => void chooseWorkspace()}
           closeButtonRef={sidebarCloseButtonRef}
@@ -1871,6 +1871,9 @@ export function ChatView({
                   toolsEnabled={isHecateChat && hecateChatToolsEnabled}
                   toolsDisabledForModel={hecateAgentToolsDisabledForModel}
                   agentPreset={isHecateChat ? state.activeChatSession?.agent_preset : undefined}
+                  workspaceSkills={
+                    isHecateChat ? state.activeChatSession?.workspace_skills : undefined
+                  }
                   browserEvidenceReadiness={settings.state.config?.browser_evidence}
                   rtkEnabled={Boolean(state.hecateRTKEnabled)}
                   rtkAvailable={Boolean(state.hecateRTKAvailable)}

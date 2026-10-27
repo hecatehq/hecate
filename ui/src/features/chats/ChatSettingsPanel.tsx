@@ -21,6 +21,7 @@ export function ChatSettingsPanel({
   toolsEnabled,
   toolsDisabledForModel,
   agentPreset,
+  workspaceSkills,
   browserEvidenceReadiness,
   rtkEnabled,
   rtkAvailable,
@@ -57,6 +58,7 @@ export function ChatSettingsPanel({
   toolsEnabled: boolean;
   toolsDisabledForModel: boolean;
   agentPreset?: ChatAgentPresetSnapshotRecord;
+  workspaceSkills?: import("../../types/workspace-skill").WorkspaceSkillInfo[];
   browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
   rtkEnabled: boolean;
   rtkAvailable: boolean;
@@ -157,6 +159,21 @@ export function ChatSettingsPanel({
                 browserEvidenceReadiness={browserEvidenceReadiness}
               />
             </ChatSettingsSection>
+            {Boolean(workspaceSkills?.length) && (
+              <ChatSettingsSection title="Workspace skills">
+                <p className="field-hint">
+                  Frozen when this chat was created. Instructions do not grant extra permissions.
+                </p>
+                <ul>
+                  {workspaceSkills?.map((skill) => (
+                    <li key={skill.path} style={{ overflowWrap: "anywhere" }}>
+                      {skill.name} · {skill.sha256.slice(0, 8)}
+                      <span style={{ display: "block", fontSize: 11 }}>{skill.path}</span>
+                    </li>
+                  ))}
+                </ul>
+              </ChatSettingsSection>
+            )}
             <ChatSettingsSection title="Command output">
               <ChatSettingsRTKRow
                 available={rtkAvailable}
