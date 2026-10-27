@@ -30,6 +30,16 @@ describe("browserAllowedOriginsValidationError", () => {
 });
 
 describe("browser capability preset mapping", () => {
+  it("requires a separate text-entry grant and clears it without interaction", () => {
+    const form = emptyAgentPresetForm();
+    form.browserInteractionsAllowed = true;
+    form.browserAllowedOrigins = "https://app.example.test";
+    expect(presetUpdatePayloadFromForm(form).browser_text_entry_allowed).toBe(false);
+    form.browserTextEntryAllowed = true;
+    expect(presetUpdatePayloadFromForm(form).browser_text_entry_allowed).toBe(true);
+    form.browserInteractionsAllowed = false;
+    expect(presetUpdatePayloadFromForm(form).browser_text_entry_allowed).toBe(false);
+  });
   it("keeps origins while either independent browser grant is enabled", () => {
     const form = emptyAgentPresetForm();
     form.browserInteractionsAllowed = true;

@@ -113,22 +113,37 @@ func TestHecateChatBrowserChromiumSmokeE2E(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>Chat browser smoke</title></head><body>
 <h1>Chat browser evidence</h1>
-<button aria-label="Continue" onclick="scriptReady.then(() => { document.title='Chat flow complete'; document.getElementById('ready').hidden=false; })">Continue</button>
+<input aria-label="Display name" id="name">
+<button aria-label="Continue" onclick="scriptReady.then(() => { if (document.getElementById('name').value === 'Example name') { document.title='Chat flow complete'; document.getElementById('ready').hidden=false; } })">Continue</button>
 <div id="ready" role="status" aria-label="Ready" hidden>Ready</div>
 <script>const scriptReady = fetch('/script-ran');</script></body></html>`)
 	}))
 	t.Cleanup(site.Close)
 	calls := []e2eBrowserCall{
 		{"browser_inspect", fmt.Sprintf(`{"url":%q}`, site.URL+"/")},
-		{"browser_flow", fmt.Sprintf(`{"url":%q,"actions":[{"kind":"click","role":"button","name":"Continue"},{"kind":"wait_for","role":"status","name":"Ready"}]}`, site.URL+"/")},
+		{"browser_flow", fmt.Sprintf(`{"url":%q,"actions":[{"kind":"fill_text","role":"textbox","name":"Display name","text":"Example name"},{"kind":"click","role":"button","name":"Continue"},{"kind":"wait_for","role":"status","name":"Ready"}]}`, site.URL+"/")},
 	}
 	upstream, captured := fakeChatBrowserUpstream(t, calls)
-	baseURL, created := createE2EBrowserChat(t, upstream, executable, "", site.URL, "allow")
+	baseURL, created := createE2EBrowserChat(t, upstream, executable, "", site.URL, "allow", true)
+	if !created.Data.AgentPreset.BrowserTextEntryAllowed {
+		t.Fatal("Chat did not freeze the explicit text-entry grant")
+	}
+	updateE2EBrowserPreset(t, baseURL, `{"browser_text_entry_allowed":false}`)
 	assertE2EBrowserReadiness(t, baseURL, nil, "configured", true, executable)
 	settled := postE2EBrowserMessage(t, baseURL, created.Data.ID)
 	linked := waitForE2EChatTaskLink(t, baseURL, created.Data.ID, e2eChatWorkPolicyResponse{}, 10*time.Second)
 	for index := range calls {
 		approval := waitForE2EBrowserApproval(t, baseURL, linked.Data.TaskID)
+		if index == 1 {
+			detail := getJSON[struct {
+				Data struct {
+					Reason string `json:"reason"`
+				} `json:"data"`
+			}](t, baseURL+"/hecate/v1/tasks/"+linked.Data.TaskID+"/approvals/"+approval.ID)
+			if !strings.Contains(detail.Data.Reason, `text="Example name"`) {
+				t.Fatalf("text-entry approval omitted the exact value: %q", detail.Data.Reason)
+			}
+		}
 		if got := pageLoads.Load(); got != int32(index) {
 			t.Fatalf("page loads before approval %d = %d, want %d", index+1, got, index)
 		}
@@ -152,6 +167,9 @@ func TestHecateChatBrowserChromiumSmokeE2E(t *testing.T) {
 	if !strings.Contains(evidence["browser_evidence"], "Chat browser evidence") || !strings.Contains(evidence["browser_flow_evidence"], "Chat flow complete") || !strings.Contains(evidence["browser_flow_evidence"], `wait_for role="status" name="Ready": completed`) {
 		t.Fatalf("missing complete browser evidence: %+v", evidence)
 	}
+	if strings.Contains(evidence["browser_flow_evidence"], "Example name") {
+		t.Fatal("browser evidence duplicated the form value")
+	}
 	bodies := capturedBodies(captured)
 	if len(bodies) != 4 {
 		t.Fatalf("upstream calls=%d, want probe plus three Chat calls", len(bodies))
@@ -170,6 +188,7 @@ type e2eChatBrowserResponse struct {
 			ApprovalPolicy             string   `json:"approval_policy"`
 			BrowserAllowed             bool     `json:"browser_allowed"`
 			BrowserInteractionsAllowed bool     `json:"browser_interactions_allowed"`
+			BrowserTextEntryAllowed    bool     `json:"browser_text_entry_allowed"`
 			BrowserAllowedOrigins      []string `json:"browser_allowed_origins"`
 		} `json:"agent_preset"`
 		Messages []struct {
@@ -235,7 +254,7 @@ func assertE2EBrowserChatArtifactProvenance(t *testing.T, baseURL, sessionID, ta
 	}
 }
 
-func createE2EBrowserChat(t *testing.T, upstream, executable, marker, origin, approvalPolicy string) (string, e2eChatBrowserResponse) {
+func createE2EBrowserChat(t *testing.T, upstream, executable, marker, origin, approvalPolicy string, textEntry ...bool) (string, e2eChatBrowserResponse) {
 	t.Helper()
 	workspace, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -248,7 +267,8 @@ func createE2EBrowserChat(t *testing.T, upstream, executable, marker, origin, ap
 		"PROVIDER_FAKE_API_KEY=dummy", "PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_KIND=local", "PROVIDER_FAKE_MODELS="+agentLoopE2EModel,
 	)
-	postJSONDecodeStatus[e2eAgentPresetResponse](t, baseURL+"/hecate/v1/agent-presets", fmt.Sprintf(`{"id":"chat_browser","name":"Chat browser","surface":"hecate_chat","tools_enabled":true,"writes_allowed":true,"network_allowed":false,"approval_policy":%q,"browser_allowed":true,"browser_interactions_allowed":true,"browser_allowed_origins":[%q]}`, approvalPolicy, origin), http.StatusCreated)
+	textAllowed := len(textEntry) > 0 && textEntry[0]
+	postJSONDecodeStatus[e2eAgentPresetResponse](t, baseURL+"/hecate/v1/agent-presets", fmt.Sprintf(`{"id":"chat_browser","name":"Chat browser","surface":"hecate_chat","tools_enabled":true,"writes_allowed":true,"network_allowed":false,"approval_policy":%q,"browser_allowed":true,"browser_interactions_allowed":true,"browser_text_entry_allowed":%t,"browser_allowed_origins":[%q]}`, approvalPolicy, textAllowed, origin), http.StatusCreated)
 	probe := postJSONDecode[e2eModelToolProbeResponse](t, baseURL+"/hecate/v1/model-capabilities/tool-probes", fmt.Sprintf(`{"provider":"fake","model":%q}`, agentLoopE2EModel))
 	if probe.Data.Verification == nil || probe.Data.Verification.Status != "supported" {
 		t.Fatalf("tool verification=%+v", probe.Data.Verification)

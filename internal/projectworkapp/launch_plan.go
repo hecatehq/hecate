@@ -101,6 +101,7 @@ type ResolvedAgentProfile struct {
 	NetworkAllowed             bool
 	BrowserAllowed             bool
 	BrowserInteractionsAllowed bool
+	BrowserTextEntryAllowed    bool
 	BrowserAllowedOrigins      []string
 	ApprovalPolicy             string
 	ProjectMemoryPolicy        string
@@ -331,6 +332,7 @@ func resolvedProfileFromStore(profile agentprofiles.Profile, source string) Reso
 		NetworkAllowed:             profile.NetworkAllowed,
 		BrowserAllowed:             profile.BrowserAllowed,
 		BrowserInteractionsAllowed: profile.BrowserInteractionsAllowed,
+		BrowserTextEntryAllowed:    profile.BrowserTextEntryAllowed,
 		BrowserAllowedOrigins:      append([]string(nil), profile.BrowserAllowedOrigins...),
 		ApprovalPolicy:             profile.ApprovalPolicy,
 		ProjectMemoryPolicy:        profile.ProjectMemoryPolicy,
@@ -450,6 +452,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 	toolsEnabled := plan.Profile.ToolsEnabled
 	browserAllowed := plan.Profile.BrowserAllowed
 	browserInteractionsAllowed := plan.Profile.BrowserInteractionsAllowed
+	browserTextEntryAllowed := plan.Profile.BrowserTextEntryAllowed
 	approvalPolicy := strings.TrimSpace(plan.Profile.ApprovalPolicy)
 	if approvalPolicy == "" {
 		approvalPolicy = agentprofiles.ApprovalInherit
@@ -466,6 +469,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		AgentPresetApprovalPolicy:             approvalPolicy,
 		AgentPresetBrowserAllowed:             &browserAllowed,
 		AgentPresetBrowserInteractionsAllowed: &browserInteractionsAllowed,
+		AgentPresetBrowserTextEntryAllowed:    &browserTextEntryAllowed,
 		AgentPresetBrowserAllowedOrigins:      append([]string(nil), plan.Profile.BrowserAllowedOrigins...),
 		SystemPrompt:                          AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
 		WorkspaceSystemPromptPolicy:           types.WorkspaceSystemPromptExclude,

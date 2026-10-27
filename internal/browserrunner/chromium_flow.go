@@ -412,6 +412,9 @@ func runFlowAction(ctx context.Context, action FlowAction, beforeFinalClickHitTe
 			if action.Kind == FlowActionWaitFor {
 				return nil
 			}
+			if action.Kind == FlowActionFillText {
+				return fillFlowAccessibilityTarget(waitCtx, action, node)
+			}
 			return clickFlowAccessibilityTarget(waitCtx, action, node, beforeFinalClickHitTest)
 		}
 		if !errors.Is(err, ErrFlowTargetNotFound) {
@@ -470,7 +473,7 @@ func exactFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction) 
 		return nil, ErrFlowTargetAmbiguous
 	}
 	for _, node := range byBackend {
-		if action.Kind == FlowActionClick && (accessibilityPropertyTrue(node, accessibility.PropertyNameDisabled) || !accessibilityPropertyTrue(node, accessibility.PropertyNameFocusable)) {
+		if action.Kind != FlowActionWaitFor && (accessibilityPropertyTrue(node, accessibility.PropertyNameDisabled) || !accessibilityPropertyTrue(node, accessibility.PropertyNameFocusable)) {
 			return nil, ErrFlowTargetUnavailable
 		}
 		return node, nil
@@ -721,10 +724,20 @@ func collectFlowAccessibilityDirect(ctx context.Context, limit int) ([]Accessibi
 	if err != nil {
 		return nil, false, err
 	}
+	return flowAccessibilityEvidence(nodes, limit)
+}
+
+func flowAccessibilityEvidence(nodes []*accessibility.Node, limit int) ([]AccessibilityNode, bool, error) {
+	byID := make(map[accessibility.NodeID]*accessibility.Node, len(nodes))
+	for _, node := range nodes {
+		if node != nil {
+			byID[node.NodeID] = node
+		}
+	}
 	out := make([]AccessibilityNode, 0, limit)
 	truncated := false
 	for _, node := range nodes {
-		if node == nil {
+		if node == nil || flowAccessibilityInsideValueControl(node, byID) {
 			continue
 		}
 		if !node.Ignored {
@@ -743,6 +756,28 @@ func collectFlowAccessibilityDirect(ctx context.Context, limit int) ([]Accessibi
 		}
 	}
 	return out, truncated, nil
+}
+
+func flowAccessibilityInsideValueControl(node *accessibility.Node, byID map[accessibility.NodeID]*accessibility.Node) bool {
+	// AX trees can expose a field's value through descendant StaticText even
+	// when its Value property is omitted. Retain the control's label, not that
+	// descendant subtree. Ordinary page text may still echo input; this is not DLP.
+	parentID := node.ParentID
+	for count := 0; parentID != ""; count++ {
+		if count >= len(byID) || count >= 128 {
+			return true
+		}
+		parent := byID[parentID]
+		if parent == nil {
+			return true
+		}
+		switch accessibilityValue(parent.Role) {
+		case "textbox", "searchbox", "combobox", "spinbutton", "slider":
+			return true
+		}
+		parentID = parent.ParentID
+	}
+	return false
 }
 
 func flowActionErrorKind(err error) string {

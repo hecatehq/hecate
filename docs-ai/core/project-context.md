@@ -180,7 +180,14 @@ otherwise-available browser calls unusable; launch readiness must warn about
 that effective posture. A flow runs 1–6 fully declared exact accessibility
 click/wait actions with scripts enabled; same-origin `GET`/`HEAD` requests and
 clicks may change the application, and a failure retains partial action audit.
-There is no typing, upload, download, screenshot, authentication import,
+The separate immutable `browser_text_entry_allowed` grant adds non-secret
+`fill_text` on exact ordinary native text/search fields or textareas, bounded
+to 1024 UTF-8 bytes and exact-value approval. Legacy interaction grants never
+enable it. Text reaches page scripts and normal tool-call history; this is not
+secret detection. A fixed isolated-world node setter emits input/change events,
+not Enter or submit commands. Direct value descendants are omitted from evidence,
+but page-controlled echoes are not DLP-filtered.
+There is no secret entry, upload, download, screenshot, authentication import,
 retained state, External Agent, QA, or remote-runtime surface. Eligible tools-on
 Hecate Chats use the same tools through their frozen policy-backed Tasks. One
 timeout spans preflight, startup, and the call; Hecate cancels after observing

@@ -681,6 +681,7 @@ export type ProjectAssignmentLaunchProfilePostureRecord = {
     | "not_applicable"
     | (string & {});
   browser_interactions_allowed: boolean;
+  browser_text_entry_allowed?: boolean;
   browser_allowed_origins?: string[];
   browser_runtime_readiness?: BrowserEvidenceRuntimeReadiness;
   approval_policy?: string;

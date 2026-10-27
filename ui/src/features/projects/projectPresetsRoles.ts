@@ -20,6 +20,7 @@ export type AgentPresetForm = {
   networkAllowed: boolean;
   browserAllowed: boolean;
   browserInteractionsAllowed: boolean;
+  browserTextEntryAllowed: boolean;
   browserAllowedOrigins: string;
   approvalPolicy: string;
   projectMemoryPolicy: string;
@@ -69,6 +70,7 @@ export function emptyAgentPresetForm(): AgentPresetForm {
     networkAllowed: false,
     browserAllowed: false,
     browserInteractionsAllowed: false,
+    browserTextEntryAllowed: false,
     browserAllowedOrigins: "",
     approvalPolicy: "inherit",
     projectMemoryPolicy: "inherit",
@@ -97,6 +99,8 @@ export function presetFormFromRecord(preset: AgentPresetRecord): AgentPresetForm
     networkAllowed: preset.network_allowed,
     browserAllowed,
     browserInteractionsAllowed,
+    browserTextEntryAllowed:
+      browserInteractionsAllowed && preset.browser_text_entry_allowed === true,
     browserAllowedOrigins:
       browserAllowed || browserInteractionsAllowed
         ? (preset.browser_allowed_origins ?? []).join("\n")
@@ -134,6 +138,7 @@ export function presetUpdatePayloadFromForm(form: AgentPresetForm): UpdateAgentP
     network_allowed: form.networkAllowed,
     browser_allowed: browserAllowed,
     browser_interactions_allowed: browserInteractionsAllowed,
+    browser_text_entry_allowed: browserInteractionsAllowed && form.browserTextEntryAllowed,
     browser_allowed_origins:
       browserAllowed || browserInteractionsAllowed
         ? splitBrowserOrigins(form.browserAllowedOrigins)

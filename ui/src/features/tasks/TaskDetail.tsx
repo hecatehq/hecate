@@ -1287,6 +1287,13 @@ export function TaskDetail({
                               ]
                             : []),
                           ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
+                          [
+                            "Browser text entry",
+                            task.agent_preset_browser_interactions_allowed &&
+                            task.agent_preset_browser_text_entry_allowed
+                              ? "Non-secret text only · exact text approved per flow"
+                              : "Disabled",
+                          ],
                           ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
                         ]
                       : []),

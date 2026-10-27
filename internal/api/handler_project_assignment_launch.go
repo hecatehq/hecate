@@ -84,6 +84,7 @@ type ProjectAssignmentLaunchProfilePostureResponseItem struct {
 	BrowserAllowed             bool                                     `json:"browser_allowed"`
 	BrowserInteractionStatus   string                                   `json:"browser_interaction_status"`
 	BrowserInteractionsAllowed bool                                     `json:"browser_interactions_allowed"`
+	BrowserTextEntryAllowed    bool                                     `json:"browser_text_entry_allowed"`
 	BrowserAllowedOrigins      []string                                 `json:"browser_allowed_origins,omitempty"`
 	BrowserRuntimeReadiness    *BrowserEvidenceRuntimeReadinessResponse `json:"browser_runtime_readiness,omitempty"`
 	ApprovalPolicy             string                                   `json:"approval_policy,omitempty"`
@@ -617,6 +618,7 @@ func renderProjectAssignmentLaunchProfilePosture(profile projectworkapp.Resolved
 	item.BrowserInteractionStatus = projectAssignmentBrowserInteractionStatusDisabled
 	item.BrowserAllowed = profile.BrowserAllowed
 	item.BrowserInteractionsAllowed = profile.BrowserInteractionsAllowed
+	item.BrowserTextEntryAllowed = profile.BrowserTextEntryAllowed
 	if profile.BrowserAllowed || profile.BrowserInteractionsAllowed {
 		item.BrowserAllowedOrigins = append([]string(nil), profile.BrowserAllowedOrigins...)
 		runtimeReadiness := normalizedProjectAssignmentBrowserRuntimeReadiness(browserRuntime)

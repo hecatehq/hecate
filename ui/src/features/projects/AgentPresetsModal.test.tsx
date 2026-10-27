@@ -64,6 +64,34 @@ function role(overrides: Partial<ProjectWorkRoleRecord> = {}): ProjectWorkRoleRe
 }
 
 describe("AgentPresetsModal", () => {
+  it("requires explicit text-entry selection and clears it with browser interaction", async () => {
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+    const textEntry = screen.getByRole("checkbox", { name: "Allow non-secret browser text entry" });
+    expect(textEntry).toBeDisabled();
+    expect(textEntry).not.toBeChecked();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Allow browser interaction" }));
+    expect(textEntry).toBeEnabled();
+    expect(textEntry).not.toBeChecked();
+    await userEvent.click(textEntry);
+    expect(textEntry).toBeChecked();
+    expect(textEntry).toHaveAccessibleDescription(/exact field and text/);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Allow browser interaction" }));
+    expect(textEntry).not.toBeChecked();
+    expect(textEntry).toBeDisabled();
+  });
   it("creates a preset with selected project skills", async () => {
     const onCreate = vi.fn(async (form) => preset({ id: form.id, name: form.name }));
 

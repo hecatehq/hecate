@@ -24,6 +24,7 @@ export type ChatAgentPresetSnapshotRecord = {
   // snapshotted. Missing legacy values are not grants.
   browser_allowed?: boolean;
   browser_interactions_allowed?: boolean;
+  browser_text_entry_allowed?: boolean;
   browser_allowed_origins?: string[];
   // Optional only for sessions created before Chat approval posture was
   // snapshotted. New sessions always return an explicit value.

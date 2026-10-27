@@ -268,6 +268,7 @@ func TestTaskApplication_CreateTaskFreezesStandaloneAgentPreset(t *testing.T) {
 		NetworkAllowed:             true,
 		BrowserAllowed:             true,
 		BrowserInteractionsAllowed: true,
+		BrowserTextEntryAllowed:    true,
 		BrowserAllowedOrigins:      []string{"https://app.example.test"},
 		ApprovalPolicy:             agentprofiles.ApprovalBlock,
 	})
@@ -305,6 +306,9 @@ func TestTaskApplication_CreateTaskFreezesStandaloneAgentPreset(t *testing.T) {
 	}
 	if task.AgentPresetApprovalPolicy != agentprofiles.ApprovalBlock || task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || task.AgentPresetBrowserInteractionsAllowed == nil || !*task.AgentPresetBrowserInteractionsAllowed {
 		t.Fatalf("approval/browser snapshot = approval %q browser %v interactions %v", task.AgentPresetApprovalPolicy, task.AgentPresetBrowserAllowed, task.AgentPresetBrowserInteractionsAllowed)
+	}
+	if task.AgentPresetBrowserTextEntryAllowed == nil || !*task.AgentPresetBrowserTextEntryAllowed {
+		t.Fatal("standalone task omitted explicit text-entry grant")
 	}
 	if len(task.AgentPresetBrowserAllowedOrigins) != 1 || task.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" {
 		t.Fatalf("browser origins = %v", task.AgentPresetBrowserAllowedOrigins)

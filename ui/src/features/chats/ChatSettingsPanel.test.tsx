@@ -180,7 +180,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
 
     expect(screen.getByText("Runtime default (legacy chat)")).toBeTruthy();
     const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
-    expect(within(browserSummary).getAllByText("Disabled (legacy snapshot)")).toHaveLength(2);
+    expect(within(browserSummary).getAllByText("Disabled (legacy snapshot)")).toHaveLength(3);
   });
 
   it("shows frozen Chat browser grants, exact origins, approval, and runtime posture", () => {
@@ -242,7 +242,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
 
     expect(screen.getByText("Default Hecate Chat")).toBeTruthy();
     const browserSummary = screen.getByRole("group", { name: "Browser permissions" });
-    expect(within(browserSummary).getAllByText("Disabled (no Work policy)")).toHaveLength(2);
+    expect(within(browserSummary).getAllByText("Disabled (no Work policy)")).toHaveLength(3);
     expect(screen.getByText(/No Work policy was frozen with this chat/i)).toBeTruthy();
   });
 

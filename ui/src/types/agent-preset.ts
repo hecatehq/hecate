@@ -16,6 +16,7 @@ export type AgentPresetRecord = {
   // these capabilities.
   browser_allowed?: boolean;
   browser_interactions_allowed: boolean;
+  browser_text_entry_allowed?: boolean;
   browser_allowed_origins?: string[];
   approval_policy: "inherit" | "require" | "block" | "allow" | string;
   project_memory_policy: "inherit" | "include" | "visible_only" | "exclude" | string;
@@ -52,6 +53,7 @@ export type CreateAgentPresetPayload = {
   network_allowed?: boolean;
   browser_allowed?: boolean;
   browser_interactions_allowed?: boolean;
+  browser_text_entry_allowed?: boolean;
   browser_allowed_origins?: string[];
   approval_policy?: string;
   project_memory_policy?: string;

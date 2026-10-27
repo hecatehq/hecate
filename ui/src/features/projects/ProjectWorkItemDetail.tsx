@@ -2399,6 +2399,14 @@ function assignmentLaunchPostureRows(
   const browserInteraction = assignmentLaunchBrowserInteractionPosture(readiness);
   if (browserInteraction) {
     rows.push({ label: "Browser interaction", value: browserInteraction });
+    rows.push({
+      label: "Browser text entry",
+      value:
+        readiness.profile_posture?.browser_interactions_allowed &&
+        readiness.profile_posture.browser_text_entry_allowed
+          ? "Non-secret text only · exact text approved per flow"
+          : "Disabled",
+    });
   }
   if (
     readiness.driver_kind === "external_agent" ||

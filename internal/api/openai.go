@@ -326,6 +326,7 @@ type AgentPresetResponseItem struct {
 	NetworkAllowed             bool              `json:"network_allowed"`
 	BrowserAllowed             bool              `json:"browser_allowed"`
 	BrowserInteractionsAllowed bool              `json:"browser_interactions_allowed"`
+	BrowserTextEntryAllowed    bool              `json:"browser_text_entry_allowed"`
 	BrowserAllowedOrigins      []string          `json:"browser_allowed_origins,omitempty"`
 	ApprovalPolicy             string            `json:"approval_policy"`
 	ProjectMemoryPolicy        string            `json:"project_memory_policy"`
@@ -352,6 +353,7 @@ type CreateAgentPresetRequest struct {
 	NetworkAllowed             bool              `json:"network_allowed,omitempty"`
 	BrowserAllowed             bool              `json:"browser_allowed,omitempty"`
 	BrowserInteractionsAllowed bool              `json:"browser_interactions_allowed,omitempty"`
+	BrowserTextEntryAllowed    bool              `json:"browser_text_entry_allowed,omitempty"`
 	BrowserAllowedOrigins      []string          `json:"browser_allowed_origins,omitempty"`
 	ApprovalPolicy             string            `json:"approval_policy,omitempty"`
 	ProjectMemoryPolicy        string            `json:"project_memory_policy,omitempty"`
@@ -374,6 +376,7 @@ type UpdateAgentPresetRequest struct {
 	NetworkAllowed             *bool             `json:"network_allowed,omitempty"`
 	BrowserAllowed             *bool             `json:"browser_allowed,omitempty"`
 	BrowserInteractionsAllowed *bool             `json:"browser_interactions_allowed,omitempty"`
+	BrowserTextEntryAllowed    *bool             `json:"browser_text_entry_allowed,omitempty"`
 	BrowserAllowedOrigins      []string          `json:"browser_allowed_origins,omitempty"`
 	ApprovalPolicy             *string           `json:"approval_policy,omitempty"`
 	ProjectMemoryPolicy        *string           `json:"project_memory_policy,omitempty"`
@@ -1055,6 +1058,7 @@ type ChatAgentPresetSnapshotItem struct {
 	NetworkAllowed             bool     `json:"network_allowed"`
 	BrowserAllowed             *bool    `json:"browser_allowed,omitempty"`
 	BrowserInteractionsAllowed *bool    `json:"browser_interactions_allowed,omitempty"`
+	BrowserTextEntryAllowed    *bool    `json:"browser_text_entry_allowed,omitempty"`
 	BrowserAllowedOrigins      []string `json:"browser_allowed_origins,omitempty"`
 	ApprovalPolicy             string   `json:"approval_policy,omitempty"`
 }

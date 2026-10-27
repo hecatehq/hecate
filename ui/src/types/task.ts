@@ -23,6 +23,7 @@ export type TaskRecord = {
   agent_preset_approval_policy?: "inherit" | "require" | "block" | "allow" | (string & {});
   agent_preset_browser_allowed?: boolean;
   agent_preset_browser_interactions_allowed?: boolean;
+  agent_preset_browser_text_entry_allowed?: boolean;
   agent_preset_browser_allowed_origins?: string[];
   origin_kind?: string;
   origin_id?: string;

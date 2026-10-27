@@ -858,10 +858,14 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 		ApprovalPolicy:             types.AgentPresetApprovalRequire,
 		BrowserAllowed:             &browserAllowed,
 		BrowserInteractionsAllowed: &browserInteractionsAllowed,
+		BrowserTextEntryAllowed:    &browserAllowed,
 		BrowserAllowedOrigins:      []string{"https://app.example.test"},
 	}
 	assertBrowserSnapshot := func(snapshot *AgentPresetSnapshot) {
 		t.Helper()
+		if snapshot == nil || snapshot.BrowserTextEntryAllowed == nil || !*snapshot.BrowserTextEntryAllowed {
+			t.Fatal("text-entry snapshot was lost or aliased")
+		}
 		if snapshot == nil || snapshot.BrowserAllowed == nil || !*snapshot.BrowserAllowed || snapshot.BrowserInteractionsAllowed == nil || *snapshot.BrowserInteractionsAllowed || len(snapshot.BrowserAllowedOrigins) != 1 || snapshot.BrowserAllowedOrigins[0] != "https://app.example.test" {
 			t.Fatalf("browser snapshot = %#v, want independent immutable grants and origins", snapshot)
 		}
@@ -870,6 +874,7 @@ func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
 		t.Helper()
 		*snapshot.BrowserAllowed = false
 		*snapshot.BrowserInteractionsAllowed = true
+		*snapshot.BrowserTextEntryAllowed = false
 		snapshot.BrowserAllowedOrigins[0] = "https://mutated.example.test"
 	}
 	created, err := store.Create(ctx, Session{

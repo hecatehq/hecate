@@ -203,6 +203,7 @@ type TaskItem struct {
 	AgentPresetApprovalPolicy             string   `json:"agent_preset_approval_policy,omitempty"`
 	AgentPresetBrowserAllowed             *bool    `json:"agent_preset_browser_allowed,omitempty"`
 	AgentPresetBrowserInteractionsAllowed *bool    `json:"agent_preset_browser_interactions_allowed,omitempty"`
+	AgentPresetBrowserTextEntryAllowed    *bool    `json:"agent_preset_browser_text_entry_allowed,omitempty"`
 	AgentPresetBrowserAllowedOrigins      []string `json:"agent_preset_browser_allowed_origins,omitempty"`
 	SystemPrompt                          string   `json:"system_prompt,omitempty"`
 	WorkspaceSystemPromptPolicy           string   `json:"workspace_system_prompt_policy,omitempty"`

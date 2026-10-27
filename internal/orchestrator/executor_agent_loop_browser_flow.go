@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	maxBrowserFlowArgumentsBytes = 4096
+	maxBrowserFlowArgumentsBytes = 16 * 1024
 	browserFlowArgumentsText     = "invalid browser flow arguments"
 )
 
@@ -28,9 +28,10 @@ type browserFlowArgs struct {
 }
 
 type browserFlowActionArgs struct {
-	Kind string `json:"kind"`
-	Role string `json:"role"`
-	Name string `json:"name"`
+	Kind string  `json:"kind"`
+	Role string  `json:"role"`
+	Name string  `json:"name"`
+	Text *string `json:"text,omitempty"`
 }
 
 func (d *agentLoopToolDispatcher) browserFlowTool(ctx context.Context, spec ExecutionSpec, args browserFlowArgs, stepIndex int, startedAt time.Time, toolName string) (agentLoopToolDispatchResult, error) {
@@ -47,9 +48,12 @@ func (d *agentLoopToolDispatcher) browserFlowTool(ctx context.Context, spec Exec
 	if !browserFlowOriginAllowed(spec.Task, origin) {
 		return browserFlowFailure(spec, stepIndex, startedAt, toolName, origin, browserrunner.FlowResult{}, "browser_flow: this origin is not enabled for interaction by the resolved agent preset"), nil
 	}
+	if !browserFlowTextEntryAllowed(spec.Task, args) {
+		return browserFlowFailure(spec, stepIndex, startedAt, toolName, origin, browserrunner.FlowResult{}, "browser_flow: text entry is not enabled by the frozen Work policy"), nil
+	}
 	actions := make([]browserrunner.FlowAction, len(args.Actions))
 	for index, action := range args.Actions {
-		actions[index] = browserrunner.FlowAction{Kind: action.Kind, Role: action.Role, Name: action.Name}
+		actions[index] = browserrunner.FlowAction{Kind: action.Kind, Role: action.Role, Name: action.Name, Text: action.Text}
 	}
 	result, err := d.browserFlowRunner.RunFlow(ctx, browserrunner.FlowRequest{
 		URL:           args.URL,
@@ -89,7 +93,7 @@ func browserFlowErrorMessage(err error) string {
 	case errors.Is(err, browserrunner.ErrFlowTargetAmbiguous):
 		message = "browser_flow: an accessible target matched more than one element"
 	case errors.Is(err, browserrunner.ErrFlowTargetUnavailable):
-		message = "browser_flow: an accessible target was disabled, obscured, or otherwise unsafe to click"
+		message = "browser_flow: an accessible target was disabled, obscured, or otherwise unsafe for the requested action"
 	case errors.Is(err, browserrunner.ErrUnavailable):
 		message = "browser_flow: native browser interaction is unavailable on this runtime"
 	}
@@ -292,6 +296,15 @@ func browserFlowOriginAllowed(task types.Task, origin string) bool {
 	return false
 }
 
+func browserFlowTextEntryAllowed(task types.Task, args browserFlowArgs) bool {
+	for _, action := range args.Actions {
+		if action.Kind == browserrunner.FlowActionFillText && (task.AgentPresetBrowserTextEntryAllowed == nil || !*task.AgentPresetBrowserTextEntryAllowed) {
+			return false
+		}
+	}
+	return true
+}
+
 func sanitizeBrowserFlowToolCalls(message types.Message) types.Message {
 	if len(message.ToolCalls) == 0 {
 		return message
@@ -375,7 +388,7 @@ func decodeBrowserFlowArgs(raw string) (browserFlowArgs, string, error) {
 		return browserFlowArgs{}, "", errInvalidBrowserFlowArguments
 	}
 	for index, action := range args.Actions {
-		flow.Actions[index] = browserrunner.FlowAction{Kind: action.Kind, Role: action.Role, Name: action.Name}
+		flow.Actions[index] = browserrunner.FlowAction{Kind: action.Kind, Role: action.Role, Name: action.Name, Text: action.Text}
 	}
 	validated, err := browserrunner.ValidateFlowRequest(flow)
 	if err != nil {
@@ -383,7 +396,7 @@ func decodeBrowserFlowArgs(raw string) (browserFlowArgs, string, error) {
 	}
 	args.URL = validated.URL
 	for index, action := range validated.Actions {
-		args.Actions[index] = browserFlowActionArgs{Kind: action.Kind, Role: action.Role, Name: action.Name}
+		args.Actions[index] = browserFlowActionArgs{Kind: action.Kind, Role: action.Role, Name: action.Name, Text: action.Text}
 	}
 	canonical, err := json.Marshal(args)
 	if err != nil {
@@ -427,7 +440,7 @@ func decodeBrowserFlowAction(decoder *json.Decoder) (browserFlowActionArgs, erro
 			return browserFlowActionArgs{}, errInvalidBrowserFlowArguments
 		}
 		name, ok := key.(string)
-		if !ok || (name != "kind" && name != "role" && name != "name") {
+		if !ok || (name != "kind" && name != "role" && name != "name" && name != "text") {
 			return browserFlowActionArgs{}, errInvalidBrowserFlowArguments
 		}
 		if _, duplicate := values[name]; duplicate {
@@ -441,10 +454,14 @@ func decodeBrowserFlowAction(decoder *json.Decoder) (browserFlowActionArgs, erro
 		values[name] = stringValue
 	}
 	closeToken, err := decoder.Token()
-	if err != nil || closeToken != json.Delim('}') || len(values) != 3 {
+	if err != nil || closeToken != json.Delim('}') || values["kind"] == "" || values["role"] == "" || values["name"] == "" {
 		return browserFlowActionArgs{}, errInvalidBrowserFlowArguments
 	}
-	return browserFlowActionArgs{Kind: values["kind"], Role: values["role"], Name: values["name"]}, nil
+	action := browserFlowActionArgs{Kind: values["kind"], Role: values["role"], Name: values["name"]}
+	if value, ok := values["text"]; ok {
+		action.Text = &value
+	}
+	return action, nil
 }
 
 func mustBrowserFlowOrigin(rawURL string) string {
@@ -454,11 +471,22 @@ func mustBrowserFlowOrigin(rawURL string) string {
 
 func browserFlowApprovalDetail(args browserFlowArgs) string {
 	var b strings.Builder
+	hasText := false
 	fmt.Fprintf(&b, "Browser interaction will open %s in a fresh temporary profile and run %d approved actions", args.URL, len(args.Actions))
 	for index, action := range args.Actions {
 		fmt.Fprintf(&b, "; %d. %s role=%q name=%q", index+1, action.Kind, action.Role, action.Name)
+		if action.Text != nil {
+			hasText = true
+			fmt.Fprintf(&b, " text=%q", *action.Text)
+		}
 	}
-	b.WriteString(". Page scripts and same-origin GET/HEAD requests may run and clicks may change the approved application. The flow cannot type, upload, download, use saved browser state, access clipboard/device permissions, or leave the exact origin. A temporary profile is not a hard OS or enterprise identity boundary")
+	b.WriteString(". Page scripts and same-origin GET/HEAD requests may run and actions may change the approved application. ")
+	if hasText {
+		b.WriteString("Approved text is disclosed to the page and retained in the run's tool-call history; use only non-secret data, never passwords, tokens, payment details, or personal secrets. Text entry sets a field value and sends input/change events, not Enter or a submit command; page handlers can still cause effects. The flow cannot upload, download, ")
+	} else {
+		b.WriteString("The flow cannot type, upload, download, ")
+	}
+	b.WriteString("use saved browser state, access clipboard/device permissions, or leave the exact origin. A temporary profile is not a hard OS or enterprise identity boundary")
 	return b.String()
 }
 

@@ -302,7 +302,7 @@ proposal-only tool.
 | `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                                                                                             |
 | `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                                                                                                        |
 | `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to Work-policy-backed native Tasks whose frozen snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is available to explicitly granted tools-on Hecate Chat backing Tasks. External Agent, QA, ungranted Tasks, and remote-runtime Tasks remain excluded. |
-| `browser_flow`           | Run one approved accessibility click/wait flow                        | Independently granted to eligible Work-policy-backed native Tasks. One approval covers the query-free start URL and fully declared 1–6 action flow; scripts and same-origin `GET`/`HEAD` may cause effects. Eligible tools-on Hecate Chat backing Tasks use the same frozen grant. No External Agent, QA, ungranted Task, or remote-runtime use.                                                                                                                                                                   |
+| `browser_flow`           | Run one approved accessibility flow                                   | Independently granted to eligible Work-policy-backed native Tasks. One approval covers the query-free start URL and declared 1–6 actions. Non-secret `fill_text` additionally requires its own frozen grant and exact-value approval. Scripts, input/change handlers, and same-origin GET/HEAD requests may cause effects. Eligible tools-on Hecate Chat backing Tasks use the same frozen grants. No External Agent, QA, ungranted Task, or remote-runtime use.                                                   |
 | `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to Chat-origin Task Runs backing Hecate Chat Turns with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                                                                                                |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
@@ -537,10 +537,12 @@ see [browser settings](runtime-api.md#get-put-delete-hecatev1settingsbrowser).
 
 The grants are independent. `browser_allowed=true` enables only
 `browser_inspect`; `browser_interactions_allowed=true` enables only
-`browser_flow`. If either grant is enabled, the preset must include one or more
+`browser_flow`. The additional `browser_text_entry_allowed=true` grant enables
+non-secret `fill_text` actions only when browser interaction is also enabled.
+Existing and legacy interaction grants remain click/wait-only. If either base grant is enabled, the preset must include one or more
 exact `browser_allowed_origins`. Hecate normalizes and snapshots the two grants
 and their shared origin list as `agent_preset_browser_allowed`,
-`agent_preset_browser_interactions_allowed`, and
+`agent_preset_browser_interactions_allowed`, `agent_preset_browser_text_entry_allowed`, and
 `agent_preset_browser_allowed_origins`. Retries and resumes keep that immutable
 snapshot; enabling static evidence never implies interaction, and a later
 preset edit cannot broaden an existing Task or Chat. Chat snapshots retain the
@@ -577,11 +579,24 @@ cookies, storage, or request/response body.
 
 `browser_flow` accepts 1–6 actions. Each action is either `wait_for`, which
 waits for one exact computed accessibility role and accessible name, or
-`click`, which targets one exact role/name pair. Click roles are limited to
+`click`, which targets one exact role/name pair, or separately granted
+`fill_text`. Click roles are limited to
 `button`, `link`, `checkbox`, `radio`, `tab`, `menuitem`, and `switch`. Hecate
 does not accept CSS selectors, XPath, coordinates, arbitrary JavaScript,
-keyboard input, text or secret entry, form values, uploads, downloads,
+keyboard commands, secret entry, uploaded files, downloads,
 screenshots, or retained sessions.
+
+`fill_text` requires an exact `textbox` or `searchbox` target and an explicit
+`text` string (empty clears the field), bounded to 1024 UTF-8 bytes. It supports
+only main-document native text/search inputs and textareas. Password, file,
+hidden, disabled, read-only, contenteditable, and autocomplete-marked fields
+are refused; explicit `autocomplete="off"` is allowed. The complete flow
+approval displays the exact value. A fixed Hecate-owned isolated-world function
+sets the exact node's value and emits input/change events; no model-supplied
+code, keyboard focus, Enter, or submit command is used. Page handlers may still
+cause effects. Entered data reaches page scripts and remains in ordinary
+tool-call history: use non-secret data only. These controls do not detect
+arbitrary secrets or guarantee that page text will not echo entered values.
 
 The browser re-resolves the approved accessibility target immediately before a
 physical click and fails closed if the target is absent, ambiguous, disabled,
@@ -594,8 +609,8 @@ and an approved click can deliberately mutate the application.
 
 The bounded `browser_flow_evidence` `text/plain` artifact contains the
 approved origin, redacted final URL, title, ordered action outcomes, initial and
-final accessibility snapshots, and network counters. It excludes console and
-form values, screenshots, cookies, storage, raw protocol data, and
+final accessibility snapshots, and network counters. It excludes console,
+direct form values and their accessibility descendants, screenshots, cookies, storage, raw protocol data, and
 request/response bodies. If an action or policy check fails after an earlier
 click, Hecate retains the bounded partial action evidence and explicitly warns
 that the application may already have changed; the tool never reports that

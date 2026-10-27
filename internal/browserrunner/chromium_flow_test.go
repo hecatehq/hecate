@@ -22,6 +22,20 @@ func TestFlowTransportGuardBlocksBrowserManagedSpeechRecognition(t *testing.T) {
 	}
 }
 
+func TestFlowAccessibilityEvidenceOmitsValueControlDescendants(t *testing.T) {
+	t.Parallel()
+	nodes := []*accessibility.Node{
+		{NodeID: "input", Role: accessibilityTestValue(`"textbox"`), Name: accessibilityTestValue(`"Search"`)},
+		{NodeID: "wrapper", ParentID: "input", Ignored: true},
+		{NodeID: "value", ParentID: "wrapper", Role: accessibilityTestValue(`"StaticText"`), Name: accessibilityTestValue(`"private value"`)},
+		{NodeID: "status", Role: accessibilityTestValue(`"status"`), Name: accessibilityTestValue(`"Ready"`)},
+	}
+	got, truncated, err := flowAccessibilityEvidence(nodes, 64)
+	if err != nil || truncated || len(got) != 2 || got[0].Name != "Search" || got[1].Name != "Ready" {
+		t.Fatalf("evidence = %+v truncated=%v err=%v", got, truncated, err)
+	}
+}
+
 func TestFlowActionWaitErrorDistinguishesParentCancellation(t *testing.T) {
 	t.Parallel()
 	if err := flowActionWaitError(context.Background()); !errors.Is(err, ErrFlowTargetNotFound) {

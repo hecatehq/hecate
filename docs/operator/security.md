@@ -50,12 +50,12 @@ runtime state to its device.
 Hecate has different execution and shell-access surfaces with different trust
 levels.
 
-| Surface                                               | Boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls use WorkspaceFS, ProcessRunner, or GitRunner as appropriate, with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary.                                                                                                                                                                                                                                                                                                                                                                                             |
-| Native browser tools                                  | Only eligible Work-policy-backed native Tasks, whether standalone, project assignments, or tools-on Hecate Chat backing Tasks, can receive the independently granted `browser_inspect` or `browser_flow` tool. Every call is bound to one query-free URL, one exact origin, an explicit approval, a fresh Chromium process/profile, `GET`/`HEAD` transport controls, and bounded plain-text evidence. Static inspection disables scripts; an approved flow enables scripts and runs only its declared accessibility click/wait actions. These controls are not an OS browser sandbox, hard identity boundary, or guarantee that a `GET` or click is side-effect-free. |
-| External Agents                                       | Codex, Claude Code, Cursor Agent, Grok Build, and similar integrations run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, Git diffs, and opt-in workspace-scoped ACP terminal RPCs, but it does not sandbox the agent's internal runtime.                                                                                                                                                                                                                                                                                                                                                              |
-| Operator shell access                                 | Hecate can open the operator's normal OS terminal from the workspace menu. It can also expose opt-in operator terminal sessions over the local runtime API when `HECATE_OPERATOR_TERMINALS=1`; those sessions are loopback-only, blocked in remote runtime mode, workspace-scoped, env-sanitized, output-bounded, and routed through the same static command checks / OS wrapper path as shell tools where available. Remote and container operators should otherwise use the surrounding infrastructure shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or equivalent) when they need direct host access.                                             |
+| Surface                                               | Boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls use WorkspaceFS, ProcessRunner, or GitRunner as appropriate, with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary.                                                                                                                                                                                                                                                                                                                                                                                   |
+| Native browser tools                                  | Eligible Work-policy-backed native Tasks, project assignments, and tools-on Hecate Chat backing Tasks can receive independently granted `browser_inspect` or `browser_flow`. Each call uses one query-free URL, one exact origin, explicit approval, a fresh process/profile, GET/HEAD controls, and bounded plain-text evidence. Inspection disables scripts; flows enable scripts and declared accessibility actions. Non-secret text entry additionally needs its own frozen grant and exact-value approval. These controls are not an OS browser sandbox, hard identity boundary, or guarantee that page handlers or GET requests are side-effect-free. |
+| External Agents                                       | Codex, Claude Code, Cursor Agent, Grok Build, and similar integrations run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, Git diffs, and opt-in workspace-scoped ACP terminal RPCs, but it does not sandbox the agent's internal runtime.                                                                                                                                                                                                                                                                                                                                                    |
+| Operator shell access                                 | Hecate can open the operator's normal OS terminal from the workspace menu. It can also expose opt-in operator terminal sessions over the local runtime API when `HECATE_OPERATOR_TERMINALS=1`; those sessions are loopback-only, blocked in remote runtime mode, workspace-scoped, env-sanitized, output-bounded, and routed through the same static command checks / OS wrapper path as shell tools where available. Remote and container operators should otherwise use the surrounding infrastructure shell (`ssh`, `docker exec`, `kubectl exec`, provider console, or equivalent) when they need direct host access.                                   |
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 
@@ -112,6 +112,18 @@ Chat backing Tasks copy that frozen grant; Tools off and legacy or non-preset
 chats do not gain browser access. External Agent/ACP sessions, QA, non-preset Tasks, and remote
 runtime never receive these tools.
 
+Non-secret text entry additionally requires `browser_text_entry_allowed`.
+Existing interaction grants remain click/wait-only. The exact field and text
+must be approved per flow. Supported targets are native main-document
+text/search inputs and textareas; password, hidden, file, disabled, read-only,
+contenteditable, and autocomplete-marked fields are blocked (explicit `off`
+is allowed). Text is limited to 1024 UTF-8 bytes per action. It is disclosed to
+the page and retained in tool-call history, so never supply credentials,
+payment details, tokens, or personal secrets. This is not DLP or general secret
+detection. A fixed isolated-world function sets the exact node rather than
+typing into whichever element has keyboard focus. It emits input/change
+events, never Enter or a submit command; page handlers may still cause effects.
+
 Each browser call rejects credentials, queries, and fragments, then permits one
 exact origin even when the Task snapshot lists more. Loopback, private,
 link-local, multicast, and other non-public addresses fail preflight unless the
@@ -124,8 +136,8 @@ VM/container network boundary.
 `browser_inspect` disables page scripts and service workers and captures only
 bounded static text evidence. `browser_flow` enables scripts for one fully
 declared approval-bound sequence of 1–6 exact accessibility `click` /
-`wait_for` actions. It does not accept selectors, coordinates, arbitrary
-JavaScript, typing, secrets, uploads, downloads, screenshots, popups, workers,
+`wait_for` actions and separately granted `fill_text`. It does not accept selectors, coordinates, arbitrary
+JavaScript, keyboard commands, secrets, uploads, downloads, screenshots, popups, workers,
 realtime transports, or retained sessions. The approval names the query-free
 URL and every ordered action. Treat it as authorization for the scripts,
 same-origin `GET`/`HEAD` requests, and clicks in that complete flow: a read-like
@@ -147,11 +159,15 @@ unmanaged browser/container for identity-sensitive destinations.
 Evidence is bounded plain text. Static inspection emits `browser_evidence`;
 interaction emits `browser_flow_evidence` with ordered action outcomes,
 initial/final accessibility snapshots, and network counters. Neither artifact
-contains screenshots, form values, cookies, storage, raw protocol data, or
+contains screenshots, directly captured form values or their accessibility descendants, cookies, storage, raw protocol data, or
 request/response bodies. If a flow fails after an earlier click, Hecate retains
 bounded partial-action evidence and warns that the application may already have
 changed. That audit record is evidence of attempted actions, not transactional
 rollback.
+
+Page scripts can copy entered text into ordinary visible content, titles, or
+accessible labels. Such echoes remain untrusted page evidence; Hecate does not
+promise to redact every transformation of non-secret input.
 
 The DevTools relay rejects any browser-to-Hecate protocol message over 4 MiB
 and stops a call after 32 MiB of aggregate inbound protocol payload. Interactive
