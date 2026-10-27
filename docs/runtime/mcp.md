@@ -521,10 +521,12 @@ The `$GITHUB_TOKEN` reference resolves from Hecate's process environment at spaw
 
 #### Parallel web research
 
-[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+[Parallel MCP](https://docs.parallel.ai/integrations/mcp/quickstart)
 adds web search and page fetching without a Parallel account or API key.
 Anonymous searches use Fast mode. This is an optional external MCP server;
 it does not replace Hecate's configured native `web_search` provider.
+The example uses Parallel's current endpoint; its older standalone Search MCP
+endpoint remains available for existing integrations.
 
 With your local Hecate runtime running, probe the server before adding it to a
 task. Add `X-Hecate-Runtime-Token` if your runtime requires it:
@@ -534,7 +536,7 @@ curl -fsS http://127.0.0.1:8765/hecate/v1/mcp/probe \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "parallel",
-    "url": "https://search.parallel.ai/mcp",
+    "url": "https://mcp.parallel.ai/mcp",
     "headers": { "User-Agent": "Hecate" }
   }'
 ```
@@ -553,7 +555,7 @@ your workspace and tools-capable provider/model selections:
   "mcp_servers": [
     {
       "name": "parallel",
-      "url": "https://search.parallel.ai/mcp",
+      "url": "https://mcp.parallel.ai/mcp",
       "headers": { "User-Agent": "Hecate" },
       "approval_policy": "require_approval"
     }
@@ -568,4 +570,5 @@ The server's tools appear as `mcp__parallel__web_search` and
 Tools must be enabled for the task, and stricter runtime or preset policy still
 applies. Queries and requested URLs are sent to Parallel. Anonymous access is
 rate limited; see the linked Parallel setup guide for authenticated access with
-higher limits.
+higher limits and the additional `web_research` tool. Authenticated calls are
+billed to the configured Parallel account.
