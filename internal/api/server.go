@@ -270,6 +270,8 @@ func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
 	// rules. These replace the old /admin/control-plane action routes before
 	// the API becomes stable.
 	mux.HandleFunc("GET /hecate/v1/settings", handler.HandleSettingsStatus)
+	mux.HandleFunc("GET /hecate/v1/settings/github", handler.HandleGitHubSettings)
+	mux.HandleFunc("POST /hecate/v1/github/pull-request/inspect", handler.HandleGitHubPullRequestInspect)
 	mux.HandleFunc("GET /hecate/v1/settings/browser", handler.HandleBrowserSettings)
 	mux.HandleFunc("PUT /hecate/v1/settings/browser", handler.HandleBrowserSettingsEnable)
 	mux.HandleFunc("DELETE /hecate/v1/settings/browser", handler.HandleBrowserSettingsDisable)

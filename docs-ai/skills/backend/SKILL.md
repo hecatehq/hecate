@@ -244,6 +244,18 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 
 ## Backend recipes
 
+### GitHub App connection boundary
+
+`internal/githubapp` owns read-only repository-scoped GitHub App inspection.
+Keep private key paths runtime-configured, opening Connections passive, token
+scope verified against exactly one allowed repository and read-only permissions,
+redirects disabled, and all GitHub errors fixed/safe. Never pass App JWTs or
+installation tokens to a model, external agent, tool environment, trace, or
+persisted Task. Check results are exact-head evidence, not merge authority.
+New writes, monitoring, and repairs need explicit ownership, budgets, admission,
+and recovery contracts; do not turn this read-only connection into an implicit
+credential source for ordinary agent tools.
+
 ### Add a passthrough field end-to-end
 
 The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/providers/` and tests at every layer. Canonical version: [`../providers/SKILL.md`](../providers/SKILL.md). Forgetting to plumb the field into the streaming `wireReq` is the most common bug.

@@ -38,6 +38,8 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 // Keep this table in lockstep with server.go. The coverage test is part of the
 // safety boundary because dynamic "{id}" routes can overlap future exact paths.
 var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
+	{method: http.MethodGet, path: "/hecate/v1/settings/github"},
+	{method: http.MethodPost, path: "/hecate/v1/github/pull-request/inspect"},
 	{method: http.MethodGet, path: "/hecate/v1/whoami"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/presets"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/status"},
