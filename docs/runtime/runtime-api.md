@@ -630,6 +630,7 @@ endpoints and are also projected through task/run detail and SSE snapshots.
   an incomplete explicit route (for example, `requested_provider` without
   `requested_model`). An empty provider/model pair is Hecate auto-routing.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/steer`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call`
@@ -650,6 +651,36 @@ Task, or admission completes and deletion reports the active-Run conflict.
 - resumed executions include checkpoint context (source run id, last completed step, last event sequence) in step input so executors/tools can continue from the prior boundary
 - for `agent_loop` runs, the saved `agent_conversation` artifact is hydrated as the starting message history — the loop continues from where it left off rather than repeating prior model calls
 - the new run inherits the chain's cumulative cost via `PriorCostMicrosUSD`, so the per-task ceiling holds across the full chain
+
+### Live guidance
+
+`POST /hecate/v1/tasks/{id}/runs/{run_id}/steer` body:
+
+```json
+{ "client_request_id": "guidance-unique-id", "content": "Inspect the tests before changing code." }
+```
+
+Requires the same task/run authorization as other lifecycle endpoints. Only
+queued/running native `agent_loop` runs without a workflow mode accept new
+guidance. It never creates a run or bypasses the Chat busy-turn contract.
+`client_request_id` is 1–128 printable non-space ASCII characters; content is
+nonblank UTF-8 text, at most 8 KiB. Unknown fields are rejected.
+
+Returns `200 {"object":"task.run.steering","data":{...}}`; data includes `id`,
+`content`, `sequence`, `status`, `created_at`, and `replay`. Applied records also
+include `applied_at` and the prospective `model_call_index`; not-applied records
+include `reason` (the finishing/pausing run status). Same key/content replays the
+record, even after completion. Same key/different content returns
+`409 task.steering_request_conflict`. Unsupported run state/kind returns
+`409 task.steering_unavailable`; eight pending or 32 total records returns
+`429 task.steering_full`. Validation returns `400 invalid_request`.
+
+Read durable status through ordinary run artifacts (`kind=run_steering`) and
+task/run activity snapshots, including SSE. Guidance lifecycle events never include
+guidance text; authorized run snapshots retain the ordinary artifact/context data.
+`applied` means checkpointed user context, not model compliance. Cancellation,
+completion, failure, or approval pause settles unconsumed records as `not_applied`.
+See [runtime semantics](agent-runtime.md#live-guidance).
 
 ### Continue semantics
 

@@ -1840,6 +1840,13 @@ export function ChatView({
                 openExternalAgentSetup={openAgentSetup}
                 activeHecateTaskID={activeHecateTaskID}
                 activeHecateRunID={activeHecateRunID}
+                liveSteeringAvailable={
+                  isHecateChat &&
+                  !!activeHecateAgentSegment &&
+                  (activeHecateAgentSegment.status === "queued" ||
+                    activeHecateAgentSegment.status === "running") &&
+                  !chat.state.chatOwnershipMutationInFlight
+                }
                 activeQueuedChatMessages={activeQueuedChatMessages}
                 projectProposalAvailable={projectProposalAvailable}
                 projectProposalDrafting={projectProposalDrafting}

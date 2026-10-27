@@ -170,6 +170,9 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreWakesOnRunScopedMutations(t, factory(t))
 	})
+	t.Run(name+"/RunSteering", func(t *testing.T) {
+		runSteeringConformance(t, factory)
+	})
 }
 
 func runStoreApplyRunStartTransition(t *testing.T, store Store) {

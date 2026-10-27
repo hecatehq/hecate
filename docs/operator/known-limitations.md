@@ -214,6 +214,11 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   persisted so old turns keep their original provider/model/task context even
   when the header selection changes later.
 - Only one task-backed segment can be active in a Hecate Chat session at a time.
+  **Send now** can add text guidance to a queued/running native loop at its next
+  safe boundary, without creating another turn. It does not interrupt current
+  operations. Direct-model/External Agent/QA turns and approval pauses do not
+  support it; files must use a subsequent turn. Delivery status remains visible
+  in run activity. See [live guidance](../runtime/agent-runtime.md#live-guidance).
   The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt

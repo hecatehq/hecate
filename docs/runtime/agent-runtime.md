@@ -51,6 +51,10 @@ composer's submit control reflects three states:
   the text locally and replays it automatically once the backing Task Run
   finishes.
 
+For queued/running native loops, a separate **Send now** button adds text guidance
+to the current run. Enter still queues a follow-up. See [Live guidance](#live-guidance)
+for delivery status and safety boundaries.
+
 A yellow banner under the composer surfaces a queueing notice plus an
 `Open task` link to the backing task in the Tasks workspace and a `Stop`
 button (`aria-label="Stop active task"`) that also cancels the backing Task Run. The
@@ -71,6 +75,7 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 ## Contents
 
 - [Loop mechanics](#loop-mechanics)
+- [Live guidance](#live-guidance)
 - [Report-only QA workflow](#report-only-qa-workflow)
 - [Built-in tools](#built-in-tools)
 - [External MCP tools](#external-mcp-tools)
@@ -82,6 +87,40 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 - [Retry and resume](#retry-and-resume)
 - [Configuration knobs](#configuration-knobs)
 - [Common failure modes](#common-failure-modes)
+
+## Live guidance
+
+**Send now** accepts text for an already queued/running native loop; it is not a
+new Chat turn. The current provider request or tool completes normally. At the
+next safe boundary the runtime closes any unstarted tool calls with explicit
+superseded results, appends guidance as ordinary user messages, and asks the
+model again. This can supersede a just-produced final answer. It does not undo
+work, interrupt a command, change approvals/policy, or reset cost/time/call limits.
+
+Guidance is stored as `run_steering` artifacts and is visible in run activity and
+the Chat transcript: **pending**, **applied**, or **not_applied**. Applied means
+the conversation checkpoint includes it, not that the model followed it (or that
+another model request completed). The instruction status and sanitized conversation
+checkpoint commit together. Retry the same request id after a lost response;
+replays never insert a second instruction. Text is retained with ordinary run
+artifacts. Guidance lifecycle events carry only instruction id and status;
+existing authorized run snapshots can include the same artifacts and conversation
+input, with their normal retention/deletion rules.
+
+Limits are 8 KiB per instruction, eight pending instructions, and 32 total per
+run. Direct-model turns, External Agents, report-only QA, attachments, and runs
+waiting for approval are unsupported. If the run finishes or pauses for approval
+before consumption, pending guidance becomes **not_applied**. Review it before
+queuing another message; Hecate never silently converts it to a new turn.
+
+```mermaid
+flowchart LR
+  Send[Send now] --> Admit[Persist pending guidance]
+  Admit --> Boundary[Current operation finishes]
+  Boundary --> Commit[Commit user context and applied status]
+  Commit --> Model[Next model request within existing limits]
+  Admit --> Settle[Run finishes or pauses first: not_applied]
+```
 
 ## Loop mechanics
 

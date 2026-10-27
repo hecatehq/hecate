@@ -290,6 +290,14 @@ send newer transcript messages in full.
 ### Queued text delivery
 
 When a chat is busy, an explicitly submitted text-only follow-up is stored in
+the browser queue unless the operator chooses the separate **Send now** action.
+Send now posts idempotent text guidance to the active queued/running native Run,
+not a chat turn. The composer keeps text until acknowledgment; a same-tab retry
+after an uncertain response retains its request identity in session storage
+(only a fingerprint and random id, not guidance text). Pending/applied/not-applied
+status is projected from durable run artifacts into the transcript. Awaiting
+approval, direct-model, External Agent, and QA turns do not accept live guidance.
+Normal submission still enters
 the browser queue and drains in FIFO order after the active turn settles. The
 queue contains prompt and route snapshots only; it is local operator state, not
 a server-side message or task, until the message API accepts it. Dispatch sends

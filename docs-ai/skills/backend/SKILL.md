@@ -389,6 +389,16 @@ cannot race a live task loop against a separate model call. The browser UI may
 queue a prompt locally while busy, but the backend contract remains one active
 task-backed turn per session.
 
+Live text guidance is a distinct existing-Run command, not another turn. Keep
+`taskapp.SteerRun` origin admission, bounded idempotency, and memory/SQLite/Postgres
+parity. Commit `run_steering` status and sanitized conversation together at safe
+loop boundaries. Terminal/approval-pause settlement must never leave pending
+guidance stranded. Never interrupt a dispatched tool, weaken approval/policy, or
+reset budgets. Guidance lifecycle event payloads are metadata-only; never copy
+the raw request body to logs/metrics. Guidance inherits ordinary authorized
+artifact/context/snapshot retention. Direct-model, External Agent, QA and awaiting-approval turns
+remain unsupported.
+
 Hecate-owned chat sessions also persist workspace posture. Normalize only
 `persistent`, `ephemeral`, and `in_place`; preserve omitted legacy requests as
 `in_place`. Snapshot the effective value onto every backing task, reject a

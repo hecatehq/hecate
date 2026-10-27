@@ -903,6 +903,27 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 		}
 	}
 
+	steeringEvents := make([]types.TaskRunEvent, 0)
+	if types.IsTerminalTaskRunStatus(run.Status) || run.Status == "awaiting_approval" {
+		pending, err := s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: task.ID, RunID: run.ID, Kind: RunSteeringArtifactKind}, "pending")
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		for _, artifact := range pending {
+			settled, err := settleRunSteering(artifact, run.Status)
+			if err != nil {
+				return TerminalRunTransitionResult{}, err
+			}
+			if err := s.sqliteUpdateArtifactTx(ctx, tx, settled); err != nil {
+				return TerminalRunTransitionResult{}, err
+			}
+			event, err := s.sqliteInsertRunEventTx(ctx, tx, steeringEvent(settled, runtimeevents.EventRunSteeringNotApplied, finishedAt))
+			if err != nil {
+				return TerminalRunTransitionResult{}, err
+			}
+			steeringEvents = append(steeringEvents, event)
+		}
+	}
 	steps, err := s.sqliteListStepsTx(ctx, tx, run.ID)
 	if err != nil {
 		return TerminalRunTransitionResult{}, err
@@ -911,7 +932,7 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	if err != nil {
 		return TerminalRunTransitionResult{}, err
 	}
-	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+3)
+	events := append([]types.TaskRunEvent(nil), steeringEvents...)
 	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
 	if tr.ApprovalResolution != nil {
 		approvalEventType = runtimeevents.EventApprovalResolved.String()

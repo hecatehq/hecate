@@ -179,6 +179,7 @@ touches request handling, persistence, or tool execution.
   memory/SQLite/Postgres parity. Do not split approval mutation from run/task
   mutation in handlers or runners, and do not use a low-level approval update
   as a lifecycle shortcut.
+- **Live guidance is an existing-Run input, not a new turn.** Keep native text guidance behind taskapp origin admission and bounded idempotency. Apply guidance with the sanitized conversation in one taskstate commit at a safe loop boundary; never interrupt dispatched operations, change approvals, or reset budgets. Terminal/approval-pause transitions settle unconsumed guidance visibly. Preserve memory/SQLite/Postgres parity and keep guidance lifecycle event payloads metadata-only. Guidance has the same authorized artifact/snapshot retention as ordinary conversation input; never log its raw request body.
 - **Run start and cancellation own their concurrency boundaries.** Start,
   retry, resume, continue, and retry-from-model-call serialize per task in the runner,
   then use `taskstate.ApplyRunStartTransition` as the memory/SQLite/Postgres
