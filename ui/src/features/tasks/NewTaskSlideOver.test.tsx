@@ -1,9 +1,15 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { getWorkspaceSkills } from "../../lib/api";
 
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import { NewTaskSlideOver } from "./NewTaskSlideOver";
+
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
+  getWorkspaceSkills: vi.fn(),
+}));
 
 const agentLoopModelFixtures = [
   {
@@ -126,6 +132,34 @@ describe("NewTaskSlideOver kind switching", () => {
 });
 
 describe("NewTaskSlideOver work policies", () => {
+  it("submits explicit skill fingerprints only for the selected workspace", async () => {
+    const skill = {
+      path: ".agents/skills/review/SKILL.md",
+      name: "review",
+      sha256: "a".repeat(64),
+      bytes: 42,
+    };
+    vi.mocked(getWorkspaceSkills).mockResolvedValue({ object: "workspace_skills", data: [skill] });
+    const { render, user, props } = setup({
+      models: agentLoopModelFixtures.map((model) => ({
+        ...model,
+        metadata: { ...model.metadata, default: true },
+      })),
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/workspace");
+    await user.click(screen.getByRole("button", { name: "Choose skills" }));
+    await user.click(await screen.findByRole("checkbox", { name: /review/ }));
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "Review this workspace");
+    await user.click(screen.getByRole("button", { name: /^create task/i }));
+    expect(props.onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_skills: [{ path: skill.path, sha256: skill.sha256 }],
+      }),
+    );
+  });
+
   it("offers compatible policies only for standard native agent-loop Tasks", async () => {
     const { render, user } = setup({
       agentPresets: [

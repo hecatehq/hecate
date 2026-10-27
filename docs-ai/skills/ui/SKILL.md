@@ -127,7 +127,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   default; never pair a policy model hint with an explicitly different
   provider, and require a model for the resulting provider. Explain that
   standalone Tasks freeze the policy at creation and do
-  not activate Project memory, context sources, skills, or Cairnline state.
+  not activate Project memory, context sources, preset-named skills, or Cairnline state.
+- Explicit workspace skill selection uses the shared `WorkspaceSkillPicker`
+  only for new native Chats and standard native agent-loop Tasks. Inspection
+  must be operator-triggered, with accessible checkboxes and provider-disclosure
+  copy. Submit only path/fingerprint selections; clear stale selections when
+  refreshing or changing workspace. Existing-session views show frozen metadata
+  only. Do not fetch/display source bodies or infer activation from preset ids.
 - Keep native browser permissions explicit and independent in Work policies:
   **static browser evidence** does not interact with pages, while **browser
   interaction** permits only an approval-gated flow of up to six click or wait
