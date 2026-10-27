@@ -233,6 +233,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     },
     chat: {
       submitChat: actions.submitChat,
+      steerActiveRun: actions.steerActiveRun,
       submitToolResults: actions.submitToolResults,
       cancelAgentChat: actions.cancelAgentChat,
       compactChatSession: actions.compactChatSession,

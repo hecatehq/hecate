@@ -41,6 +41,7 @@ import {
   setChatConfigOption as setChatConfigOptionRequest,
   setChatSettings as setChatSettingsRequest,
   streamChatSession,
+  steerTaskRun,
   uploadChatAttachment as uploadChatAttachmentRequest,
   updateChatSession as updateChatSessionRequest,
 } from "../../../lib/api";
@@ -53,6 +54,8 @@ import {
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
 import { mcpServerFormEntriesToPayload } from "../../../lib/mcp-server-form";
+import { reserveRunSteeringRequest, settleRunSteeringRequest } from "../../../lib/run-steering";
+import { activeTaskBackedHecateSegment } from "../../../features/chats/HecateTaskApprovalsBanner";
 import {
   modelSelectionHasNoToolCalling,
   modelSelectionImageInputCapability,
@@ -603,6 +606,7 @@ type ChatActionsReturn = {
   submitAgentChat: (queued?: QueuedChatMessage) => Promise<void>;
   reconcileQueuedChatMessage: (id: string) => Promise<boolean>;
   submitChat: (event: SyntheticEvent<HTMLFormElement>) => Promise<void>;
+  steerActiveRun: (taskID: string, runID: string) => Promise<boolean>;
   cancelAgentChat: () => Promise<void>;
   compactChatSession: (sessionID?: string) => Promise<boolean>;
   updateToolResult: (index: number, result: string) => void;
@@ -822,6 +826,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const coordinatorRenderGenerationRef = useRef(0);
   coordinatorRenderGenerationRef.current += 1;
   const lastSubmitClaimRef = useRef<{ renderGeneration: number; content: string } | null>(null);
+  const steeringRequestActiveRef = useRef(false);
   if (
     pendingCreateDraftRef.current &&
     !activeChatSessionID &&
@@ -1415,6 +1420,92 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     await submitAgentChat();
+  }
+
+  async function steerActiveRun(taskID: string, runID: string): Promise<boolean> {
+    const sessionID = activeChatSessionID;
+    const snapshot = getMessageSnapshot();
+    const segment = activeTaskBackedHecateSegment(activeChatSession);
+    if (
+      steeringRequestActiveRef.current ||
+      !sessionID ||
+      currentActiveChatSessionID() !== sessionID ||
+      chatSessionIsExternal(activeChatSession) ||
+      !segment ||
+      segment.task_id !== taskID ||
+      segment.latest_run_id !== runID ||
+      (segment.status !== "queued" && segment.status !== "running") ||
+      !snapshot.content.trim() ||
+      hasPendingChatAttachments() ||
+      hasChatAttachmentTurn() ||
+      hasChatCancellationOwner() ||
+      isChatOwnershipMutationInFlight() ||
+      isChatSessionDeleted(sessionID) ||
+      currentWorkspaceModeMutation(sessionID)
+    )
+      return false;
+    if (new TextEncoder().encode(snapshot.content).length > 8 * 1024) {
+      setChatErrorState(
+        new Error("Live guidance is limited to 8 KiB. Queue a longer follow-up instead."),
+      );
+      return false;
+    }
+    steeringRequestActiveRef.current = true;
+    const generation = currentChatResetGeneration();
+    const cancellationEpoch = currentChatCancellationEpoch(sessionID);
+    const isCurrent = () =>
+      currentActiveChatSessionID() === sessionID &&
+      currentChatResetGeneration() === generation &&
+      !isChatSessionDeleted(sessionID) &&
+      currentChatCancellationEpoch(sessionID) === cancellationEpoch;
+    try {
+      const reservation = reserveRunSteeringRequest(
+        window.sessionStorage,
+        sessionID,
+        taskID,
+        runID,
+        snapshot.content,
+      );
+      const payload = await steerTaskRun(taskID, runID, snapshot.content, reservation.id);
+      if (!isCurrent()) return true;
+      if (payload.data.status === "not_applied") {
+        setChatErrorState(
+          new Error(
+            "This guidance was not applied before the run finished or paused. Review the run, then queue a new message if needed.",
+          ),
+        );
+        return false;
+      }
+      const current = getMessageSnapshot();
+      if (current.revision === snapshot.revision && current.content === snapshot.content) {
+        setMessage("");
+        // Only retire delivery identity when its owning unchanged draft is
+        // consumed. Navigation/newer edits preserve both draft and replay id.
+        try {
+          settleRunSteeringRequest(window.sessionStorage, reservation);
+        } catch {
+          /* Retain replay identity. */
+        }
+      }
+      clearChatErrorState();
+      params.setNoticeMessage(
+        "success",
+        payload.data.status === "applied"
+          ? "Guidance added to agent context."
+          : "Guidance saved. It will be added at the next safe boundary; the current operation continues.",
+      );
+      return true;
+    } catch (error) {
+      if (isCurrent())
+        setChatErrorState(
+          new Error(
+            `${error instanceof Error ? error.message : "Could not confirm guidance delivery."} Your text is preserved. Retry Send now with the same text to check delivery; it will not be added twice.`,
+          ),
+        );
+      return false;
+    } finally {
+      steeringRequestActiveRef.current = false;
+    }
   }
 
   function buildQueuedChatMessage(
@@ -4272,6 +4363,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     reconcileQueuedChatMessage,
     // The wide public surface that lands in the viewmodel actions bag
     submitChat,
+    steerActiveRun,
     cancelAgentChat,
     compactChatSession,
     updateToolResult,

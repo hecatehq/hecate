@@ -516,6 +516,14 @@ function renderAgentActivityAdvanced(
     return <MCPAppFrame activity={activity} app={activity.mcp_app} />;
   }
 
+  if (activity.type === "run_steering") {
+    return (
+      <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+        {activity.artifact_preview}
+      </div>
+    );
+  }
+
   if (activity.type === "changed_files" || activity.type === "files_changed") {
     return (
       <ActivityFilesPreview activity={activity} diffStat={options.diffStat} diff={options.diff} />

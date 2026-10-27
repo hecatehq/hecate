@@ -3156,6 +3156,51 @@ describe("ChatView input", () => {
     expect(provider.textContent).not.toContain("ollama");
   });
 
+  it("offers Send now separately from Queue message for a running native segment", async () => {
+    const steerActiveRun = vi.fn(async () => true);
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "Inspect first",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "chat_1",
+        activeChatSession: {
+          id: "chat_1",
+          execution_mode: "hecate_task",
+          title: "Work",
+          status: "running",
+          task_id: "task_1",
+          latest_run_id: "run_1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          workspace: "/tmp/hecate",
+          messages: [],
+        },
+      },
+      { steerActiveRun, submitChat },
+    );
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Send guidance now" }));
+    expect(steerActiveRun).toHaveBeenCalledWith("task_1", "run_1");
+    expect(submitChat).not.toHaveBeenCalled();
+    rerender(
+      withRuntimeConsole(<ChatView />, {
+        state: {
+          ...state,
+          activeChatSession: { ...state.activeChatSession!, status: "awaiting_approval" },
+        },
+        actions,
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Send guidance now" })).toBeNull();
+    expect(
+      screen.getByText(/Live guidance is unavailable while approval is pending/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeInTheDocument();
+  });
+
   it("locks provider and model while a task-backed Hecate Chat segment is active", () => {
     const { state, actions } = setup({
       chatTarget: "agent",

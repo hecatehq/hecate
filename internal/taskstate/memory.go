@@ -646,6 +646,21 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			return TerminalRunTransitionResult{}, err
 		}
 	}
+	// Validate all guidance settlement before mutating any in-memory state,
+	// matching the SQL transaction's all-or-nothing behavior.
+	settledSteering := make([]types.TaskArtifact, 0)
+	if types.IsTerminalTaskRunStatus(run.Status) || run.Status == "awaiting_approval" {
+		for _, artifact := range s.listArtifactsLocked(ArtifactFilter{TaskID: task.ID, RunID: run.ID, Kind: RunSteeringArtifactKind}) {
+			if artifact.Status != "pending" {
+				continue
+			}
+			settled, err := settleRunSteering(artifact, run.Status)
+			if err != nil {
+				return TerminalRunTransitionResult{}, err
+			}
+			settledSteering = append(settledSteering, settled)
+		}
+	}
 	if terminalReplay {
 		s.storeRunLocked(run)
 	} else {
@@ -704,9 +719,14 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 		}
 	}
 
+	steeringEvents := make([]types.TaskRunEvent, 0)
+	for _, artifact := range settledSteering {
+		s.artifacts[artifact.ID] = artifact
+		steeringEvents = append(steeringEvents, s.appendRunEventLocked(steeringEvent(artifact, runtimeevents.EventRunSteeringNotApplied, finishedAt)))
+	}
 	steps := s.listStepsLocked(run.ID)
 	artifacts := s.listArtifactsLocked(ArtifactFilter{TaskID: task.ID, RunID: run.ID})
-	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+3)
+	events := append([]types.TaskRunEvent(nil), steeringEvents...)
 	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
 	if tr.ApprovalResolution != nil {
 		approvalEventType = runtimeevents.EventApprovalResolved.String()
