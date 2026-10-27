@@ -31,6 +31,8 @@ import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
 import { ChatBrowserPolicySummary } from "./ChatBrowserPolicySummary";
+import { WorkspaceSkillPicker } from "../shared/WorkspaceSkillPicker";
+import type { WorkspaceSkillSelection } from "../../types/workspace-skill";
 
 export type SidebarSession = {
   id: string;
@@ -57,7 +59,12 @@ type Props = {
   // the canvas for the composer ref.
   onSelectSession: (sessionID: string, mode?: "push" | "replace") => Promise<boolean>;
   // New-chat creation. Gated on agent readiness inside the sidebar.
-  onCreateChat: (agentID: ChatAgentOptionID, projectID: string, agentPresetID?: string) => void;
+  onCreateChat: (
+    agentID: ChatAgentOptionID,
+    projectID: string,
+    agentPresetID?: string,
+    workspaceSkills?: WorkspaceSkillSelection[],
+  ) => void;
   onChooseWorkspace: () => void;
   onClose?: () => void;
   closeButtonRef?: Ref<HTMLButtonElement>;
@@ -103,6 +110,10 @@ export function ChatSidebar({
   const [hecatePresetsLoading, setHecatePresetsLoading] = useState(false);
   const [hecatePresetsError, setHecatePresetsError] = useState("");
   const [newHecatePresetID, setNewHecatePresetID] = useState("");
+  const [skillSelection, setSkillSelection] = useState<{
+    workspace: string;
+    skills: WorkspaceSkillSelection[];
+  }>({ workspace: "", skills: [] });
   const hecatePresetsLoadRef = useRef<Promise<void> | null>(null);
   const deleteChatPendingRef = useRef(false);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +213,8 @@ export function ChatSidebar({
   const workspaceForNewChat = projects.activeProjectID
     ? selectedProjectWorkspace
     : chat.state.agentWorkspace.trim();
+  const selectedSkills =
+    skillSelection.workspace === workspaceForNewChat ? skillSelection.skills : [];
   const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate";
   const workspaceRequiredForNewChat =
     isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;
@@ -398,6 +411,15 @@ export function ChatSidebar({
                 }
                 if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
                 void onSelectSession("");
+                if (agentID === "hecate" && selectedSkills.length) {
+                  onCreateChat(
+                    agentID,
+                    projects.activeProjectID,
+                    newHecatePresetID,
+                    selectedSkills,
+                  );
+                  return;
+                }
                 if (agentID === "hecate" && newHecatePresetID) {
                   onCreateChat(agentID, projects.activeProjectID, newHecatePresetID);
                   return;
@@ -415,6 +437,15 @@ export function ChatSidebar({
                   color: "var(--t3)",
                 }}
               >
+                <WorkspaceSkillPicker
+                  key={workspaceForNewChat}
+                  workspace={workspaceForNewChat}
+                  value={selectedSkills}
+                  onChange={(skills) =>
+                    setSkillSelection({ workspace: workspaceForNewChat, skills })
+                  }
+                  disabled={chatCreating || chatSessionCreateInFlight || workspaceMutationPending}
+                />
                 <label htmlFor={newChatPolicySelectID}>Work policy</label>
                 <select
                   id={newChatPolicySelectID}

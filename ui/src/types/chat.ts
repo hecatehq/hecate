@@ -50,6 +50,7 @@ export type PersistedContentBlock = {
 };
 
 export type ChatSessionSummaryRecord = {
+  workspace_skills?: import("./workspace-skill").WorkspaceSkillInfo[];
   id: string;
   title: string;
   project_id?: string;
@@ -257,6 +258,7 @@ export type ChatAvailableCommandRecord = {
 };
 
 export type ChatSessionRecord = {
+  workspace_skills?: import("./workspace-skill").WorkspaceSkillInfo[];
   id: string;
   title: string;
   project_id?: string;

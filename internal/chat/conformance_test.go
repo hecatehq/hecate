@@ -21,6 +21,7 @@ type StoreFactory func(t *testing.T) Store
 // backend's _test.go.
 func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 	t.Helper()
+	t.Run(name+"/WorkspaceSkillsRoundTrip", func(t *testing.T) { runStoreWorkspaceSkillsRoundTrip(t, factory(t)) })
 	t.Run(name+"/Lifecycle", func(t *testing.T) {
 		t.Parallel()
 		runStoreLifecycle(t, factory(t))

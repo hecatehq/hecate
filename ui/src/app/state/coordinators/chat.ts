@@ -568,6 +568,7 @@ export function findReusableEmptyDraftSession(
       return (
         sessionAgentID === expectedAgentID &&
         sessionAgentPresetID === expectedAgentPresetID &&
+        (session.workspace_skills?.length ?? 0) === 0 &&
         sessionProjectID === expectedProjectID &&
         sessionProvider === expectedProvider &&
         sessionModel === expectedModel &&
@@ -581,6 +582,7 @@ export function findReusableEmptyDraftSession(
 }
 
 export type CreateChatSessionOptions = {
+  workspaceSkills?: import("../../../types/workspace-skill").WorkspaceSkillSelection[];
   agentID?: string;
   agentPresetID?: string;
   projectID?: string;
@@ -3377,7 +3379,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       : boundRecovery
         ? ambientDraft
         : ambientDraft || matchingRecovery?.content || "";
-    const requestedReuseEmptyDraft = Boolean(options?.reuseEmptyDraft && requestedDraft.trim());
+    const requestedReuseEmptyDraft = Boolean(
+      options?.reuseEmptyDraft && requestedDraft.trim() && !options.workspaceSkills?.length,
+    );
     const transitionGeneration = beginActiveChatTransition();
     rememberChatComposerDraft(sourceSessionID, sourceComposerSnapshot.content);
     let recoveryID =
@@ -3562,10 +3566,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: "hecate",
           ...(requestedAgentPresetID ? { agent_preset_id: requestedAgentPresetID } : {}),
+          ...(options?.workspaceSkills?.length
+            ? { workspace_skills: options.workspaceSkills }
+            : {}),
           provider: createProvider,
           model: requestedModel,
           workspace_mode: workspaceMode,
-          ...(toolsEnabled && workspace ? { workspace } : {}),
+          ...((toolsEnabled || options?.workspaceSkills?.length) && workspace ? { workspace } : {}),
           ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
         if (discardDeletedCreatedSession(created.data, createResetGeneration, createProjectID)) {
