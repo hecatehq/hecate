@@ -72,6 +72,8 @@ against PostgreSQL 17 using both the minimum Go version and current stable.
 The ordinary race suite without this URL is not proof of Postgres parity.
 See the [local setup](../../docs/contributor/development.md#postgres-storage-checks)
 and include new Postgres-tested packages in the recipe.
+Agent Preset browser permissions require both round-trip coverage and a legacy
+schema migration check proving new grants remain disabled for existing presets.
 
 ## UI verification ladder
 
