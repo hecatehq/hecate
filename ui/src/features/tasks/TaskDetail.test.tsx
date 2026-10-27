@@ -573,7 +573,7 @@ describe("TaskDetail effective sandbox posture", () => {
     const overview = screen.getByText("Run overview").parentElement!;
     expect(within(overview).getByText("Work policy")).toBeTruthy();
     expect(within(overview).getByText("review_qa")).toBeTruthy();
-    expect(within(overview).getByText("Disabled")).toBeTruthy();
+    expect(within(overview).getAllByText("Disabled")).toHaveLength(2);
     expect(
       within(overview).getByText("Every otherwise-permitted tool call requires approval"),
     ).toBeTruthy();

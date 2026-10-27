@@ -206,7 +206,17 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   transport interception, private-IP policy, response/deadline bounds, and
   complete-or-partial plain-text evidence. Static inspection must remain
   script-disabled. Interaction scripts and approved clicks may cause effects;
-  do not add typing, uploads, downloads, screenshots, authentication import,
+  only the separate immutable `browser_text_entry_allowed` grant may add
+  `fill_text`. Legacy interaction grants remain click/wait-only. Text requires
+  exact-value approval, at most 1024 UTF-8 bytes, and a revalidated native
+  main-document text/search input or textarea. Reject credential/autocomplete
+  fields except explicit `off`, password/file/hidden/read-only/disabled fields,
+  and contenteditable targets. Use only the fixed isolated-world node setter
+  with protocol arguments; no focus-dependent keyboard events, Enter, submit,
+  or agent code. Input/change handlers may cause effects. Text is retained in
+  ordinary tool-call history and is not secret-safe or DLP. Omit value-control
+  descendants from AX evidence, without claiming to remove page-controlled
+  echoes. Do not add uploads, downloads, screenshots, authentication import,
   retained state, selectors, arbitrary JavaScript, or raw protocol output to
   this contract. Browser startup consumes the remaining end-to-end call
   deadline; do not add an independent shorter startup cap, reset the deadline

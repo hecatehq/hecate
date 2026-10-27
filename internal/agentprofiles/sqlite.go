@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
     network_allowed INTEGER NOT NULL DEFAULT 0,
 	browser_allowed INTEGER NOT NULL DEFAULT 0,
 	browser_interactions_allowed INTEGER NOT NULL DEFAULT 0,
+	browser_text_entry_allowed INTEGER NOT NULL DEFAULT 0,
 	browser_allowed_origins TEXT NOT NULL DEFAULT '[]',
     approval_policy TEXT NOT NULL DEFAULT 'inherit',
     project_memory_policy TEXT NOT NULL DEFAULT 'inherit',
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
 	}{
 		{name: "browser_allowed", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "browser_interactions_allowed", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "browser_text_entry_allowed", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "browser_allowed_origins", definition: "TEXT NOT NULL DEFAULT '[]'"},
 	} {
 		exists, err := storage.ColumnExists(ctx, s.client, s.client.TableName("agent_profiles"), column.name)
@@ -249,10 +251,10 @@ func (s *SQLiteStore) upsertWith(ctx context.Context, executor profileExecutor, 
 INSERT INTO `+s.table+` (
     id, name, description, instructions, surface, provider_hint, model_hint,
     execution_profile, tools_enabled, writes_allowed, network_allowed,
-    browser_allowed, browser_interactions_allowed, browser_allowed_origins,
+    browser_allowed, browser_interactions_allowed, browser_text_entry_allowed, browser_allowed_origins,
     approval_policy, project_memory_policy, context_source_policy, skill_ids,
     external_agent_kind, external_agent_options, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     description = excluded.description,
@@ -266,6 +268,7 @@ ON CONFLICT(id) DO UPDATE SET
     network_allowed = excluded.network_allowed,
 	browser_allowed = excluded.browser_allowed,
 	browser_interactions_allowed = excluded.browser_interactions_allowed,
+	browser_text_entry_allowed = excluded.browser_text_entry_allowed,
 	browser_allowed_origins = excluded.browser_allowed_origins,
     approval_policy = excluded.approval_policy,
     project_memory_policy = excluded.project_memory_policy,
@@ -287,6 +290,7 @@ ON CONFLICT(id) DO UPDATE SET
 		boolInt(profile.NetworkAllowed),
 		boolInt(profile.BrowserAllowed),
 		boolInt(profile.BrowserInteractionsAllowed),
+		boolInt(profile.BrowserTextEntryAllowed),
 		string(browserOrigins),
 		profile.ApprovalPolicy,
 		profile.ProjectMemoryPolicy,
@@ -303,7 +307,7 @@ ON CONFLICT(id) DO UPDATE SET
 func selectAgentProfileSQL(table string) string {
 	return `SELECT id, name, description, instructions, surface, provider_hint, model_hint,
 execution_profile, tools_enabled, writes_allowed, network_allowed, browser_allowed,
-browser_interactions_allowed, browser_allowed_origins, approval_policy,
+browser_interactions_allowed, browser_text_entry_allowed, browser_allowed_origins, approval_policy,
 project_memory_policy, context_source_policy, skill_ids, external_agent_kind,
 external_agent_options, created_at, updated_at FROM ` + table
 }
@@ -314,7 +318,7 @@ type scanner interface {
 
 func scanAgentProfile(row scanner) (Profile, error) {
 	var profile Profile
-	var tools, writes, network, browser, browserInteractions int
+	var tools, writes, network, browser, browserInteractions, browserTextEntry int
 	var skillsRaw, optionsRaw, browserOriginsRaw string
 	var createdAt, updatedAt string
 	if err := row.Scan(
@@ -331,6 +335,7 @@ func scanAgentProfile(row scanner) (Profile, error) {
 		&network,
 		&browser,
 		&browserInteractions,
+		&browserTextEntry,
 		&browserOriginsRaw,
 		&profile.ApprovalPolicy,
 		&profile.ProjectMemoryPolicy,
@@ -348,6 +353,7 @@ func scanAgentProfile(row scanner) (Profile, error) {
 	profile.NetworkAllowed = network != 0
 	profile.BrowserAllowed = browser != 0
 	profile.BrowserInteractionsAllowed = browserInteractions != 0
+	profile.BrowserTextEntryAllowed = browserTextEntry != 0
 	_ = json.Unmarshal([]byte(skillsRaw), &profile.SkillIDs)
 	_ = json.Unmarshal([]byte(browserOriginsRaw), &profile.BrowserAllowedOrigins)
 	_ = json.Unmarshal([]byte(optionsRaw), &profile.ExternalAgentOptions)

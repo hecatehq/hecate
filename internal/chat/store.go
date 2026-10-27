@@ -82,6 +82,7 @@ type AgentPresetSnapshot struct {
 	// capabilities from a subsequently edited live preset.
 	BrowserAllowed             *bool    `json:"browser_allowed,omitempty"`
 	BrowserInteractionsAllowed *bool    `json:"browser_interactions_allowed,omitempty"`
+	BrowserTextEntryAllowed    *bool    `json:"browser_text_entry_allowed,omitempty"`
 	BrowserAllowedOrigins      []string `json:"browser_allowed_origins,omitempty"`
 	// ApprovalPolicy is always explicit for newly created sessions, including
 	// "inherit". An empty value therefore identifies a legacy snapshot and must
@@ -839,6 +840,10 @@ func cloneAgentPresetSnapshot(snapshot *AgentPresetSnapshot) *AgentPresetSnapsho
 	if snapshot.BrowserInteractionsAllowed != nil {
 		allowed := *snapshot.BrowserInteractionsAllowed
 		clone.BrowserInteractionsAllowed = &allowed
+	}
+	if snapshot.BrowserTextEntryAllowed != nil {
+		allowed := *snapshot.BrowserTextEntryAllowed
+		clone.BrowserTextEntryAllowed = &allowed
 	}
 	clone.BrowserAllowedOrigins = append([]string(nil), snapshot.BrowserAllowedOrigins...)
 	return &clone

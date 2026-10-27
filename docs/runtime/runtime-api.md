@@ -380,12 +380,15 @@ effective preset posture is snapshotted onto ordinary task fields (`sandbox_read
 plus output-only optional `agent_preset_tools_enabled`,
 `agent_preset_approval_policy`,
 `agent_preset_browser_allowed`,
-`agent_preset_browser_interactions_allowed`, and
+`agent_preset_browser_interactions_allowed`,
+`agent_preset_browser_text_entry_allowed`, and
 `agent_preset_browser_allowed_origins` fields, so retries and resumes do not
-change when the preset is later edited or deleted. The two browser grants are
+change when the preset is later edited or deleted. The two base browser grants are
 independent and share the snapshotted exact-origin list. They are distinct from
 `sandbox_network`: one controls static `browser_inspect`, and the other
-controls approval-bound `browser_flow`. An omitted approval snapshot means that
+controls approval-bound `browser_flow`. The additional text-entry grant extends
+only the latter with operator-approved non-secret `fill_text`; it is never
+inferred from a legacy interaction grant. An omitted approval snapshot means that
 there is no frozen Work policy approval layer; legacy Hecate Chat snapshots,
 External Agent, QA, and non-preset Tasks all use that state. New tools-on
 Hecate Chat backing Tasks carry the explicit value frozen with the session.
@@ -2668,6 +2671,9 @@ their prior catalog behavior.
 Browser capabilities are separate from generic network posture. A preset may
 set `browser_allowed=true` for static `browser_inspect`,
 `browser_interactions_allowed=true` for `browser_flow`, either, or both. The
+additional `browser_text_entry_allowed` boolean defaults to false and requires
+browser interaction. It enables non-secret form filling without broadening
+older click/wait grants. The
 grants are independent: static evidence never grants interaction and
 interaction never grants static evidence. Either grant is valid only when the
 preset is usable by native execution (`surface="hecate_task"`, `"hecate_chat"`,
@@ -2685,6 +2691,11 @@ grants and the list when tools are disabled or the surface stops being
 `any`/`hecate_task`/`hecate_chat`. Disabling only one browser grant preserves the other grant
 and its origins; disabling the last grant clears the list. Creation remains
 strict and rejects either grant without valid exact origins.
+
+`agent_preset_browser_text_entry_allowed` is the corresponding output-only
+Task snapshot; Chat snapshots use `browser_text_entry_allowed`. Missing legacy
+values never grant text entry. Disabling interaction, tools, or the native
+surface clears the editable preset's text-entry grant, not existing snapshots.
 
 The snapshots expose only Hecate's local browser tools when a local executable
 is configured. They do not grant `http_request`, `web_search`, sandbox network,
@@ -2713,7 +2724,7 @@ of 1–6 exact accessibility actions:
 }
 ```
 
-`kind` is `click` or `wait_for`; both match one exact computed accessibility
+`kind` is `click` or `wait_for`, or `fill_text` when separately granted; all match one exact computed accessibility
 `role` and accessible `name`. Click roles are limited to `button`, `link`,
 `checkbox`, `radio`, `tab`, `menuitem`, and `switch`. The entire URL and action
 sequence must validate before approval and before the browser starts. The agent
@@ -2721,8 +2732,18 @@ loop accepts at most one `browser_flow` in a model tool-call batch. Scripts,
 same-origin `GET`/`HEAD` requests, and approved clicks may change the
 application, so the approval shows and authorizes the complete ordered flow.
 
+A `fill_text` action requires `role="textbox"` or `"searchbox"` and a `text`
+string of at most 1024 UTF-8 bytes. Empty text clears the field; `text` on any
+other action is rejected. Native main-document text/search inputs and textareas
+are supported. Credential/autocomplete-marked, password, hidden, file,
+contenteditable, disabled, and read-only fields are refused. Approval shows
+the exact target and value and warns that text reaches page scripts and is
+retained in tool-call history. Only non-secret input is supported; this is not
+secret detection. Hecate sets the value and sends input/change events, not
+keyboard or submit commands. Page handlers may still mutate the application.
+
 Each browser call starts a fresh process/profile, imports no profile-stored
-authentication, and retains no call state for reuse. The tools do not type,
+authentication, and retains no call state for reuse. The tools do not enter secrets,
 upload, download, capture screenshots, import saved logins, or expose
 cookies/storage/raw protocol/request or response bodies. Host-managed browser
 policy can still supply integrated authentication or client certificates

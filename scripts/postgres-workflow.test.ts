@@ -41,7 +41,9 @@ test("Postgres checks use a disposable service and both supported toolchains", (
     }),
   );
   const run = job.steps?.find((step) => step.run === "just test-postgres");
-  expect(run?.env?.HECATE_POSTGRES_TEST_URL).toContain("${{ job.services.postgres.ports['5432'] }}");
+  expect(run?.env?.HECATE_POSTGRES_TEST_URL).toContain(
+    "${{ job.services.postgres.ports['5432'] }}",
+  );
 });
 
 test("Postgres failures block the required check and expensive native builds", () => {
@@ -51,4 +53,12 @@ test("Postgres failures block the required check and expensive native builds", (
       expect(workflow.jobs[name].if).toContain("needs.test-postgres.result");
     }
   }
+});
+
+test("the required Postgres recipe includes Agent Preset grant and migration coverage", () => {
+  const recipes = readFileSync(new URL("../just/go.just", import.meta.url), "utf8");
+  const recipe = recipes.match(/^test-postgres:.*\n(?:\t.*\n)+/m)?.[0];
+  expect(recipe).toBeDefined();
+  expect(recipe).toMatch(/go test -race .*\.\/internal\/agentprofiles(?:\s|$)/);
+  expect(recipe).toContain("HECATE_POSTGRES_TEST_URL");
 });

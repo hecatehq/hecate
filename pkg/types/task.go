@@ -63,8 +63,11 @@ type Task struct {
 	// legacy/manual tasks and fails closed; static browser evidence never grants
 	// interaction implicitly.
 	AgentPresetBrowserInteractionsAllowed *bool `json:",omitempty"`
+	// AgentPresetBrowserTextEntryAllowed requires a separate explicit grant;
+	// nil legacy snapshots retain click/wait-only browser interactions.
+	AgentPresetBrowserTextEntryAllowed *bool `json:",omitempty"`
 	// AgentPresetBrowserAllowedOrigins is the exact normalized origin allowlist
-	// shared by the two browser grants and snapshotted with them. It is
+	// shared by the browser grants and snapshotted with them. It is
 	// deliberately distinct
 	// from generic network policy so browser navigation cannot broaden with a
 	// task's HTTP settings or a later preset change.

@@ -136,7 +136,14 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   permission remains enabled and clear all browser posture when tools or the
   every native surface (`hecate_task`, `hecate_chat`, `any`) is disabled. Explain that the complete flow is approved
   before a fresh temporary browser starts; clicks can run page scripts and may
-  change state in the allowed app; interaction does not grant typing, uploads,
+  change state in the allowed app; interaction alone does not grant typing.
+  Render `browser_text_entry_allowed` as a separate explicit non-secret text
+  permission, disabled unless interaction is enabled and cleared when it is
+  disabled. Preview the frozen grant in Chat, Task, and assignment posture.
+  Explain exact-value approval, 1024-byte limits, ordinary native text fields,
+  page disclosure and tool-history retention, no keyboard/submit command,
+  and possible input/change-handler effects. Never describe it as secret
+  detection or safe credential entry. Neither permission grants uploads,
   downloads, saved state, clipboard/device access, cross-origin navigation, or
   general task network access; and External Agents do not receive these
   capabilities. Eligible standalone Tasks, native project assignments, and

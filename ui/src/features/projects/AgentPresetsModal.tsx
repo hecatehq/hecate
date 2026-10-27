@@ -313,6 +313,9 @@ export function AgentPresetsModal({
                         browserInteractionsAllowed: agentPresetSupportsNativeBrowserSurface(surface)
                           ? current.browserInteractionsAllowed
                           : false,
+                        browserTextEntryAllowed: agentPresetSupportsNativeBrowserSurface(surface)
+                          ? current.browserTextEntryAllowed
+                          : false,
                         browserAllowedOrigins: agentPresetSupportsNativeBrowserSurface(surface)
                           ? current.browserAllowedOrigins
                           : "",
@@ -383,6 +386,9 @@ export function AgentPresetsModal({
                         browserInteractionsAllowed: event.target.checked
                           ? current.browserInteractionsAllowed
                           : false,
+                        browserTextEntryAllowed: event.target.checked
+                          ? current.browserTextEntryAllowed
+                          : false,
                         browserAllowedOrigins: event.target.checked
                           ? current.browserAllowedOrigins
                           : "",
@@ -446,6 +452,9 @@ export function AgentPresetsModal({
                       setForm((current) => ({
                         ...current,
                         browserInteractionsAllowed: event.target.checked,
+                        browserTextEntryAllowed: event.target.checked
+                          ? current.browserTextEntryAllowed
+                          : false,
                         browserAllowedOrigins:
                           event.target.checked || current.browserAllowed
                             ? current.browserAllowedOrigins
@@ -454,6 +463,27 @@ export function AgentPresetsModal({
                     }
                   />
                   Allow browser interaction
+                </label>
+                <label style={presetRoleCheckboxLabelStyle}>
+                  <input
+                    type="checkbox"
+                    checked={form.browserTextEntryAllowed}
+                    disabled={
+                      pending ||
+                      editingBuiltIn ||
+                      !browserUsesNativeSurface ||
+                      !form.toolsEnabled ||
+                      !form.browserInteractionsAllowed
+                    }
+                    aria-describedby="browser-text-entry-help browser-capability-scope-help"
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        browserTextEntryAllowed: event.target.checked,
+                      }))
+                    }
+                  />
+                  Allow non-secret browser text entry
                 </label>
               </div>
               <div id="browser-evidence-help" style={presetRoleSubtleTextStyle}>
@@ -466,9 +496,17 @@ export function AgentPresetsModal({
                 call. An approved flow opens a fresh temporary browser profile and performs up to
                 six click or wait actions that each exactly match an accessible role and name on the
                 allowed origins. The complete flow is approved before the browser starts. Clicks can
-                run page scripts and may change state in the allowed app. The flow cannot type,
-                upload, download, use saved browser state, access clipboard or device permissions,
-                or leave the allowed origins.
+                run page scripts and may change state in the allowed app. Text entry needs its
+                separate permission. The flow cannot upload, download, use saved browser state,
+                access clipboard or device permissions, or leave the allowed origins.
+              </div>
+              <div id="browser-text-entry-help" style={presetRoleSubtleTextStyle}>
+                Requires Allow browser interaction. Each flow approval shows the exact field and
+                text. Only ordinary text/search inputs and textareas are supported, up to 1024 bytes
+                per field. Text goes to page scripts and is retained in tool-call history: never
+                enter passwords, tokens, payment details, or personal secrets. Hecate does not press
+                Enter or issue a submit command, but page input/change handlers may cause effects.
+                This is not secret detection.
               </div>
               <div id="browser-capability-scope-help" style={presetRoleSubtleTextStyle}>
                 Browser capabilities apply only to Hecate-native Tools-on work, including Hecate

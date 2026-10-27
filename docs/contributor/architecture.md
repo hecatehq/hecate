@@ -686,7 +686,8 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
   requested capability and shared exact origins can reach the local browser
   runtime. `browser_inspect` disables scripts and returns bounded static text;
   `browser_flow` enables scripts for one approval-bound sequence of 1–6 exact
-  accessibility click/wait actions and retains partial evidence if a later
+  accessibility click/wait actions, or non-secret `fill_text` only with the
+  additional frozen text-entry grant, and retains partial evidence if a later
   action fails. Both start a fresh owned process tree/profile, permit only one selected
   origin and `GET`/`HEAD` URL-loader traffic, block downloads, use one bounded
   deadline, response budget, and browser-to-Hecate DevTools relay budget, and
@@ -706,7 +707,7 @@ flowchart LR
     Assignment["Project assignment launch"] --> ResolveAssignment["projectworkapp resolves policy<br/>plus coordinated context"]
     Resolve --> Snapshot["Immutable native Task snapshot"]
     ResolveAssignment --> Snapshot
-    Preset["Work policy<br/>browser_interactions_allowed + origins"] --> Resolve
+    Preset["Work policy<br/>interaction + optional text-entry grant + origins"] --> Resolve
     Preset --> ResolveAssignment
     Chat["New Chat freezes compatible Work policy"] --> ChatTask["Tools-on backing Task"]
     ChatTask --> Snapshot
@@ -717,7 +718,7 @@ flowchart LR
     Eligibility -->|"no"| HardDenied["Authoritative hard denial<br/>no approval"]
     Eligibility -->|"yes"| PresetPolicy{"Frozen approval policy"}
     PresetPolicy -->|"block"| PolicyDenied["policy.tool_blocked<br/>agent_preset_approval"]
-    PresetPolicy -->|"inherit / allow / require"| Approval["One approval<br/>query-free URL + complete ordered actions"]
+    PresetPolicy -->|"inherit / allow / require"| Approval["One approval<br/>query-free URL + ordered actions + exact text"]
     Approval --> Browser["Fresh Chromium process/profile<br/>one exact origin"]
     Browser --> Relay["Loopback bounded DevTools relay<br/>per-message + per-call budgets"]
     Relay --> Evidence["Bounded browser_flow_evidence<br/>complete or partial action audit"]

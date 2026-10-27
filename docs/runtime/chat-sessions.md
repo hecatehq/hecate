@@ -196,7 +196,8 @@ chat to select a different browser policy.
 
 With Tools on, `browser_inspect` can capture script-disabled static text and
 `browser_flow` can perform one declared sequence of up to six exact accessible
-click/wait actions. Hecate copies only the frozen grants and origins into each
+click/wait actions, or non-secret text entry with the separate grant described below.
+Hecate copies only the frozen grants and origins into each
 new backing Task; continuation, retry, and approval recovery use that Task's
 stored posture. Legacy snapshots without browser fields and chats without a
 policy have no browser grant. Tools off executes neither tool.
@@ -221,7 +222,12 @@ retention or Task deletion is shown as unavailable. The same evidence remains
 available in Task details.
 
 Each call uses a fresh temporary browser profile, not your signed-in browser.
-There is no typing, file upload/download, screenshot, or retained session.
+The separate frozen `browser_text_entry_allowed` grant permits ordinary
+non-secret form filling, with exact-value approval and at most 1024 UTF-8 bytes
+per action. Older interaction grants remain click/wait-only. Text reaches page
+scripts and tool-call history; never enter credentials or secrets. Hecate emits
+input/change events but no Enter or submit command; page handlers may still
+cause effects. There is no file upload/download, screenshot, or retained session.
 Private destinations require the separate runtime opt-in. External Agents and
 remote runtimes do not receive these Hecate tools. See the full
 [browser boundary](agent-runtime.md#browser-capabilities) for network, identity,
@@ -234,7 +240,7 @@ flowchart LR
     Task --> Gate["Runtime and origin checks"]
     Setup["Explicit browser selection in Settings<br/>or environment override"] --> Gate
     Gate --> Approval["Operator approval in Chat"]
-    Approval --> Browser["Fresh browser inspection or click/wait flow"]
+    Approval --> Browser["Fresh browser inspection or approved flow<br/>text entry requires separate frozen grant"]
     Browser --> Evidence["Bounded text evidence and Task artifacts"]
     Evidence --> Read["Expand Browser result<br/>read original Task/run artifact"]
     Read --> Chat["Inert text in Chat<br/>typed step outcome, not artifact readiness"]

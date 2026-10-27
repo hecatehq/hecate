@@ -222,8 +222,9 @@ HECATE_POSTGRES_TEST_URL='postgres://postgres:postgres@127.0.0.1:15432/hecate_te
 docker stop hecate-postgres-test
 ```
 
-The recipe runs migration, storage conformance, quota/lock, and timestamp
-regressions with the race detector, then exercises attachment upload, content,
+The recipe runs migration, storage conformance, Agent Preset browser-grant
+round trips and default-deny migration, quota/lock, and timestamp regressions
+with the race detector, then exercises attachment upload, content,
 session isolation, and deletion through the real Hecate binary. SQLite runs
 the same attachment API journey in the ordinary e2e suite. When adding a
 Postgres-tested package, include it in this recipe.

@@ -11924,6 +11924,7 @@ describe("ProjectsView cockpit", () => {
       network_allowed: false,
       browser_allowed: false,
       browser_interactions_allowed: false,
+      browser_text_entry_allowed: false,
       browser_allowed_origins: [],
       approval_policy: "require",
       project_memory_policy: "include",

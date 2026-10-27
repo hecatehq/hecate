@@ -212,6 +212,9 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 			if task.AgentPresetBrowserInteractionsAllowed == nil || *task.AgentPresetBrowserInteractionsAllowed != test.wantBrowserInteractions {
 				t.Fatalf("task browser interaction snapshot = %v, want explicit %v", task.AgentPresetBrowserInteractionsAllowed, test.wantBrowserInteractions)
 			}
+			if task.AgentPresetBrowserTextEntryAllowed == nil || *task.AgentPresetBrowserTextEntryAllowed != test.profile.BrowserTextEntryAllowed {
+				t.Fatal("assignment omitted explicit text-entry snapshot")
+			}
 			if strings.Join(task.AgentPresetBrowserAllowedOrigins, ",") != strings.Join(test.wantOrigins, ",") {
 				t.Fatalf("task browser origins = %v, want %v", task.AgentPresetBrowserAllowedOrigins, test.wantOrigins)
 			}
