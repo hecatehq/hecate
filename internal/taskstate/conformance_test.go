@@ -2260,7 +2260,10 @@ func assertNoTerminalEventSnapshot(t *testing.T, event types.TaskRunEvent) {
 func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Store) {
 	t.Helper()
 	ctx := t.Context()
-	now := time.Now().UTC().Add(-time.Minute)
+	// PostgreSQL event timestamps retain microseconds, while approval JSON can
+	// retain nanoseconds. Use their shared precision without weakening the
+	// assertion that a late approval's resolution event must not predate it.
+	now := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Minute)
 	winnerFinishedAt := now.Add(30 * time.Second)
 	task, err := store.CreateTask(ctx, types.Task{
 		ID: "task-terminal-same-replay", Title: "authoritative title", Status: "running",
