@@ -807,8 +807,30 @@ profile, route hints, and tool/write/network/approval/browser posture. Explicit
 provider or model values in the create request win over the corresponding
 preset hints. A preset model hint is ignored when the request selects a
 different provider, and an effective provider without a model fails Task
-creation. This path does not load Project memory, context sources, or skill
-bodies and does not create or mutate Cairnline state.
+creation. Preset selection does not load Project memory, context sources, or
+skill bodies and does not create or mutate Cairnline state.
+
+Separately, a standard native Task can explicitly select `workspace_skills`
+when created. Hecate validates each workspace-relative `SKILL.md` path and
+SHA-256 against a stable WorkspaceFS read and freezes its text in the Task's
+durable private runtime snapshot. The model-call builder adds that frozen text
+to transient requests, subordinate to system and operator policy. It does not
+append it to `system_prompt`, public Task metadata, or conversation checkpoint
+artifacts. Retry, Resume, Continue, scheduled dispatch, and Chat-backed Tasks
+reuse the snapshot; they do not reread files. QA and non-agent-loop tasks reject
+this input. See [workspace skills](chat-sessions.md#explicit-workspace-skills)
+for bounds, supported roots, and provider/storage privacy.
+
+```mermaid
+flowchart LR
+  Files[Workspace SKILL.md files] --> Catalog[Metadata-only catalog]
+  Catalog --> Selection[Explicit path and fingerprint selection]
+  Selection --> Freeze[Bounded stable read and fingerprint check]
+  Freeze --> Snapshot[Private Chat or Task snapshot]
+  Snapshot --> Request[Transient model request]
+  Snapshot --> Metadata[Names, paths, hashes, and sizes only]
+  Metadata --> Inspector[Settings and Context Inspector]
+```
 
 Project assignment tasks set `workspace_system_prompt_policy="exclude"` and use
 the project/preset context builder instead. That keeps project memory and

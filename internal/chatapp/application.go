@@ -12,6 +12,7 @@ import (
 	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatattachments"
+	"github.com/hecatehq/hecate/internal/workspaceskills"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -184,6 +185,7 @@ type Options struct {
 type CreateSessionCommand struct {
 	Session         chat.Session
 	PrepareExternal bool
+	WorkspaceSkills []types.WorkspaceSkillSelection
 }
 
 type CreateSessionResult struct {
@@ -529,9 +531,17 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 	if app == nil || app.store == nil {
 		return nil, ErrStoreNotConfigured
 	}
+	if len(cmd.WorkspaceSkills) > 0 && (cmd.PrepareExternal || isExternalSession(cmd.Session)) {
+		return nil, Validation(fmt.Errorf("workspace skills are only supported by native Hecate Chat"))
+	}
 	if cmd.PrepareExternal && app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
+	skills, err := workspaceskills.Freeze(ctx, cmd.Session.Workspace, cmd.WorkspaceSkills)
+	if err != nil {
+		return nil, Validation(err)
+	}
+	cmd.Session.WorkspaceSkills = skills
 	session, err := app.store.Create(ctx, cmd.Session)
 	if err != nil {
 		return nil, err

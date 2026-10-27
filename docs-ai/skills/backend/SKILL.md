@@ -187,10 +187,19 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   model during creation. Preset instructions precede optional
   per-Task instructions, and tools-off rejects MCP servers. Snapshot tools,
   approval, browser, write/read-only, and network posture. Do not activate
-  project memory, context sources, skills, roles, assignments, or Cairnline
+  project memory, context sources, preset-named skills, roles, assignments, or Cairnline
   state on this path. Start/Schedule/Retry/Resume/Continue/retry-from-model-call
   must consume the stored Task without re-resolution. Keep project-assignment
   resolution and coordinated context in `projectworkapp`.
+- **Keep native skill activation explicit and private.** `workspace_skills`
+  selections are independent of role/preset `skill_ids`. `workspaceskills`
+  performs bounded stable WorkspaceFS reads and fingerprint checks during
+  native Chat/standard Task creation. Persist exact bodies only in private
+  Chat/Task runtime snapshots; use metadata DTOs on all API/SSE/inspector paths.
+  Inject bodies only into transient model-request content blocks marked
+  `WorkspaceSkillInput`; preserve provider-error redaction and checkpoint
+  omission. Never reread mutable files on retry/continuation, silently discard
+  corrupt snapshots, grant permissions, run scripts, or autoload references.
 - **Browser interaction is a separate immutable grant.** Keep
   `browser_allowed` (script-disabled `browser_inspect`) independent from
   `browser_interactions_allowed` (`browser_flow`), with one shared normalized

@@ -16,6 +16,7 @@ import (
 	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/taskworkflow"
+	"github.com/hecatehq/hecate/internal/workspaceskills"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -123,6 +124,7 @@ type CreateCommand struct {
 	Prompt             string
 	ProjectID          string
 	AgentPresetID      string
+	WorkspaceSkills    []types.WorkspaceSkillSelection
 	SystemPrompt       string
 	WorkflowMode       string
 	ExecutionProfile   string
@@ -249,6 +251,16 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		return types.Task{}, err
 	}
 	applyExecutionProfileDefaults(&cmd)
+	if len(cmd.WorkspaceSkills) > 0 && strings.TrimSpace(cmd.ExecutionKind) == "" {
+		cmd.ExecutionKind = "agent_loop"
+	}
+	if len(cmd.WorkspaceSkills) > 0 && (workflowMode != "" || (strings.TrimSpace(cmd.ExecutionKind) != "" && strings.TrimSpace(cmd.ExecutionKind) != "agent_loop")) {
+		return types.Task{}, Validation(fmt.Errorf("workspace skills require a standard native agent-loop Task"))
+	}
+	skills, err := workspaceskills.Freeze(ctx, cmd.WorkingDirectory, cmd.WorkspaceSkills)
+	if err != nil {
+		return types.Task{}, Validation(err)
+	}
 
 	title := strings.TrimSpace(cmd.Title)
 	prompt := strings.TrimSpace(cmd.Prompt)
@@ -337,6 +349,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		ProjectID:                   projectID,
 		AgentPresetID:               strings.TrimSpace(cmd.AgentPresetID),
 		SystemPrompt:                strings.TrimSpace(cmd.SystemPrompt),
+		WorkspaceSkills:             skills,
 		WorkspaceSystemPromptPolicy: workspaceSystemPromptPolicy,
 		WorkflowMode:                workflowMode,
 		WorkflowVersion:             taskworkflow.VersionForMode(workflowMode),

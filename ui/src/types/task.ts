@@ -1,4 +1,5 @@
 export type TaskRecord = {
+  workspace_skills?: import("./workspace-skill").WorkspaceSkillInfo[];
   id: string;
   title: string;
   prompt: string;

@@ -1,6 +1,9 @@
 package api
 
-import "github.com/hecatehq/hecate/internal/eventprotocol"
+import (
+	"github.com/hecatehq/hecate/internal/eventprotocol"
+	"github.com/hecatehq/hecate/pkg/types"
+)
 
 type CreateTaskRequest struct {
 	Title  string `json:"title"`
@@ -11,7 +14,8 @@ type CreateTaskRequest struct {
 	// AgentPresetID selects a Hecate-owned work policy for a standard native
 	// agent_loop Task. The application resolves and freezes its runtime posture;
 	// callers cannot submit the derived snapshot fields directly.
-	AgentPresetID string `json:"agent_preset_id,omitempty"`
+	AgentPresetID   string                          `json:"agent_preset_id,omitempty"`
+	WorkspaceSkills []types.WorkspaceSkillSelection `json:"workspace_skills,omitempty"`
 	// SystemPrompt is the per-task system prompt for agent_loop runs.
 	// It's the narrowest layer in the four-level composition (global
 	// → tenant → workspace CLAUDE.md/AGENTS.md → this).
@@ -192,45 +196,46 @@ type EventsResponse struct {
 }
 
 type TaskItem struct {
-	ID                                    string   `json:"id"`
-	Title                                 string   `json:"title"`
-	Prompt                                string   `json:"prompt"`
-	ProjectID                             string   `json:"project_id,omitempty"`
-	WorkItemID                            string   `json:"work_item_id,omitempty"`
-	AssignmentID                          string   `json:"assignment_id,omitempty"`
-	AgentPresetID                         string   `json:"agent_preset_id,omitempty"`
-	AgentPresetToolsEnabled               *bool    `json:"agent_preset_tools_enabled,omitempty"`
-	AgentPresetApprovalPolicy             string   `json:"agent_preset_approval_policy,omitempty"`
-	AgentPresetBrowserAllowed             *bool    `json:"agent_preset_browser_allowed,omitempty"`
-	AgentPresetBrowserInteractionsAllowed *bool    `json:"agent_preset_browser_interactions_allowed,omitempty"`
-	AgentPresetBrowserAllowedOrigins      []string `json:"agent_preset_browser_allowed_origins,omitempty"`
-	SystemPrompt                          string   `json:"system_prompt,omitempty"`
-	WorkspaceSystemPromptPolicy           string   `json:"workspace_system_prompt_policy,omitempty"`
-	ExecutionProfile                      string   `json:"execution_profile,omitempty"`
-	OriginKind                            string   `json:"origin_kind,omitempty"`
-	OriginID                              string   `json:"origin_id,omitempty"`
-	Repo                                  string   `json:"repo,omitempty"`
-	BaseBranch                            string   `json:"base_branch,omitempty"`
-	WorkspaceMode                         string   `json:"workspace_mode,omitempty"`
-	ExecutionKind                         string   `json:"execution_kind,omitempty"`
-	WorkflowMode                          string   `json:"workflow_mode,omitempty"`
-	WorkflowVersion                       string   `json:"workflow_version,omitempty"`
-	ShellCommand                          string   `json:"shell_command,omitempty"`
-	GitCommand                            string   `json:"git_command,omitempty"`
-	WorkingDirectory                      string   `json:"working_directory,omitempty"`
-	FileOperation                         string   `json:"file_operation,omitempty"`
-	FilePath                              string   `json:"file_path,omitempty"`
-	FileContent                           string   `json:"file_content,omitempty"`
-	SandboxAllowedRoot                    string   `json:"sandbox_allowed_root,omitempty"`
-	SandboxReadOnly                       bool     `json:"sandbox_read_only,omitempty"`
-	SandboxNetwork                        bool     `json:"sandbox_network,omitempty"`
-	TimeoutMS                             int      `json:"timeout_ms,omitempty"`
-	Status                                string   `json:"status"`
-	Priority                              string   `json:"priority,omitempty"`
-	RequestedModel                        string   `json:"requested_model,omitempty"`
-	RequestedProvider                     string   `json:"requested_provider,omitempty"`
-	BudgetMicrosUSD                       int64    `json:"budget_micros_usd,omitempty"`
-	LatestRunID                           string   `json:"latest_run_id,omitempty"`
+	WorkspaceSkills                       []types.WorkspaceSkillInfo `json:"workspace_skills,omitempty"`
+	ID                                    string                     `json:"id"`
+	Title                                 string                     `json:"title"`
+	Prompt                                string                     `json:"prompt"`
+	ProjectID                             string                     `json:"project_id,omitempty"`
+	WorkItemID                            string                     `json:"work_item_id,omitempty"`
+	AssignmentID                          string                     `json:"assignment_id,omitempty"`
+	AgentPresetID                         string                     `json:"agent_preset_id,omitempty"`
+	AgentPresetToolsEnabled               *bool                      `json:"agent_preset_tools_enabled,omitempty"`
+	AgentPresetApprovalPolicy             string                     `json:"agent_preset_approval_policy,omitempty"`
+	AgentPresetBrowserAllowed             *bool                      `json:"agent_preset_browser_allowed,omitempty"`
+	AgentPresetBrowserInteractionsAllowed *bool                      `json:"agent_preset_browser_interactions_allowed,omitempty"`
+	AgentPresetBrowserAllowedOrigins      []string                   `json:"agent_preset_browser_allowed_origins,omitempty"`
+	SystemPrompt                          string                     `json:"system_prompt,omitempty"`
+	WorkspaceSystemPromptPolicy           string                     `json:"workspace_system_prompt_policy,omitempty"`
+	ExecutionProfile                      string                     `json:"execution_profile,omitempty"`
+	OriginKind                            string                     `json:"origin_kind,omitempty"`
+	OriginID                              string                     `json:"origin_id,omitempty"`
+	Repo                                  string                     `json:"repo,omitempty"`
+	BaseBranch                            string                     `json:"base_branch,omitempty"`
+	WorkspaceMode                         string                     `json:"workspace_mode,omitempty"`
+	ExecutionKind                         string                     `json:"execution_kind,omitempty"`
+	WorkflowMode                          string                     `json:"workflow_mode,omitempty"`
+	WorkflowVersion                       string                     `json:"workflow_version,omitempty"`
+	ShellCommand                          string                     `json:"shell_command,omitempty"`
+	GitCommand                            string                     `json:"git_command,omitempty"`
+	WorkingDirectory                      string                     `json:"working_directory,omitempty"`
+	FileOperation                         string                     `json:"file_operation,omitempty"`
+	FilePath                              string                     `json:"file_path,omitempty"`
+	FileContent                           string                     `json:"file_content,omitempty"`
+	SandboxAllowedRoot                    string                     `json:"sandbox_allowed_root,omitempty"`
+	SandboxReadOnly                       bool                       `json:"sandbox_read_only,omitempty"`
+	SandboxNetwork                        bool                       `json:"sandbox_network,omitempty"`
+	TimeoutMS                             int                        `json:"timeout_ms,omitempty"`
+	Status                                string                     `json:"status"`
+	Priority                              string                     `json:"priority,omitempty"`
+	RequestedModel                        string                     `json:"requested_model,omitempty"`
+	RequestedProvider                     string                     `json:"requested_provider,omitempty"`
+	BudgetMicrosUSD                       int64                      `json:"budget_micros_usd,omitempty"`
+	LatestRunID                           string                     `json:"latest_run_id,omitempty"`
 	// LatestModel / LatestProvider are the model + provider the
 	// most recent run actually used (after routing). They differ
 	// from RequestedModel / RequestedProvider when the operator

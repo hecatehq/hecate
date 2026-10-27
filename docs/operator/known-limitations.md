@@ -285,7 +285,12 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   per-call approval limits as standalone browser tools. Standalone native Tasks freeze the
   policy's execution, route-hint, instruction, tools, write, network, approval,
   and browser posture at creation but deliberately do not activate Project
-  memory, context-source bodies, skills, or Cairnline coordination. Native
+  memory, context-source bodies, preset-named skills, or Cairnline coordination.
+  Independently, new native Chats and standard agent-loop Tasks can explicitly
+  select bounded workspace `SKILL.md` files. This opt-in freezes selected bytes
+  for model requests; it is not a skill installer, plugin system, implicit
+  role/preset activation, script runner, or permission grant. External Agents
+  retain their own skill-loading behavior. Native
   project assignments can include bounded project memory and portable
   `AGENTS.md` workspace-instruction bodies
   when the resolved Work policy explicitly asks for inclusion. Broader

@@ -31,6 +31,7 @@ import (
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspaceskills"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -235,11 +236,16 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	result, err := h.chatApplication().CreateSession(r.Context(), chatapp.CreateSessionCommand{
 		Session:         session,
 		PrepareExternal: isExternalAgent,
+		WorkspaceSkills: req.WorkspaceSkills,
 	})
 	if err != nil {
 		var prepareErr chatapp.ExternalPrepareError
 		if errors.As(err, &prepareErr) {
 			writeAgentChatPrepareError(w, externalAdapter.Name, prepareErr.Unwrap())
+			return
+		}
+		if chatapp.IsValidationError(err) {
+			writeChatAppError(w, err)
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -1874,6 +1880,10 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		writeAgentChatImageCapabilityRequired(w)
 		return
 	}
+	if err := workspaceskills.ValidateFrozen(session.WorkspaceSkills); err != nil {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "Frozen workspace skills could not be validated; start a new chat and select them again.")
+		return
+	}
 	content := strings.TrimSpace(req.Content)
 	if compacted, err := h.compactChatSessionForModelTurn(r.Context(), session, provider, model); err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -1891,7 +1901,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 			imageCount++
 		}
 	}
-	textBudget := nativeChatInlineTextBudget(caps, agentChatModelHistory(session, effectiveSystemPrompt, content), imageCount)
+	textBudget := nativeChatInlineTextBudget(caps, workspaceskills.Messages(agentChatModelHistory(session, effectiveSystemPrompt, content), session.WorkspaceSkills), imageCount)
 	history, requiresImageInput, err := h.agentChatModelHistoryWithAttachments(
 		r.Context(), session, effectiveSystemPrompt, content, resolvedAttachments, imageCapable, historicalProvider, providerInstance, textBudget,
 	)
@@ -1905,6 +1915,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	// Selection uses metadata estimates. Recheck the prepared context, including
 	// omission notices and escaped filenames, before committing the user row.
+	history = workspaceskills.Messages(history, session.WorkspaceSkills)
 	ordinaryBytes, inlineTextBytes := nativeInlineAttachmentCosts(history)
 	preparedTextBudget := chatapp.NativeTextContextBudget(caps.MaxContextTokens, ordinaryBytes)
 	if inlineTextBytes > preparedTextBudget {

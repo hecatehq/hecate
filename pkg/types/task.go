@@ -73,7 +73,8 @@ type Task struct {
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest
 	// first. Empty = no per-task add (still honors the broader layers).
-	SystemPrompt string
+	SystemPrompt    string
+	WorkspaceSkills []WorkspaceSkillSnapshot `json:",omitempty"`
 	// WorkspaceSystemPromptPolicy controls the broad workspace prompt
 	// compatibility layer. Empty / inherit keeps the default CLAUDE.md /
 	// AGENTS.md behavior. Project assignments set exclude so profile
