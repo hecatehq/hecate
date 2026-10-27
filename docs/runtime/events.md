@@ -33,6 +33,9 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.queued`                   | Run lifecycle           | Run is enqueued for execution (also re-emitted on resume)                            |
 | `run.awaiting_approval`        | Run lifecycle           | A pre-execution approval gate exists; the run is parked                              |
 | `run.started`                  | Run lifecycle           | Worker claimed and started executing                                                 |
+| `run.steering_submitted`       | Run guidance            | Text guidance durably admitted; payload has `instruction_id` and `status` only       |
+| `run.steering_applied`         | Run guidance            | Guidance and conversation checkpoint committed atomically                            |
+| `run.steering_not_applied`     | Run guidance            | Run finished or paused for approval before consuming guidance                        |
 | `run.finished`                 | Run lifecycle           | Execution finished successfully                                                      |
 | `run.failed`                   | Run lifecycle           | Execution failed                                                                     |
 | `run.cancelled`                | Run lifecycle           | Run was cancelled (operator or system)                                               |

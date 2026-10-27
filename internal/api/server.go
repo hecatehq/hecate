@@ -214,6 +214,7 @@ func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call", handler.HandleRetryTaskRunFromModelCall)
 	mux.HandleFunc("POST /hecate/v1/tasks/{id}/runs/{run_id}/resume", handler.HandleResumeTaskRun)
 	mux.HandleFunc("POST /hecate/v1/tasks/{id}/runs/{run_id}/continue", handler.HandleContinueTaskRun)
+	mux.HandleFunc("POST /hecate/v1/tasks/{id}/runs/{run_id}/steer", handler.HandleSteerTaskRun)
 	mux.HandleFunc("POST /hecate/v1/tasks/{id}/runs/{run_id}/cancel", handler.HandleCancelTaskRun)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}/runs/{run_id}/steps", handler.HandleTaskRunSteps)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}/runs/{run_id}/steps/{step_id}", handler.HandleTaskRunStep)
