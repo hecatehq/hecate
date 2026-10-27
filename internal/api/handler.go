@@ -20,6 +20,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/githubapp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelapp"
@@ -96,6 +97,7 @@ type Handler struct {
 	modelToolProbeStore               modelprobe.Store
 	modelToolProbeCoordinator         *modelprobe.Coordinator
 	browserRuntime                    *browserapp.Service
+	githubConnection                  githubInspector
 	agentChatRunner                   agentadapters.Runner
 	agentChatLive                     *agentChatLive
 	// agentChatStreamHeartbeatC is a deterministic test seam for the
@@ -384,6 +386,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		projectAssistantProposalStore = projectassistant.NewMemoryProposalStore()
 	}
 	h := &Handler{
+		githubConnection:                  githubapp.New(cfg.GitHub),
 		config:                            cfg,
 		runtimeHost:                       runtimeHost,
 		logger:                            logger,

@@ -45,6 +45,7 @@ import type {
 } from "../../types/provider";
 import { BrandAvatar, CopyableID, Icon, Icons, InlineError } from "../shared/ui";
 import { DictationReadinessSection } from "./DictationReadinessSection";
+import { GitHubConnectionSection } from "./GitHubConnectionSection";
 import "./connections-mobile.css";
 
 type Props = {
@@ -398,6 +399,8 @@ export function ConnectionsPanel({
         localProviderSetupAvailable={!remoteRuntime}
         onAddProvider={onAddProvider}
       />
+
+      <GitHubConnectionSection />
 
       <AdapterStatusSection
         agentAdapters={agentAdapters}

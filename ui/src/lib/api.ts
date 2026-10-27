@@ -8,6 +8,7 @@ import type {
 import type { ModelResponse, ModelToolCapabilityProbeResponse } from "../types/model";
 import type { ContextPacketResponse } from "../types/context";
 import type { BrowserSettingsResponse } from "../types/browser";
+import type { GitHubConnectionResponse, GitHubPullRequestResponse } from "../types/github";
 import type {
   ConfiguredStateResponse,
   LocalProviderDiscoveryResponse,
@@ -1467,6 +1468,21 @@ export async function getUsageEvents(limit = 20): Promise<UsageEventsResponse> {
 
 export async function getSettingsConfig(): Promise<ConfiguredStateResponse> {
   return fetchJSON<ConfiguredStateResponse>(`${HECATE_API}/settings`);
+}
+
+export function getGitHubConnection(signal?: AbortSignal): Promise<GitHubConnectionResponse> {
+  return fetchJSON(`${HECATE_API}/settings/github`, { signal });
+}
+
+export function inspectGitHubPullRequest(
+  url: string,
+  signal?: AbortSignal,
+): Promise<GitHubPullRequestResponse> {
+  return fetchJSON(`${HECATE_API}/github/pull-request/inspect`, {
+    method: "POST",
+    body: { url },
+    signal,
+  });
 }
 
 export async function getBrowserSettings(signal?: AbortSignal): Promise<BrowserSettingsResponse> {

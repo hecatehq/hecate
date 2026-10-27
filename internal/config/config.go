@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
+	"github.com/hecatehq/hecate/internal/githubapp"
 	"github.com/hecatehq/hecate/internal/runtimehost"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 type Config struct {
+	GitHub    githubapp.Config
 	Server    ServerConfig
 	Router    RouterConfig
 	Provider  ProviderConfig
@@ -495,6 +497,12 @@ func LoadFromEnv() Config {
 		allowedProviderKinds = []string{"cloud"}
 	}
 	return Config{
+		GitHub: githubapp.Config{
+			ClientID:       strings.TrimSpace(getEnv("HECATE_GITHUB_APP_CLIENT_ID", "")),
+			InstallationID: int64(getEnvInt("HECATE_GITHUB_APP_INSTALLATION_ID", 0)),
+			PrivateKeyFile: strings.TrimSpace(getEnv("HECATE_GITHUB_APP_PRIVATE_KEY_FILE", "")),
+			Repositories:   splitCSV(getEnv("HECATE_GITHUB_REPOSITORIES", "")),
+		},
 		Server: ServerConfig{
 			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
 			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
@@ -658,6 +666,9 @@ func (c Config) storageBackends() []string {
 // connection strings fail startup with one clear diagnostic.
 func (c Config) Validate() error {
 	var errs []error
+	if err := c.GitHub.Validate(); err != nil {
+		errs = append(errs, err)
+	}
 
 	validateBackend := func(label, value string, allowed ...string) {
 		value = strings.TrimSpace(value)

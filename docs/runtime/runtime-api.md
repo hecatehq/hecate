@@ -7260,6 +7260,35 @@ access should use their normal local terminal or the deployment platform's
 administrative shell (`ssh`, `docker exec`, `kubectl exec`, a provider console,
 or equivalent).
 
+## GitHub App inspection
+
+Both routes below are remote-safe behind the normal runtime identity boundary
+and return `Cache-Control: private, no-store`. Setup is runtime-owned through
+the four `HECATE_GITHUB_*` variables in [GitHub setup](../operator/github.md).
+They neither mutate repositories nor expose credentials or host key paths.
+
+- `GET /hecate/v1/settings/github` returns
+  `{object: "github_connection", data: {configured, mode: "read_only", repositories, setup_hint}}`.
+  This is passive configuration state, not live authentication evidence.
+- `POST /hecate/v1/github/pull-request/inspect` accepts exactly
+  `{ "url": "https://github.com/owner/repository/pull/123" }` (2 KiB maximum).
+  Its response is `{object: "github_pull_request", data: {...}}` with `url`,
+  `repository`, `number`, `head_sha`, `base_sha`, `state`, `draft`, `merged`,
+  `checks`, `checks_state`, `complete`, and `observed_at`.
+  Each check contains inert `name`, `source` (`check` or `status`), and `state`.
+  Overall states are `success`, `failure`, `pending`, `unknown`, `incomplete`,
+  and `not_reported`. `success` describes reported results only; required-check
+  coverage and mergeability are not evaluated.
+
+Malformed requests return `400`; unconfigured connections `503`; repositories
+outside the configured allowlist `403 github.repository_not_enabled`;
+concurrent PR drift `409 github.head_changed`; local saturation
+`429 github.busy` with `Retry-After`; upstream failures use bounded fixed error
+messages and propagate a bounded numeric `Retry-After` when present. Each
+inspection is bounded to 30 seconds plus up to three seconds of credential
+cleanup, two concurrent calls, 2 MiB per upstream response, and 100 rows per
+check/status category. There is no automatic replay, caching, or repair.
+
 ## Rate-limit headers on chat / messages
 
 Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries three rate-limit headers, regardless of whether rate limiting is enabled (the headers are zero-value when off):
