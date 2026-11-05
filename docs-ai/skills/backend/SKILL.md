@@ -225,6 +225,10 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   deadline; do not add an independent shorter startup cap, reset the deadline
   after preflight, or retry failed launches automatically. Preserve process
   teardown and temporary-profile cleanup when startup is cancelled.
+  Classify an action-local target-poll deadline consistently whether it expires
+  during a protocol query or between polls; parent cancellation and protocol
+  failures remain inspection failures. Never apply this normalization to a
+  click or text mutation whose result is uncertain.
   Update `chromedp` and `cdproto` as a compatible pair. Security event
   observation stays synchronous inside the bounded DevTools relay, before
   forwarding to the client; do not substitute asynchronous event iterators.

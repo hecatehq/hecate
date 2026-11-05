@@ -383,28 +383,48 @@ func startFlowPolicyGuards(ctx context.Context, monitor *eventMonitor, abort fun
 func runFlowAction(ctx context.Context, action FlowAction, beforeFinalClickHitTest func(context.Context) error) error {
 	waitCtx, cancel := context.WithTimeout(ctx, flowActionWaitTimeout)
 	defer cancel()
+	node, err := waitForFlowAccessibilityTarget(ctx, waitCtx, action, exactFlowAccessibilityTarget)
+	if err != nil {
+		return err
+	}
+	if action.Kind == FlowActionWaitFor {
+		return nil
+	}
+	if action.Kind == FlowActionFillText {
+		return fillFlowAccessibilityTarget(waitCtx, action, node)
+	}
+	return clickFlowAccessibilityTarget(waitCtx, action, node, beforeFinalClickHitTest)
+}
+
+func waitForFlowAccessibilityTarget(parent, waitCtx context.Context, action FlowAction, lookup func(context.Context, FlowAction) (*accessibility.Node, error)) (*accessibility.Node, error) {
 	for {
-		node, err := exactFlowAccessibilityTarget(waitCtx, action)
+		node, err := lookup(waitCtx, action)
 		if err == nil {
-			if action.Kind == FlowActionWaitFor {
-				return nil
-			}
-			if action.Kind == FlowActionFillText {
-				return fillFlowAccessibilityTarget(waitCtx, action, node)
-			}
-			return clickFlowAccessibilityTarget(waitCtx, action, node, beforeFinalClickHitTest)
+			return node, nil
+		}
+		// The action budget can expire inside the AX request as well as in the
+		// polling sleep. Only that deadline, not a protocol failure, means missing.
+		if errors.Is(err, context.DeadlineExceeded) && errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+			return nil, flowActionWaitError(parent)
 		}
 		if !errors.Is(err, ErrFlowTargetNotFound) {
-			return err
+			return nil, err
 		}
 		timer := time.NewTimer(flowActionPollInterval)
 		select {
 		case <-waitCtx.Done():
 			timer.Stop()
-			return flowActionWaitError(ctx)
+			return nil, flowActionWaitError(parent)
 		case <-timer.C:
 		}
 	}
+}
+
+func flowTargetQueryError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.Join(ErrInspectionFailed, context.DeadlineExceeded)
+	}
+	return ErrInspectionFailed
 }
 
 func flowActionWaitError(parent context.Context) error {
@@ -426,7 +446,7 @@ func exactFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction) 
 	// allocating an unbounded protocol frame in Hecate.
 	snapshot, err := chromedp.Call(ctx, accessibility.GetFullAXTree, accessibility.GetFullAXTreeParams{})
 	if err != nil {
-		return nil, ErrInspectionFailed
+		return nil, flowTargetQueryError(err)
 	}
 	byBackend := make(map[cdp.BackendNodeID]*accessibility.Node)
 	for _, node := range snapshot.Nodes {
