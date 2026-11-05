@@ -40,6 +40,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       typescript: ${{ steps.filter.outputs.typescript }}
       tauri: ${{ steps.filter.outputs.tauri }}
+      updater_deps: ${{ steps.filter.outputs.updater_deps }}
       mobile: ${{ steps.filter.outputs.mobile }}
       desktop: ${{ steps.filter.outputs.desktop }}
       workflow: ${{ steps.filter.outputs.workflow }}
@@ -53,7 +54,7 @@ jobs:
 
       - name: Validate release workflows
         run: |
-          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts scripts/postgres-workflow.test.ts
+          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts scripts/postgres-workflow.test.ts scripts/updater-workflow.test.ts
           bun scripts/check-release-workflows.ts
 
       - uses: dorny/paths-filter@v4
@@ -93,6 +94,11 @@ jobs:
               - 'ui/e2e/**'
             tauri:
               - 'tauri/**'
+            # The updater guard also reads the UI's dependency pair. Select
+            # its Rust test job without widening the native bundle filters.
+            updater_deps:
+              - 'ui/package.json'
+              - 'ui/bun.lock'
             mobile:
               - 'tauri/**'
               - 'scripts/mobile-version.ts'
@@ -120,6 +126,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.tauri == 'true' ||
+      needs.changes.outputs.updater_deps == 'true' ||
       needs.changes.outputs.mobile == 'true' ||
       needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest

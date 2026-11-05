@@ -211,7 +211,10 @@ The race detector is the strongest correctness check (and the slowest); CI runs 
 `just tauri-rust-test` stages a placeholder sidecar, runs the shell and
 dependency-policy tests, checks the locked Windows updater graph and declared
 Rust requirements, then runs `cargo test --locked`. It does not launch the
-installed app. The dependency guard can also run alone:
+installed app. CI also selects this job for `ui/package.json` or `ui/bun.lock`
+changes, without selecting the desktop/mobile packaging matrices. Workflow
+fixtures check both dependency-file paths before CI applies its path filters.
+The dependency guard can also run alone:
 
 ```bash
 bun tauri/scripts/check-updater-dependencies.ts

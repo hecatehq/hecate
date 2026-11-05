@@ -363,6 +363,8 @@ Adding a Tauri command: see the "Adding a custom command — ACL steps" sub-sect
 
 Use Rust 1.90.0 or newer. The updater security baseline is Rust/JS updater
 2.14.1, Tauri Rust/API/CLI 2.12, and locked ZIP >=9.0.5 (currently 9.3.0).
+The guard's 2.12.0 check is the updater's upstream compatibility minimum,
+not the selected patch: the locks use Rust Tauri 2.12.5 and JS API/CLI 2.12.4.
 Keep Rust and JS plugin versions paired and the API/CLI on the Tauri minor
 line. The release signature verifier must use the updater's `minisign-verify`
 0.3 line. Preserve the vendored glib 0.18.5 backport, updater rustls/archive
@@ -438,7 +440,11 @@ desktop and mobile matrices to changes that could plausibly break their Tauri
 builds (`tauri/**`, `cmd/hecate/**`, `Justfile`, `just/**`, version scripts,
 release packaging files, and `.github/workflows/*.yml`). UI-only PRs do not
 trigger either matrix; they are covered by the TypeScript jobs and by
-`build-hecate`, which rebuilds the embedded UI. Both native matrices wait for
+`build-hecate`, which rebuilds the embedded UI. Changes to `ui/package.json`
+or `ui/bun.lock` additionally select `test-tauri-rust` through the narrow
+`updater_deps` filter so dependency-pair checks cannot be skipped; they do
+not select either native matrix. The workflow regression fixtures run before
+path filtering. Both native matrices wait for
 the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
 skip by path filter) before they start. They run in parallel and do not upload
 PR artifacts.
