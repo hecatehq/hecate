@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -76,10 +77,25 @@ func TestPostgresStoreMessageRequestForeignOwnerLease(t *testing.T) {
 		t.Fatalf("NewPostgresStore second: %v", err)
 	}
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), 75*time.Millisecond)
+	deadline, _ := waitCtx.Deadline()
 	_, err = second.ClaimMessageRequest(waitCtx, "chat_foreign_lease", "queued-foreign", fingerprint)
+	deadlineReached := !time.Now().Before(deadline)
 	cancelWait()
-	if !errors.Is(err, context.DeadlineExceeded) {
+	// pgx may report the socket deadline before the context cancellation is
+	// observed. Accept that form only once this call's deadline has elapsed.
+	var timeout net.Error
+	if !errors.Is(err, context.DeadlineExceeded) && !(deadlineReached && errors.As(err, &timeout) && timeout.Timeout()) {
 		t.Fatalf("fresh foreign claim error = %v, want deadline without takeover", err)
+	}
+	var ownerToken string
+	if err := client.DB().QueryRowContext(context.Background(),
+		"SELECT owner_token FROM "+first.messageRequestsTable+" WHERE session_id = ? AND client_request_id = ?",
+		"chat_foreign_lease", "queued-foreign",
+	).Scan(&ownerToken); err != nil {
+		t.Fatalf("read original lease after waiting: %v", err)
+	}
+	if ownerToken != firstClaim.Lease.OwnerToken {
+		t.Fatal("waiting for a fresh foreign lease changed its owner")
 	}
 	if _, err := client.DB().ExecContext(
 		context.Background(),

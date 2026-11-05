@@ -62,6 +62,13 @@ packages.
 
 The race suite is the floor — not a nice-to-have — for any change that touches `internal/gateway`, `internal/router`, `internal/providers`, `internal/orchestrator`, `internal/sandbox`, retention/state wiring, or other request execution paths.
 
+For browser execution or `chromedp`/`cdproto` compatibility changes, also run
+the real Chromium smoke suite with `HECATE_BROWSER_SMOKE=1` and
+`HECATE_TASK_BROWSER_EXECUTABLE` set to an installed Chrome/Chromium executable:
+`go test -race -count=1 -timeout 5m -run 'TestChromium.*Smoke' ./internal/browserrunner`.
+The ordinary suite skips these checks without the explicit flag; it is not
+proof of live browser isolation, network interception, or process cleanup.
+
 E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and `docker` sub-tags. Use `PROVIDER_FAKE_KIND=local` for synthetic local-model scenarios.
 
 For shared SQL/storage changes, also run `just test-postgres` with

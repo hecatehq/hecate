@@ -391,13 +391,13 @@ func TestChromiumBrowserFlowSmokeRechecksHitAfterFinalSemanticQuery(t *testing.T
 		t.Fatalf("New() error = %v", err)
 	}
 	inspector.beforeFinalClickHitTest = func(ctx context.Context) error {
-		var ignored any
-		return chromedp.Evaluate(`(() => {
+		_, err := chromedp.Run(ctx, chromedp.Evaluate[chromedp.Void](`(() => {
   const overlay = document.createElement('div');
   overlay.id = 'late-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:white';
   document.body.appendChild(overlay);
-})()`, &ignored).Do(ctx)
+})()`))
+		return err
 	}
 	result, err := inspector.RunFlow(context.Background(), FlowRequest{
 		URL:           server.URL,

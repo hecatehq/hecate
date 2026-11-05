@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/chromedp/cdproto/accessibility"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
@@ -15,8 +16,9 @@ import (
 // This fixed function runs in an isolated world so page scripts cannot replace
 // its DOM intrinsics. The value is a protocol argument, never executable source.
 // Setting the exact node avoids keyboard focus being redirected to another field.
-const fillFlowTextScript = `function(value) {
+const fillFlowTextScript = `function(argument) {
   'use strict';
+  const value = argument[0];
   const element = this;
   const input = element instanceof HTMLInputElement;
   const textarea = element instanceof HTMLTextAreaElement;
@@ -43,23 +45,16 @@ func fillFlowAccessibilityTarget(ctx context.Context, action FlowAction, target 
 	if target == nil || target.BackendDOMNodeID == 0 || action.Text == nil {
 		return ErrFlowTargetUnavailable
 	}
-	var resultErr error
-	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		resultErr = fillFlowAccessibilityTargetDirect(actionCtx, action, target)
-		return nil
-	})); err != nil {
-		return ErrInspectionFailed
-	}
-	return resultErr
+	return fillFlowAccessibilityTargetDirect(ctx, action, target)
 }
 
 func fillFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, target *accessibility.Node) error {
-	if err := accessibility.Enable().Do(ctx); err != nil {
+	if _, err := chromedp.Call(ctx, accessibility.Enable, cdp.Empty{}); err != nil {
 		return ErrInspectionFailed
 	}
-	defer func() { _ = accessibility.Disable().Do(ctx) }()
+	defer func() { _, _ = chromedp.Call(ctx, accessibility.Disable, cdp.Empty{}) }()
 	backendID := target.BackendDOMNodeID
-	if err := dom.ScrollIntoViewIfNeeded().WithBackendNodeID(backendID).Do(ctx); err != nil {
+	if _, err := chromedp.Call(ctx, dom.ScrollIntoViewIfNeeded, dom.ScrollIntoViewIfNeededParams{BackendNodeID: backendID}); err != nil {
 		return ErrFlowTargetUnavailable
 	}
 	if _, _, err := flowSafeClickPoint(ctx, backendID); err != nil {
@@ -67,19 +62,22 @@ func fillFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, t
 	}
 	// Restrict text entry to the main document. This world cannot acquire page
 	// globals or silently follow a frame into a different execution context.
-	frame, err := page.GetFrameTree().Do(ctx)
-	if err != nil || frame == nil || frame.Frame == nil {
+	frame, err := chromedp.Call(ctx, page.GetFrameTree, cdp.Empty{})
+	if err != nil || frame.FrameTree == nil || frame.FrameTree.Frame == nil {
 		return ErrInspectionFailed
 	}
-	world, err := page.CreateIsolatedWorld(frame.Frame.ID).WithWorldName("hecate-browser-text-entry").Do(ctx)
+	world, err := chromedp.Call(ctx, page.CreateIsolatedWorld, page.CreateIsolatedWorldParams{FrameID: frame.FrameTree.Frame.ID, WorldName: "hecate-browser-text-entry"})
 	if err != nil {
 		return ErrInspectionFailed
 	}
-	object, err := dom.ResolveNode().WithBackendNodeID(backendID).WithExecutionContextID(world).Do(ctx)
-	if err != nil || object == nil || object.ObjectID == "" {
+	resolved, err := chromedp.Call(ctx, dom.ResolveNode, dom.ResolveNodeParams{BackendNodeID: backendID, ExecutionContextID: world.ExecutionContextID})
+	if err != nil || resolved.Object == nil || resolved.Object.ObjectID == "" {
 		return ErrFlowTargetUnavailable
 	}
-	defer func() { _ = runtime.ReleaseObject(object.ObjectID).Do(ctx) }()
+	objectID := resolved.Object.ObjectID
+	defer func() {
+		_, _ = chromedp.Call(ctx, runtime.ReleaseObject, runtime.ReleaseObjectParams{ObjectID: objectID})
+	}()
 	rechecked, err := exactFlowAccessibilityTargetDirect(ctx, action)
 	if err != nil {
 		return err
@@ -87,19 +85,31 @@ func fillFlowAccessibilityTargetDirect(ctx context.Context, action FlowAction, t
 	if rechecked.BackendDOMNodeID != backendID {
 		return ErrFlowTargetUnavailable
 	}
-	value, err := json.Marshal(*action.Text)
+	params, err := flowTextCallParams(objectID, *action.Text)
 	if err != nil {
 		return ErrInvalidFlow
 	}
-	result, exception, err := runtime.CallFunctionOn(fillFlowTextScript).
-		WithObjectID(object.ObjectID).
-		WithArguments([]*runtime.CallArgument{{Value: jsontext.Value(value)}}).
-		WithReturnByValue(true).Do(ctx)
-	if err != nil || exception != nil || result == nil {
+	result, err := chromedp.Call(ctx, runtime.CallFunctionOn, params)
+	if err != nil || result.ExceptionDetails != nil || result.Result == nil {
 		return ErrInspectionFailed
 	}
-	if string(result.Value) != "true" {
+	if string(result.Result.Value) != "true" {
 		return ErrFlowTargetUnavailable
 	}
 	return nil
+}
+
+func flowTextCallParams(objectID runtime.RemoteObjectID, text string) (runtime.CallFunctionOnParams, error) {
+	// The protocol codec omits empty primitive values. A one-element array
+	// preserves an explicit empty string so clearing a field never passes undefined.
+	value, err := json.Marshal([]string{text})
+	if err != nil {
+		return runtime.CallFunctionOnParams{}, err
+	}
+	return runtime.CallFunctionOnParams{
+		FunctionDeclaration: fillFlowTextScript,
+		ObjectID:            objectID,
+		Arguments:           []*runtime.CallArgument{{Value: jsontext.Value(value)}},
+		ReturnByValue:       new(true),
+	}, nil
 }
