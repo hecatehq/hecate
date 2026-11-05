@@ -395,7 +395,7 @@ Postgres remains observable as `hecate.queue.backend=postgres`.
   is no `package-lock.json`. Use `bun install`, `bun run <script>`,
   `bun add <pkg>`, `bun x <tool>`. Do not introduce npm/yarn/pnpm lockfiles or
   workflow steps.
-- **Native app toolchain**: Rust + Cargo via rustup for Tauri work (`tauri/`, `just tauri-*`). Backend and UI-only work should not require Cargo.
+- **Native app toolchain**: Rust 1.90.0 or newer + Cargo via rustup for Tauri work (`tauri/`, `just tauri-*`). Tauri 2.12/updater 2.14.1 require this floor; keep the locked ZIP dependency >=9.0.5 and preserve the vendored glib backport. Backend and UI-only work should not require Cargo.
 - **UI stack**: React 19, TypeScript, Vite, Vitest + Testing Library + jsdom. Plain CSS with design tokens in `ui/src/styles.css` — no CSS-in-JS, no utility-class framework.
 - **Critical command distinction**: `bun run test` ≠ `bun test`. The latter skips the testing-library DOM setup and panics with `document[isPrepared]` errors. Always `bun run test` (which dispatches to vitest).
 

@@ -134,6 +134,9 @@ jobs:
       - name: Run Tauri Rust tests
         run: cd tauri/src-tauri && cargo test --locked
 
+      - name: Verify updater dependency security floors
+        run: bun tauri/scripts/check-updater-dependencies.ts
+
       - name: Verify vendored glib backport is active
         if: matrix.os == 'ubuntu-22.04'
         run: bun tauri/scripts/check-glib-backport.ts

@@ -983,6 +983,23 @@ it launches in gateway mode as its sidecar.
 Hecate uses GitHub Dependabot and CodeQL to catch dependency and code-scanning issues.
 
 - Fixable advisories should be handled by updating dependencies or hardening the relevant code path.
+- Windows updater extraction uses `tauri-plugin-updater` 2.14.1 with locked
+  `zip` 9.3.0. The regression guard rejects ZIP versions below 9.0.5, the first
+  release fixing all three reported ZIP advisories: [header interpretation
+  mismatch](https://github.com/zip-rs/zip2/security/advisories/GHSA-m665-v7pm-7grj),
+  [symlink allocation denial of service](https://github.com/zip-rs/zip2/security/advisories/GHSA-q7v9-x93c-xqv3),
+  and [incomplete AES authentication](https://github.com/zip-rs/zip2/security/advisories/GHSA-8hxf-qr8p-62x4).
+  [Upstream updater 2.14.1](https://github.com/tauri-apps/plugins-workspace/releases/tag/updater-v2.14.1)
+  accepts ZIP 9; the old updater's ZIP 4 constraint cannot resolve those fixes.
+  This requires the Tauri 2.12 stack and Rust 1.90.0 or newer.
+- Downloaded updater payloads still require the configured signature before
+  extraction/installation; release-side verification uses the same
+  `minisign-verify` 0.3 as the updater. Release notes and availability metadata
+  are not signed. Existing unversioned signatures remain accepted; this
+  upgrade does not opt into `requireSignedVersion` or change signing keys,
+  native drain/restart commands, or webview grants. The updater retains
+  rustls/archive support without newly enabling the optional `system-proxy`
+  feature. Dependency graph checks are not Windows runtime validation.
 - Some transitive advisories can be upstream-blocked. The current Tauri Linux
   stack depends on `gtk ^0.18`, which requires `glib ^0.18`; `glib >=0.20`
   cannot be forced safely until the Tauri/GTK stack moves.
