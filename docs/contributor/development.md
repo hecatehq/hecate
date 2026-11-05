@@ -33,7 +33,7 @@ Required for the main runtime + embedded UI:
 
 Required only for the native desktop app:
 
-- **Rust + Cargo** — installed via `rustup`; needed for `just tauri-dev`, `just tauri-build`, and native smoke tests.
+- **Rust 1.90.0 or newer + Cargo** — installed via `rustup`; needed for `just tauri-dev`, `just tauri-build`, and native smoke tests. The Tauri 2.12/updater 2.14.1 stack requires this floor; use `rustup update stable` if an existing toolchain is older.
 
 Optional:
 
@@ -205,6 +205,26 @@ the cheaper checks pass. The manual `tauri-mobile-build` Actions workflow also
 uploads a simulator bundle and debug APK for short-lived testing.
 
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. Gateway e2e helpers auto-set `PROVIDER_<NAME>_PRECONFIGURED=1` for providers described with `PROVIDER_<NAME>_*` vars; when a test posts an explicit model that the fake `/v1/models` endpoint does not advertise, seed it with `PROVIDER_<NAME>_MODELS` instead of reintroducing provider default-model env vars. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `verify-desktop` runs the Tauri Rust test suite and requires Rust/Cargo. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits. The native smoke is opt-in because it opens a real GUI window.
+
+### Tauri dependency checks
+
+`just tauri-rust-test` stages a placeholder sidecar, runs the shell and
+dependency-policy tests, checks the locked Windows updater graph and declared
+Rust requirements, then runs `cargo test --locked`. It does not launch the
+installed app. The dependency guard can also run alone:
+
+```bash
+bun tauri/scripts/check-updater-dependencies.ts
+just tauri-test-sidecar
+cargo +1.90.0 check --locked --all-targets --manifest-path tauri/src-tauri/Cargo.toml
+```
+
+Install that exact toolchain with `rustup toolchain install 1.90.0 --profile
+minimal` before checking the floor. `--all-targets` checks the host's library,
+binaries, examples and tests, not every operating system. Cargo metadata
+checks cannot replace Windows installation/restart tests or Linux/mobile CI.
+The native GUI smoke uses the real app support directory and quits Hecate by
+name; do not run it against an operator's data or running app.
 
 ### Postgres storage checks
 

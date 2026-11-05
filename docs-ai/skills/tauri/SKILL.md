@@ -361,9 +361,18 @@ Adding a Tauri command: see the "Adding a custom command — ACL steps" sub-sect
 
 ## Verification
 
+Use Rust 1.90.0 or newer. The updater security baseline is Rust/JS updater
+2.14.1, Tauri Rust/API/CLI 2.12, and locked ZIP >=9.0.5 (currently 9.3.0).
+Keep Rust and JS plugin versions paired and the API/CLI on the Tauri minor
+line. The release signature verifier must use the updater's `minisign-verify`
+0.3 line. Preserve the vendored glib 0.18.5 backport, updater rustls/archive
+features, existing signature compatibility, native drain tokens, and ACL.
+Do not enable the updater's new default `system-proxy` feature as an incidental
+dependency upgrade.
+
 ```bash
 # Rust type check (fast, no binary output)
-cd tauri/src-tauri && cargo check
+cd tauri/src-tauri && cargo check --locked
 
 # Full debug build + launch (builds gateway first)
 just tauri-dev
@@ -380,8 +389,19 @@ just test-tauri-smoke
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
 `just tauri-rust-test` runs the Rust test suite with a placeholder sidecar; use it for Tauri Rust changes that don't need a real gateway binary.
+It also runs `bun tauri/scripts/check-updater-dependencies.ts`: TOML/JSON/JSONC
+parsers validate the manifests and locks, and Cargo JSON metadata verifies
+the Windows runtime ZIP edge, updater features, and dependency-declared Rust
+requirements. The guard's mutation tests run with `bun test tests` in
+`tauri/`. It does not compile or run Windows code. When changing the stack,
+also check the declared floor explicitly with `cargo +1.90.0 check --locked
+--all-targets` in `tauri/src-tauri` after staging the placeholder; this checks
+host targets, including the release signature verifier example.
 `just test-tauri-smoke` is the packaged-app lifecycle check for macOS; it is
-not part of `verify` because it opens a GUI window.
+not part of `verify` because it opens a GUI window. It uses the real app
+support directory and quits Hecate by name; never run it against an operator's
+data or running app. Do not claim GUI installation/restart coverage from
+Rust tests, metadata checks, or CI package compilation.
 
 ## CI pipeline
 

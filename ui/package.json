@@ -25,10 +25,10 @@
   "dependencies": {
     "@dev.icons/react": "^1.1.0",
     "@pierre/diffs": "1.4.3",
-    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
-    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

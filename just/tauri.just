@@ -119,7 +119,8 @@ tauri-build-app: tauri-sidecar tauri-version
 # Run Tauri Rust unit tests.
 tauri-rust-test: tauri-test-sidecar
 	cd tauri && bun run test:mobile-shell
-	cd tauri/src-tauri && cargo test
+	bun tauri/scripts/check-updater-dependencies.ts
+	cd tauri/src-tauri && cargo test --locked
 
 # Build the Cloud-only companion for an Apple Silicon iOS Simulator. The
 # generated Xcode project is checked in; this does not require a signing team.

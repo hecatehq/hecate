@@ -170,6 +170,9 @@ jobs:
         run: cargo test --locked
         working-directory: tauri/src-tauri
 
+      - name: Verify updater dependency security floors
+        run: bun tauri/scripts/check-updater-dependencies.ts
+
       - name: Verify vendored glib backport is active
         run: bun tauri/scripts/check-glib-backport.ts
 
