@@ -474,6 +474,7 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 	}
 	for _, artifact := range artifacts {
 		itemType := "artifact"
+		title := artifact.Name
 		switch artifact.Kind {
 		case "patch":
 			itemType = "patch"
@@ -494,18 +495,36 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 		if artifact.Kind == orchestrator.ProjectAssistantProposalArtifactKind {
 			addProjectAssistantProposalActivitySummary(summary, artifact)
 		}
+		if artifact.Kind == taskstate.RunSteeringArtifactKind {
+			var guidance taskstate.RunSteering
+			if json.Unmarshal([]byte(artifact.ContentText), &guidance) == nil {
+				itemType = "run_steering"
+				summary["content_preview"] = guidance.Content
+				switch artifact.Status {
+				case "pending":
+					title = "Guidance waiting"
+					summary["reason"] = "Waiting for the next safe boundary; the current operation is not interrupted."
+				case "applied":
+					title = "Guidance added to agent context"
+					summary["reason"] = "Added before the next model request; this does not prove the agent followed it."
+				case "not_applied":
+					title = "Guidance not applied"
+					summary["reason"] = "The run finished or paused before this guidance was added. Review it before sending a new turn."
+				}
+			}
+		}
 		items = append(items, TaskActivityItem{
 			ID:         "artifact:" + artifact.ID,
 			Type:       itemType,
 			Status:     artifact.Status,
-			Title:      artifact.Name,
+			Title:      title,
 			StepID:     artifact.StepID,
 			ArtifactID: artifact.ID,
 			Kind:       artifact.Kind,
 			Path:       artifact.Path,
 			Summary:    summary,
 			OccurredAt: artifact.CreatedAt,
-			Terminal:   artifact.Status == "ready" || artifact.Status == "applied" || artifact.Status == "reverted",
+			Terminal:   artifact.Kind != taskstate.RunSteeringArtifactKind && (artifact.Status == "ready" || artifact.Status == "applied" || artifact.Status == "reverted"),
 		})
 	}
 	for _, approval := range approvals {

@@ -302,6 +302,7 @@ export type RuntimeConsoleFixtureActions = {
   refreshProviders: () => Promise<void>;
   setRetentionSubsystems: (value: string) => void;
   submitChat: (event: unknown) => Promise<void>;
+  steerActiveRun: (taskID: string, runID: string) => Promise<boolean>;
   submitToolResults: () => Promise<void>;
   runRetention: () => Promise<void>;
   restoreSavedComposerDraft: (sessionID: string) => boolean;
@@ -388,6 +389,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     refreshProviders: async () => undefined,
     setRetentionSubsystems: () => undefined,
     submitChat: async () => undefined,
+    steerActiveRun: async () => true,
     submitToolResults: async () => undefined,
     runRetention: async () => undefined,
     restoreSavedComposerDraft: () => false,

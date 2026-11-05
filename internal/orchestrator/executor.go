@@ -15,6 +15,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
 	"github.com/hecatehq/hecate/internal/workspacefs"
@@ -44,6 +45,10 @@ type ExecutionSpec struct {
 	// transient partial output with the last completed conversation boundary.
 	RepairArtifact func(artifact types.TaskArtifact) error
 	GetArtifact    func(taskID, artifactID string) (types.TaskArtifact, bool, error)
+	// Guidance is read from durable task state at safe execution boundaries.
+	// Its application commits the conversation and delivery evidence together.
+	ReadSteering  func() ([]types.TaskArtifact, error)
+	ApplySteering func(taskstate.RunSteeringApplication) (bool, error)
 	// EmitRunEvent appends an event to the run's event stream. Used
 	// by executors that want to emit telemetry beyond steps and
 	// artifacts — currently the agent loop's MCP dispatcher, which

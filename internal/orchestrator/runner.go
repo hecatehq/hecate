@@ -1506,6 +1506,16 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		GetArtifact: func(taskID, artifactID string) (types.TaskArtifact, bool, error) {
 			return r.store.GetArtifact(ctx, taskID, artifactID)
 		},
+		ReadSteering: func() ([]types.TaskArtifact, error) {
+			return r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: task.ID, RunID: run.ID, Kind: taskstate.RunSteeringArtifactKind})
+		},
+		ApplySteering: func(in taskstate.RunSteeringApplication) (bool, error) {
+			store, ok := r.store.(taskstate.RunSteeringStore)
+			if !ok {
+				return false, taskstate.ErrSteeringUnavailable
+			}
+			return store.ApplyRunSteering(ctx, in)
+		},
 		EmitRunEvent: func(eventType string, data map[string]any) {
 			_, _ = r.emitRunEvent(ctx, task.ID, run.ID, eventType, requestID, trace.TraceID, data)
 		},

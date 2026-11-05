@@ -206,6 +206,7 @@ export type ChatComposerProps = {
   // Active task tracking + queue.
   activeHecateTaskID: string;
   activeHecateRunID: string;
+  liveSteeringAvailable?: boolean;
   // Filtered to the active session — ChatView already does the filter.
   activeQueuedChatMessages: QueuedChatMessage[];
   projectProposalAvailable?: boolean;
@@ -302,6 +303,7 @@ export function ChatComposer(props: ChatComposerProps) {
     openExternalAgentSetup,
     activeHecateTaskID,
     activeHecateRunID,
+    liveSteeringAvailable = false,
     activeQueuedChatMessages,
     projectProposalAvailable = false,
     projectProposalDrafting = false,
@@ -317,6 +319,7 @@ export function ChatComposer(props: ChatComposerProps) {
   } = props;
   const chatCancelling =
     rawChatCancelling && chat.state.chatCancellingSessionID === activeSessionID;
+  const [steeringSending, setSteeringSending] = useState(false);
   const anotherChatCancelling = rawChatCancelling && !chatCancelling;
   const stopActionLabel =
     activeTurnKind === "external_agent"
@@ -772,6 +775,10 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
+    if (steeringSending) {
+      e.preventDefault();
+      return;
+    }
     if (workspaceModePending || attachmentTurnInFlight) {
       e.preventDefault();
       return;
@@ -1393,6 +1400,29 @@ export function ChatComposer(props: ChatComposerProps) {
                 onOpenConnections={onNavigate ? openDictationSetup : undefined}
                 onTranscript={insertDictationTranscript}
               />
+              {liveSteeringAvailable && (
+                <button
+                  className="btn btn-ghost btn-sm chat-composer-touch-action"
+                  type="button"
+                  aria-label="Send guidance now"
+                  aria-busy={steeringSending}
+                  disabled={
+                    sendDisabled || steeringSending || chat.state.pendingChatAttachments.length > 0
+                  }
+                  title="Add text guidance to the current run at its next safe boundary. The current operation continues; files must be queued instead."
+                  onClick={async () => {
+                    if (steeringSending || !activeHecateTaskID || !activeHecateRunID) return;
+                    setSteeringSending(true);
+                    try {
+                      await chatActions.steerActiveRun(activeHecateTaskID, activeHecateRunID);
+                    } finally {
+                      setSteeringSending(false);
+                    }
+                  }}
+                >
+                  {steeringSending ? "Sending…" : "Send now"}
+                </button>
+              )}
               <button
                 className="chat-composer-touch-action chat-composer-send"
                 type="submit"
@@ -1406,7 +1436,7 @@ export function ChatComposer(props: ChatComposerProps) {
                         ? "Queue message"
                         : "Send message"
                 }
-                disabled={sendDisabled}
+                disabled={sendDisabled || steeringSending}
                 title={
                   workspaceModePending
                     ? "Wait for Hecate to confirm workspace execution before sending"
@@ -1437,6 +1467,13 @@ export function ChatComposer(props: ChatComposerProps) {
               </button>
             </div>
           </div>
+          {isHecateChat && activeHecateTaskID && queueingMessage && (
+            <p style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t2)", fontSize: 11 }}>
+              {liveSteeringAvailable
+                ? "Send now adds text guidance after the current operation. Queue message starts a follow-up after this run."
+                : "Live guidance is unavailable while approval is pending. Resolve the approval or queue a follow-up."}
+            </p>
+          )}
           {composerNoticeVisible && (
             <div
               aria-label="Composer notices"

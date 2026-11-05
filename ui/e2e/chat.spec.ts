@@ -3202,9 +3202,7 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
   expect(submittedTurns[0]).not.toHaveProperty("workspace");
 });
 
-test("Hecate Chat rehydrates an active task and blocks direct sends after refresh", async ({
-  page,
-}) => {
+test("Hecate Chat separates live guidance from queued turns after refresh", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -3302,6 +3300,27 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     ],
   };
   let messagePosts = 0;
+  const guidancePosts: Array<{ content: string; client_request_id: string }> = [];
+  await page.route("/hecate/v1/tasks/task-busy-e2e/runs/run-busy-e2e/steer", (route) => {
+    const payload = route.request().postDataJSON() as {
+      content: string;
+      client_request_id: string;
+    };
+    guidancePosts.push(payload);
+    return route.fulfill({
+      json: {
+        object: "task.run.steering",
+        data: {
+          id: "guidance-e2e",
+          content: payload.content,
+          status: "pending",
+          sequence: 1,
+          created_at: "2026-10-27T10:00:00Z",
+          replay: false,
+        },
+      },
+    });
+  });
 
   await page.route("/v1/models*", (route) =>
     route.fulfill({
@@ -3364,6 +3383,15 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   await expect(page.getByRole("button", { name: "Stop active task" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open task", exact: true })).toBeVisible();
   await expect(page.getByText("Backing task")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Inspect before editing");
+  await page.getByRole("button", { name: "Send guidance now" }).focus();
+  await page.getByRole("button", { name: "Send guidance now" }).press("Enter");
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("");
+  expect(guidancePosts).toEqual([
+    { content: "Inspect before editing", client_request_id: expect.any(String) },
+  ]);
+  expect(messagePosts).toBe(0);
 
   await page.locator("textarea").fill("try direct while busy");
   await expect(page.getByRole("button", { name: "Queue message" })).toBeVisible();

@@ -355,6 +355,7 @@ function CommandGroupActivities({
 }
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
+  if (activity.type === "run_steering") return "Guidance";
   if (activity.mcp_app) return "App";
   if (activity.type === "tool_group" && (activity.children?.length ?? 0) > 0) return "Commands";
   if (

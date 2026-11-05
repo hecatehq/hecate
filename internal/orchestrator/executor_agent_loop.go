@@ -365,6 +365,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 
 	// Same-Run recovery may find a completed assistant response that was
 	// durably checkpointed before its terminal artifact was written.
+	if applied, steeringErr := e.applySteering(spec, &conversation, runState); steeringErr != nil {
+		return nil, steeringErr
+	} else if applied {
+		pendingToolCalls = nil
+		pendingToolCallsApproved = false
+	}
 	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun &&
 		spec.ResumeCheckpoint.ThisRunModelCallCount > 0 && spec.ResumeCheckpoint.LastCompletedStepID != "" {
 		if finalAssistant, ok := conversation.TailCompletedAssistant(); ok {
@@ -439,6 +445,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		}
 
 		var assistantMsg types.Message
+		if applied, steeringErr := e.applySteering(spec, &conversation, runState); steeringErr != nil {
+			return nil, steeringErr
+		} else if applied {
+			pendingToolCalls = nil
+			pendingToolCallsApproved = false
+		}
 		modelCall := runState.ModelCallCount()
 		modelCallRef := pendingToolCallsModelRef
 		modelCallStartedAt := time.Now().UTC()
@@ -512,6 +524,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
 				return agentLoopCostCeilingFailure(runState, msg), nil
 			}
+			if applied, steeringErr := e.applySteering(spec, &conversation, runState); steeringErr != nil {
+				return nil, steeringErr
+			} else if applied {
+				continue
+			}
 
 			// If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
@@ -569,6 +586,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			callsToRun = pendingToolCalls
 		}
 		for _, toolCall := range callsToRun {
+			if applied, steeringErr := e.applySteering(spec, &conversation, runState); steeringErr != nil {
+				return nil, steeringErr
+			} else if applied {
+				break
+			}
 			// Persist a stable, tool-call-bound intent before entering the
 			// dispatcher. The dispatcher may perform non-idempotent work, so a
 			// worker crash after this point must fail closed rather than replay.
