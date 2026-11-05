@@ -298,8 +298,8 @@ ON CONFLICT(id) DO UPDATE SET
 		string(skills),
 		profile.ExternalAgentKind,
 		string(options),
-		formatTime(profile.CreatedAt),
-		formatTime(profile.UpdatedAt),
+		storage.TimestampValue(s.client, profile.CreatedAt),
+		storage.TimestampValue(s.client, profile.UpdatedAt),
 	)
 	return err
 }
@@ -320,7 +320,7 @@ func scanAgentProfile(row scanner) (Profile, error) {
 	var profile Profile
 	var tools, writes, network, browser, browserInteractions, browserTextEntry int
 	var skillsRaw, optionsRaw, browserOriginsRaw string
-	var createdAt, updatedAt string
+	var createdAt, updatedAt any
 	if err := row.Scan(
 		&profile.ID,
 		&profile.Name,
@@ -357,8 +357,13 @@ func scanAgentProfile(row scanner) (Profile, error) {
 	_ = json.Unmarshal([]byte(skillsRaw), &profile.SkillIDs)
 	_ = json.Unmarshal([]byte(browserOriginsRaw), &profile.BrowserAllowedOrigins)
 	_ = json.Unmarshal([]byte(optionsRaw), &profile.ExternalAgentOptions)
-	profile.CreatedAt = parseTime(createdAt)
-	profile.UpdatedAt = parseTime(updatedAt)
+	var err error
+	if profile.CreatedAt, err = parseProfileTime(createdAt); err != nil {
+		return Profile{}, fmt.Errorf("parse agent profile created_at: %w", err)
+	}
+	if profile.UpdatedAt, err = parseProfileTime(updatedAt); err != nil {
+		return Profile{}, fmt.Errorf("parse agent profile updated_at: %w", err)
+	}
 	return normalizeProfile(profile, profile.UpdatedAt), nil
 }
 
@@ -369,14 +374,23 @@ func boolInt(v bool) int {
 	return 0
 }
 
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
+func parseProfileTime(value any) (time.Time, error) {
+	// RFC3339 drops seconds from historical zone offsets, so preserve the
+	// driver's typed timestamp until it has been converted to UTC.
+	if timestamp, ok := value.(time.Time); ok {
+		return timestamp.UTC(), nil
 	}
-	return t.UTC().Format(time.RFC3339Nano)
-}
-
-func parseTime(raw string) time.Time {
-	t, _ := time.Parse(time.RFC3339Nano, raw)
-	return t
+	text, ok := value.(string)
+	if !ok {
+		return time.Time{}, fmt.Errorf("unsupported agent profile timestamp type %T", value)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
 }
