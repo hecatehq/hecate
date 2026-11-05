@@ -99,6 +99,9 @@ CREATE TABLE `+client.QualifiedTable("agent_profiles")+` (
 		if err != nil || !found || got.BrowserTextEntryAllowed != wantTextEntry || !got.BrowserInteractionsAllowed || !got.ToolsEnabled || len(got.BrowserAllowedOrigins) != 1 || got.BrowserAllowedOrigins[0] != "https://app.example.test" {
 			t.Fatalf("stored policy = %+v found=%v err=%v, want text entry=%v with existing grants intact", got, found, err, wantTextEntry)
 		}
+		if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() || got.CreatedAt.Year() < 1 || got.UpdatedAt.Year() < 1 || got.CreatedAt.Location() != time.UTC || got.UpdatedAt.Location() != time.UTC {
+			t.Fatalf("legacy timestamps were not normalized to valid UTC values: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
+		}
 	}
 	assertPolicy(false)
 	if _, err := store.Update(ctx, "existing", func(profile *Profile) { profile.BrowserTextEntryAllowed = true }); err != nil {
@@ -114,4 +117,80 @@ CREATE TABLE `+client.QualifiedTable("agent_profiles")+` (
 		t.Fatalf("revoke after migration: %v", err)
 	}
 	assertPolicy(false)
+}
+
+func TestPostgresStore_ProfileTimestampRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value time.Time
+	}{
+		{"current", time.Date(2026, 11, 5, 12, 0, 0, 123456000, time.UTC)},
+		{"historical", time.Date(1, 1, 1, 12, 0, 0, 123456000, time.UTC)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newPostgresProfileTestStore(t)
+			ctx := t.Context()
+			value := tc.value.In(time.FixedZone("second offset", -884))
+			created, err := store.Create(ctx, Profile{ID: "timestamp", Name: "Timestamp", CreatedAt: value, UpdatedAt: value})
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			assertTime := func(label string, got time.Time) {
+				t.Helper()
+				if !got.Equal(tc.value) || got.Location() != time.UTC {
+					t.Fatalf("%s = %v, want UTC %v", label, got, tc.value)
+				}
+			}
+			got, found, err := store.Get(ctx, created.ID)
+			if err != nil || !found {
+				t.Fatalf("Get: found=%v err=%v", found, err)
+			}
+			assertTime("Get CreatedAt", got.CreatedAt)
+			assertTime("Get UpdatedAt", got.UpdatedAt)
+			items, err := store.List(ctx)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			listed := false
+			for _, item := range items {
+				if item.ID == created.ID {
+					listed = true
+					assertTime("List CreatedAt", item.CreatedAt)
+					assertTime("List UpdatedAt", item.UpdatedAt)
+				}
+			}
+			if !listed {
+				t.Fatal("List omitted the timestamp profile")
+			}
+			updated, err := store.Update(ctx, created.ID, func(profile *Profile) { profile.Name = "Updated timestamp" })
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			assertTime("Update CreatedAt", updated.CreatedAt)
+			got, found, err = store.Get(ctx, created.ID)
+			if err != nil || !found {
+				t.Fatalf("Get after Update: found=%v err=%v", found, err)
+			}
+			assertTime("persisted CreatedAt", got.CreatedAt)
+			if !got.UpdatedAt.Equal(updated.UpdatedAt.Truncate(time.Microsecond)) || got.UpdatedAt.Location() != time.UTC {
+				t.Fatalf("persisted UpdatedAt = %v, want UTC %v at Postgres precision", got.UpdatedAt, updated.UpdatedAt)
+			}
+		})
+	}
+}
+
+func TestPostgresStore_UpsertZeroTimestamps(t *testing.T) {
+	store := newPostgresProfileTestStore(t)
+	ctx := t.Context()
+	zero := time.Time{}.In(time.FixedZone("historical Madrid", -884))
+	if err := store.upsert(ctx, Profile{ID: "zero", Name: "Zero", CreatedAt: zero, UpdatedAt: zero}); err != nil {
+		t.Fatalf("upsert zero timestamps: %v", err)
+	}
+	var createdAt, updatedAt time.Time
+	if err := store.client.DB().QueryRowContext(ctx, "SELECT created_at, updated_at FROM "+store.table+" WHERE id = ?", "zero").Scan(&createdAt, &updatedAt); err != nil {
+		t.Fatalf("read stored zero timestamps: %v", err)
+	}
+	if !createdAt.IsZero() || !updatedAt.IsZero() {
+		t.Fatalf("stored timestamps = %v, %v; want zero instants", createdAt, updatedAt)
+	}
 }
