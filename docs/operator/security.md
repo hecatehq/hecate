@@ -170,8 +170,11 @@ accessible labels. Such echoes remain untrusted page evidence; Hecate does not
 promise to redact every transformation of non-secret input.
 
 The DevTools relay rejects any browser-to-Hecate protocol message over 4 MiB
-and stops a call after 32 MiB of aggregate inbound protocol payload. Interactive
-origin storage is independently quota-limited to 8 MiB inside the ephemeral
+and stops a call after 32 MiB of aggregate inbound protocol payload. Security
+events are checked synchronously at that bounded relay, scoped to the
+browser or exact page session, before they reach the DevTools client. Teardown
+waits for admitted observations before deciding whether evidence is complete.
+Interactive origin storage is independently quota-limited to 8 MiB inside the ephemeral
 profile, and Chromium audio output is muted. These application bounds protect
 Hecate's evidence path; they are not a browser sandbox or a precise upper bound
 on Chromium's own transient memory and filesystem bookkeeping.

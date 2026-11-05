@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      chromium-protocol:
+        patterns:
+          - github.com/chromedp/chromedp
+          - github.com/chromedp/cdproto
     commit-message:
       prefix: "deps(go)"
     labels:

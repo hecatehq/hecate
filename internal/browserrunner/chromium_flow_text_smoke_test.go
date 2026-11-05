@@ -1,6 +1,7 @@
 package browserrunner
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,46 @@ import (
 	"testing"
 	"time"
 )
+
+func TestChromiumBrowserFlowSmokeTextEntryProtocolArguments(t *testing.T) {
+	executable := requireBrowserSmoke(t)
+	for name, value := range map[string]string{
+		"quoted_multiline": "first \"quoted\" line\nsecond \\ line",
+		"clear":            "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			expected, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = fmt.Fprintf(w, `<!doctype html><html><head><title>Unsubmitted</title></head><body>
+<form onsubmit="document.title='submitted';return false"><textarea aria-label="Field">original</textarea></form>
+<div role="status" aria-label="Exact value received" hidden></div><script>
+document.querySelector('form').addEventListener('change', e => {
+  if (e.target.value === %s) document.querySelector('[role=status]').hidden = false;
+});
+</script></body></html>`, expected)
+			}))
+			defer server.Close()
+			runner, err := New(Config{ExecutablePath: executable, Timeout: 20 * time.Second, AllowPrivateIPs: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := runner.RunFlow(t.Context(), FlowRequest{
+				URL: server.URL, AllowedOrigin: browserSmokeOrigin(t, server.URL),
+				Actions: []FlowAction{
+					{Kind: FlowActionFillText, Role: "textbox", Name: "Field", Text: &value},
+					{Kind: FlowActionWaitFor, Role: "status", Name: "Exact value received"},
+				},
+			})
+			if err != nil || len(result.Actions) != 2 || result.Title != "Unsubmitted" {
+				t.Fatalf("literal text entry = %+v, %v", result, err)
+			}
+		})
+	}
+}
 
 func TestChromiumBrowserFlowSmokeTextEntry(t *testing.T) {
 	executable := requireBrowserSmoke(t)

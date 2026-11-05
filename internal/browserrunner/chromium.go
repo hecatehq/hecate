@@ -143,9 +143,9 @@ func (i *ChromiumInspector) Inspect(ctx context.Context, req InspectRequest) (re
 	if remaining <= 0 {
 		return InspectResult{}, ErrInspectionFailed
 	}
-	// The first chromedp.Run owns the Chromium process. Its context inherits
-	// the inspection deadline, but is not cancelled when bootstrap succeeds, so
-	// the same browser remains usable for the remaining inspection budget.
+	// The process and remote DevTools client share the inspection deadline.
+	// Successful bootstrap does not cancel that context, so the same browser
+	// remains usable for the remaining inspection budget.
 	browserRootCtx, cancelBrowserRoot := context.WithCancel(inspectionDeadlineCtx)
 	defer cancelBrowserRoot()
 
@@ -160,11 +160,9 @@ func (i *ChromiumInspector) Inspect(ctx context.Context, req InspectRequest) (re
 		return InspectResult{}, ErrInspectionFailed
 	}
 	defer cancelAllocator()
-	browserCtx, cancelBrowser := chromedp.NewContext(allocatorCtx,
-		chromedp.WithBrowserOption(chromedp.WithDialTimeout(startupTimeout)),
-	)
+	browserCtx, cancelBrowser := chromedp.NewContext(allocatorCtx)
 	defer cancelBrowser()
-	if err := chromedp.Run(browserCtx); err != nil {
+	if err := chromedp.Do(browserCtx); err != nil {
 		return InspectResult{}, ErrInspectionFailed
 	}
 
@@ -181,70 +179,54 @@ func (i *ChromiumInspector) Inspect(ctx context.Context, req InspectRequest) (re
 	monitor := newEventMonitor(policy)
 	listenerDrain := newListenerDrain()
 	hardAbortInspection := func() {
-		browserProcess.stop()
+		// Relay observers cannot wait for their own forwarding goroutine. Kill
+		// the process unit synchronously; the owning call joins it at teardown.
+		browserProcess.proxy.abortProcess()
 		cancelInspection()
 	}
-	monitor.startWithDrain(inspectionCtx, hardAbortInspection, listenerDrain)
+	monitor.startWithDrain(inspectionCtx, hardAbortInspection, listenerDrain, &browserProcess.proxy.events)
 	childTargets := newChildTargetGuard(browserState.Target.TargetID)
 	childTargets.startWithDrain(inspectionCtx, func() {
 		monitor.failClosed(hardAbortInspection)
-	}, listenerDrain)
+	}, listenerDrain, &browserProcess.proxy.events)
 
 	var (
 		currentIndex int64
 		entries      []*page.NavigationEntry
 	)
-	err = chromedp.Run(inspectionCtx,
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
+	err = chromedp.Do(inspectionCtx,
+		chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
 			return autoAttachRelatedTargets(actionCtx, browserState.Target.TargetID)
 		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return browser.SetDownloadBehavior(browser.SetDownloadBehaviorBehaviorDeny).Do(actionCtx)
+		chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
+			_, err := chromedp.CallBrowser(actionCtx, browser.SetDownloadBehavior, browser.SetDownloadBehaviorParams{Behavior: browser.SetDownloadBehaviorBehaviorDeny})
+			return err
 		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.Enable().
-				WithMaxTotalBufferSize(browserResponseCancellationThresholdBytes).
-				WithMaxResourceBufferSize(browserResponseCancellationThresholdBytes).
-				Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetCacheDisabled(true).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetBypassServiceWorker(true).Do(actionCtx)
-		}),
+		protocolAction(network.Enable, network.EnableParams{MaxTotalBufferSize: new(int64(browserResponseCancellationThresholdBytes)), MaxResourceBufferSize: new(int64(browserResponseCancellationThresholdBytes))}),
+		protocolAction(network.SetCacheDisabled, network.SetCacheDisabledParams{CacheDisabled: true}),
+		protocolAction(network.SetBypassServiceWorker, network.SetBypassServiceWorkerParams{Bypass: true}),
 		// Browser evidence is deliberately static. Disabling page scripts before
 		// navigation prevents JavaScript-only transports (WebSocket,
 		// WebTransport, WebRTC, workers, and similar APIs) from bypassing the
 		// URL-loader interception below. It also keeps this slice from becoming
 		// a browser automation surface.
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return emulation.SetScriptExecutionDisabled(true).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return network.SetBlockedURLs().WithURLPatterns(browserNetworkBlockPatterns(policy)).Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return cdpruntime.Enable().Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return accessibility.Enable().Do(actionCtx)
-		}),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			return fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
-				URLPattern:   "*",
-				RequestStage: fetch.RequestStageRequest,
-			}}).Do(actionCtx)
-		}),
+		protocolAction(emulation.SetScriptExecutionDisabled, emulation.SetScriptExecutionDisabledParams{Value: true}),
+		protocolAction(network.SetBlockedURLs, network.SetBlockedURLsParams{URLPatterns: browserNetworkBlockPatterns(policy)}),
+		protocolAction(cdpruntime.Enable, cdp.Empty{}),
+		protocolAction(accessibility.Enable, cdp.Empty{}),
+		protocolAction(fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{{
+			URLPattern:   "*",
+			RequestStage: fetch.RequestStageRequest,
+		}}}),
 		chromedp.Navigate(policy.targetURL),
-		chromedp.WaitReady("html", chromedp.ByQuery),
+		chromedp.WaitReady(chromedp.CSS("html")),
 		// Keep the fresh browser alive briefly after the DOM is ready so
 		// asynchronous console output and related targets are observed before
 		// we form evidence. It is bounded by the inspection deadline.
 		chromedp.Sleep(browserSettleDelay),
-		chromedp.ActionFunc(func(actionCtx context.Context) error {
-			var historyErr error
-			currentIndex, entries, historyErr = page.GetNavigationHistory().Do(actionCtx)
+		chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
+			history, historyErr := chromedp.Call(actionCtx, page.GetNavigationHistory, cdp.Empty{})
+			currentIndex, entries = history.CurrentIndex, history.Entries
 			return historyErr
 		}),
 	)
@@ -378,11 +360,7 @@ func newChildTargetGuard(primary target.ID) *childTargetGuard {
 	return &childTargetGuard{primary: primary}
 }
 
-func (g *childTargetGuard) start(ctx context.Context, abort func()) {
-	g.startWithDrain(ctx, abort, nil)
-}
-
-func (g *childTargetGuard) startWithDrain(ctx context.Context, abort func(), drain *listenerDrain) {
+func (g *childTargetGuard) startWithDrain(ctx context.Context, abort func(), drain *listenerDrain, events *browserProtocolEvents) {
 	listener := func(event any) {
 		if g.observe(event) {
 			// Browser listeners run on Chromium's event path. Cancellation is
@@ -393,7 +371,7 @@ func (g *childTargetGuard) startWithDrain(ctx context.Context, abort func(), dra
 	if drain != nil {
 		listener = drain.wrap(listener)
 	}
-	chromedp.ListenBrowser(ctx, listener)
+	events.listen("", listener)
 }
 
 func (g *childTargetGuard) observe(event any) bool {
@@ -406,7 +384,8 @@ func autoAttachRelatedTargets(ctx context.Context, primary target.ID) error {
 	if browserState == nil || browserState.Browser == nil {
 		return ErrInspectionFailed
 	}
-	return target.AutoAttachRelated(primary, true).Do(cdp.WithExecutor(ctx, browserState.Browser))
+	_, err := chromedp.CallBrowser(ctx, target.AutoAttachRelated, target.AutoAttachRelatedParams{TargetID: primary, WaitForDebuggerOnStart: true})
+	return err
 }
 
 func browserStartupTimeout(timeout time.Duration) time.Duration {
@@ -583,11 +562,7 @@ func newFlowEventMonitor(policy requestPolicy) *eventMonitor {
 	return &eventMonitor{policy: policy, paused: make(chan pausedRequest, maxPausedRequests), abortOnBlocked: true, blockedRequestIDs: make(map[network.RequestID]struct{})}
 }
 
-func (m *eventMonitor) start(ctx context.Context, abort func()) {
-	m.startWithDrain(ctx, abort, nil)
-}
-
-func (m *eventMonitor) startWithDrain(ctx context.Context, abort func(), drain *listenerDrain) {
+func (m *eventMonitor) startWithDrain(ctx context.Context, abort func(), drain *listenerDrain, events *browserProtocolEvents) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -596,11 +571,13 @@ func (m *eventMonitor) startWithDrain(ctx context.Context, abort func(), drain *
 			case <-ctx.Done():
 				return
 			case request := <-m.paused:
-				err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
+				err := chromedp.Do(ctx, chromedp.Func(func(actionCtx context.Context, _ *chromedp.Target) error {
 					if request.allow {
-						return fetch.ContinueRequest(request.id).Do(actionCtx)
+						_, err := chromedp.Call(actionCtx, fetch.ContinueRequest, fetch.ContinueRequestParams{RequestID: request.id})
+						return err
 					}
-					return fetch.FailRequest(request.id, network.ErrorReasonBlockedByClient).Do(actionCtx)
+					_, err := chromedp.Call(actionCtx, fetch.FailRequest, fetch.FailRequestParams{RequestID: request.id, ErrorReason: network.ErrorReasonBlockedByClient})
+					return err
 				}))
 				if err != nil && ctx.Err() == nil {
 					// A paused request that cannot be answered otherwise causes
@@ -617,7 +594,7 @@ func (m *eventMonitor) startWithDrain(ctx context.Context, abort func(), drain *
 	if drain != nil {
 		listener = drain.wrap(listener)
 	}
-	chromedp.ListenTarget(ctx, listener)
+	events.listen(chromedp.FromContext(ctx).Target.SessionID, listener)
 }
 
 func (m *eventMonitor) wait() {
@@ -712,7 +689,7 @@ func (m *eventMonitor) onRequestPaused(ctx context.Context, event *fetch.EventRe
 	if abortOnBlocked {
 		m.failClosed(abort)
 	}
-	// chromedp dispatches listeners synchronously. Queue the reply for one
+	// The bounded relay dispatches listeners synchronously. Queue the reply for one
 	// bounded worker rather than blocking the CDP event loop or spawning an
 	// unbounded goroutine for hostile pages. A full queue intentionally leaves
 	// the new request paused until the inspection timeout (fail closed).
@@ -842,7 +819,7 @@ func parseResponseContentLength(value any) (int64, bool) {
 }
 
 func (m *eventMonitor) onConsole(event *cdpruntime.EventConsoleAPICalled) {
-	if event == nil || (event.Type != cdpruntime.APITypeError && event.Type != cdpruntime.APITypeWarning) {
+	if event == nil || (event.Type != cdpruntime.ConsoleAPICalledTypeError && event.Type != cdpruntime.ConsoleAPICalledTypeWarning) {
 		return
 	}
 	parts := make([]string, 0, len(event.Args))
