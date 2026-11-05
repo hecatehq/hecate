@@ -46,6 +46,12 @@ The `events.md` catalog is the canonical reference for what `/hecate/v1/events` 
 
 ## What You Can Inspect Today
 
+Explicit GitHub App inspections emit `github.pull_request.inspect` with bounded
+`hecate.github.checks_state`, `hecate.github.complete`, and
+`hecate.github.check_count` attributes. Failed spans carry the fixed
+`inspection_failed` status, never upstream bodies, repository names, PR URLs,
+commit IDs, key paths, JWTs, or installation tokens.
+
 Telemetry currently shows up in three places:
 
 - response headers

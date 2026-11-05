@@ -90,6 +90,9 @@ The short version:
   operator-gated follow-up.
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
+- **GitHub inspection:** an explicit repository-scoped GitHub App connection
+  reads PR head/check snapshots in Connections without exposing credentials to
+  agents or enabling code writes. See [setup and scope](docs/operator/github.md).
 
 The product goal is not just to make model calls. It is to give you a single
 place to coordinate personal and project-scoped agent work and understand what

@@ -47,6 +47,16 @@ runtime state to its device.
 
 ## Runtime boundaries
 
+The [GitHub App connection](github.md) uses a host-configured private key only
+for explicit read-only PR/check inspection. Each temporary installation token
+is requested and verified for one allowlisted repository and read-only access;
+tokens are never supplied to agents or ordinary tools. Setup reads are passive,
+GitHub redirects are refused, and upstream errors are not reflected verbatim.
+Keep the App key outside agent workspaces. This is not protection against an
+unrestricted process running as the same OS user, which may read that user's
+secret files. Remote access to inspection has the normal trusted runtime
+identity boundary, not a separate GitHub user identity.
+
 Hecate has different execution and shell-access surfaces with different trust
 levels.
 

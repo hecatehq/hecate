@@ -21,6 +21,11 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
 
 ## Provider Lifecycle
 
+- The [GitHub App connection](github.md) supports explicit read-only PR/check
+  inspection for allowlisted GitHub.com repositories. It does not yet monitor
+  checks, publish repairs, create/merge PRs, or execute lifecycle hooks. Reported
+  check success is not a branch-protection or merge-readiness decision.
+
 - Operators add providers from the built-in preset catalog or an
   OpenAI-compatible custom endpoint flow. `PROVIDER_<NAME>_*` env vars
   also auto-import into the Connections view on first boot; subsequent
