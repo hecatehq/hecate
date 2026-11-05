@@ -55,7 +55,14 @@ them; host-specific guidance files and skill bodies remain metadata-only.
 Project-linked Hecate Chat uses a bounded project prelude in the chat system
 prompt and records that policy in the context packet; project context-source
 file bodies, host-specific guidance file bodies, and `SKILL.md` bodies are not
-loaded into chat prompts in V1. External Agent chat and External Agent
+loaded through project-prelude resolution. Independently, new native Chats and
+standard native Tasks may explicitly select `workspace_skills` by path and
+fingerprint. `workspaceskills` reads bounded files through stable WorkspaceFS,
+freezes bodies as private runtime state, and adds them only to transient model
+requests. API/Context Inspector metadata and conversation artifacts must never
+contain these source bodies. Selection grants no tools, scripts, reference
+autoload, or permission changes; preset/role `skill_ids` remain inert metadata.
+External Agent chat and External Agent
 project-assignment starts record project metadata for inspection, but Hecate
 does not inject project memory bodies, source bodies, or skill bodies into
 adapter prompts; the adapter owns private prompt packing inside its native
@@ -102,7 +109,7 @@ creation. Prepend preset instructions to the
 optional per-Task instructions, and snapshot tools, write, network, approval,
 and browser posture. Reject QA, non-`agent_loop` execution kinds, and a
 tools-disabled preset combined with MCP servers. This path must not activate
-project memory, context-source bodies, skills, roles, assignments, or any other
+project memory, context-source bodies, preset-named skills, roles, assignments, or any other
 Cairnline state. Start, Schedule dispatch, Retry, Resume, Continue, and
 retry-from-model-call consume the frozen Task and never re-resolve the preset.
 Cairnline is the sole production authority for portable Projects coordination.

@@ -15,6 +15,8 @@ import {
   type ProviderOption,
 } from "../shared/ui";
 import { MCPServerEditor } from "../shared/MCPServerEditor";
+import { WorkspaceSkillPicker } from "../shared/WorkspaceSkillPicker";
+import type { WorkspaceSkillSelection } from "../../types/workspace-skill";
 import {
   mcpServerFormEntriesToPayload,
   type MCPApprovalPolicy,
@@ -64,6 +66,7 @@ function KindTab({
 }
 
 export type CreateTaskPayload = {
+  workspace_skills?: WorkspaceSkillSelection[];
   // UI-only creation intent. TasksView removes this before calling the
   // create endpoint, then decides whether to start the first Run.
   start_immediately: boolean;
@@ -157,6 +160,12 @@ export function NewTaskSlideOver({
   // the new-task panel is a one-shot form, not a persisted setting.
   const [taskProvider, setTaskProvider] = useState("auto");
   const [taskAgentPresetID, setTaskAgentPresetID] = useState("");
+  const [skillSelection, setSkillSelection] = useState<{
+    workspace: string;
+    skills: WorkspaceSkillSelection[];
+  }>({ workspace: "", skills: [] });
+  const selectedSkills =
+    skillSelection.workspace === taskWorkingDir.trim() ? skillSelection.skills : [];
   // In-place mode: run inside the source directory rather than an
   // isolated clone. Toggling this on tells the gateway to use
   // working_directory as the sandbox root, so writes hit the real
@@ -374,6 +383,9 @@ export function NewTaskSlideOver({
             ? { requested_model: effectiveTaskModel }
             : {}),
         ...(explicitProvider ? { requested_provider: explicitProvider } : {}),
+        ...(standardNativeAgentLoop && selectedSkills.length
+          ? { workspace_skills: selectedSkills }
+          : {}),
         ...(standardNativeAgentLoop && selectedAgentPreset
           ? { agent_preset_id: selectedAgentPreset.id }
           : {}),
@@ -409,6 +421,7 @@ export function NewTaskSlideOver({
     setTaskProvider("auto");
     setTaskModel("");
     setTaskAgentPresetID("");
+    setSkillSelection({ workspace: "", skills: [] });
     setTaskInPlace(false);
     setStartImmediately(true);
     setMcpServers([]);
@@ -715,6 +728,15 @@ export function NewTaskSlideOver({
             </div>
             {standardNativeAgentLoop && (
               <div>
+                <WorkspaceSkillPicker
+                  key={taskWorkingDir.trim()}
+                  workspace={taskWorkingDir.trim()}
+                  value={selectedSkills}
+                  onChange={(skills) =>
+                    setSkillSelection({ workspace: taskWorkingDir.trim(), skills })
+                  }
+                  disabled={Boolean(busyAction)}
+                />
                 <label
                   htmlFor="task-agent-preset"
                   style={{

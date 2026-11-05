@@ -16,6 +16,7 @@ var remoteRuntimeLocalOnlyRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodDelete, path: "/hecate/v1/settings/browser"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-dialog"},
 	{method: http.MethodPost, path: "/hecate/v1/workspace-open"},
+	{method: http.MethodPost, path: "/hecate/v1/workspace-skills"},
 	{method: http.MethodPost, path: "/hecate/v1/terminals"},
 	{method: http.MethodGet, path: "/hecate/v1/terminals/{terminal_id}/output"},
 	{method: http.MethodPost, path: "/hecate/v1/terminals/{terminal_id}/input"},

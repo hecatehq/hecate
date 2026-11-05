@@ -179,6 +179,47 @@ under its normal policy and approval boundaries. Sessions created before the
 approval field was added keep their historical runtime defaults rather than
 inventing a policy during readback.
 
+### Explicit workspace skills
+
+For a new Hecate Chat, choose a workspace, then **Workspace skills → Choose
+skills**. Select up to four instruction files before creating the chat. This
+shares the selected `SKILL.md` contents with the chat's model provider, including
+a cloud provider when selected. The picker shows names, workspace-relative paths,
+sizes, and content fingerprints; it never downloads source bodies to the UI.
+
+Hecate inspects only direct skill directories beneath `.agents/skills`,
+`.hecate/skills`, `.cairnline/skills`, `.claude/skills`, `.gemini/skills`, and
+`docs-ai/skills`. Each file must be nonempty UTF-8 text, no larger than 64 KiB;
+the combined selection is limited to 128 KiB. Symlinked skill files, unsafe
+paths, nested skill directories, and unsupported files are excluded. Catalog
+inspection requires a local runtime. Refreshing clears the selection so changed
+files must be selected again.
+
+These are file-safety limits, not a promise that every model has enough context.
+Skills consume the selected model's context alongside conversation and tools;
+small-context models may reject large selections. Hecate never silently truncates
+the frozen instructions. Select smaller files or use a model with more context.
+
+Creation checks each selected fingerprint and freezes the exact bytes. If a
+file changed or disappeared, creation fails rather than loading a different
+version. Chat settings show the frozen selection; create a new chat to change
+it. Direct-model and tools-on turns use the same snapshot, and backing Tasks,
+retries, and continuations never reread the live files.
+
+Skills are instructions, not permission grants. Selecting one does not enable
+tools, writes, network access, browser permissions, scripts, or referenced-file
+autoload. Existing role/preset `skill_ids` and Cairnline's project registry remain
+coordination metadata and never implicitly activate bodies. External Agents
+continue to own their native skill loading; this picker is Hecate-only.
+
+Frozen bodies are private Hecate runtime state, persisted with the Chat and
+backing Task using the configured storage backend. They are not encrypted
+separately from other runtime data; normal database access, backup, and retention
+rules apply. They enter transient model requests, not transcript rows, Context
+Inspector metadata, trace payloads, or conversation checkpoint/review artifacts.
+Model output can still quote instructions, just as it can quote other prompt
+content. Do not select files whose contents must not reach the chosen provider.
+
 ### Browser tools in Hecate Chat
 
 To use browser tools, open **Settings → Browser setup** on a local runtime, select an

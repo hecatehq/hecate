@@ -1,6 +1,9 @@
 package api
 
-import "github.com/hecatehq/hecate/internal/eventprotocol"
+import (
+	"github.com/hecatehq/hecate/internal/eventprotocol"
+	"github.com/hecatehq/hecate/pkg/types"
+)
 
 type CreateTaskRequest struct {
 	Title  string `json:"title"`
@@ -11,7 +14,8 @@ type CreateTaskRequest struct {
 	// AgentPresetID selects a Hecate-owned work policy for a standard native
 	// agent_loop Task. The application resolves and freezes its runtime posture;
 	// callers cannot submit the derived snapshot fields directly.
-	AgentPresetID string `json:"agent_preset_id,omitempty"`
+	AgentPresetID   string                          `json:"agent_preset_id,omitempty"`
+	WorkspaceSkills []types.WorkspaceSkillSelection `json:"workspace_skills,omitempty"`
 	// SystemPrompt is the per-task system prompt for agent_loop runs.
 	// It's the narrowest layer in the four-level composition (global
 	// → tenant → workspace CLAUDE.md/AGENTS.md → this).
@@ -192,6 +196,8 @@ type EventsResponse struct {
 }
 
 type TaskItem struct {
+	WorkspaceSkills []types.WorkspaceSkillInfo `json:"workspace_skills,omitempty"`
+
 	ID                                    string   `json:"id"`
 	Title                                 string   `json:"title"`
 	Prompt                                string   `json:"prompt"`

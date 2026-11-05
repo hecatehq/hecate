@@ -8,9 +8,9 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-const attachmentProviderError = "provider request with file attachments failed; upstream details withheld to protect file contents"
+const attachmentProviderError = "provider request with private workspace content failed; upstream details withheld to protect its contents"
 
-// A provider can echo arbitrary file text in an error. Pattern-based secret
+// A provider can echo arbitrary attachment or skill text in an error. Pattern-based secret
 // redaction cannot recognize it, so keep only retry/cancellation classification
 // and never retain the original error as an unwrap-able cause.
 func attachmentSafeError(req types.ChatRequest, err error) error {
@@ -20,7 +20,7 @@ func attachmentSafeError(req types.ChatRequest, err error) error {
 	privateInput := false
 	for _, message := range req.Messages {
 		for _, block := range message.ContentBlocks {
-			privateInput = privateInput || block.AttachmentInput
+			privateInput = privateInput || block.AttachmentInput || block.WorkspaceSkillInput
 		}
 	}
 	if !privateInput {

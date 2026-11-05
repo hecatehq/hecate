@@ -761,6 +761,7 @@ func cloneApproval(approval types.TaskApproval) types.TaskApproval {
 }
 
 func cloneTask(task types.Task) types.Task {
+	task.WorkspaceSkills = append([]types.WorkspaceSkillSnapshot(nil), task.WorkspaceSkills...)
 	if task.AgentPresetToolsEnabled != nil {
 		toolsEnabled := *task.AgentPresetToolsEnabled
 		task.AgentPresetToolsEnabled = &toolsEnabled

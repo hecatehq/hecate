@@ -926,9 +926,10 @@ type AgentAdapterSetupCommandStatusItem struct {
 }
 
 type CreateChatSessionRequest struct {
-	Title     string `json:"title,omitempty"`
-	ProjectID string `json:"project_id,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
+	WorkspaceSkills []types.WorkspaceSkillSelection `json:"workspace_skills,omitempty"`
+	Title           string                          `json:"title,omitempty"`
+	ProjectID       string                          `json:"project_id,omitempty"`
+	AgentID         string                          `json:"agent_id,omitempty"`
 	// AgentPresetID selects a Hecate-owned preset only when creating a
 	// Hecate Chat session. The handler stores an immutable, narrow runtime
 	// snapshot rather than a live profile reference.
@@ -985,6 +986,7 @@ type SetAgentChatSettingsRequest struct {
 }
 
 type ChatSessionSummaryItem struct {
+	WorkspaceSkills []types.WorkspaceSkillInfo        `json:"workspace_skills,omitempty"`
 	ID              string                            `json:"id"`
 	Title           string                            `json:"title"`
 	ProjectID       string                            `json:"project_id,omitempty"`
@@ -1010,6 +1012,7 @@ type ChatSessionSummaryItem struct {
 }
 
 type ChatSessionItem struct {
+	WorkspaceSkills      []types.WorkspaceSkillInfo        `json:"workspace_skills,omitempty"`
 	ID                   string                            `json:"id"`
 	Title                string                            `json:"title"`
 	ProjectID            string                            `json:"project_id,omitempty"`

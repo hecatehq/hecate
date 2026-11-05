@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspaceskills"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -18,6 +19,10 @@ type agentLoopModelCall struct {
 }
 
 func (e *AgentLoopExecutor) runModelCall(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, modelCall int, startedAt time.Time) (agentLoopModelCall, *ExecutionResult, error) {
+	if err := workspaceskills.ValidateFrozen(spec.Task.WorkspaceSkills); err != nil {
+		failed, failureErr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, "Frozen workspace skills could not be validated; no model request was sent.")
+		return agentLoopModelCall{}, runState.attachAccounting(failed), failureErr
+	}
 	if conversation.hasPrivateAttachmentToolResults() {
 		budget, err := resolvedAttachmentContextBudget(ctx, spec)
 		if err != nil {
@@ -144,7 +149,7 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	return types.ChatRequest{
 		RequestID:    spec.RequestID,
 		Model:        spec.Run.Model,
-		Messages:     messages,
+		Messages:     workspaceskills.Messages(messages, spec.Task.WorkspaceSkills),
 		Tools:        tools,
 		Requirements: requirements,
 		Scope: types.RequestScope{

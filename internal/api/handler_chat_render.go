@@ -9,6 +9,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // agentChatSnapshotConfig captures the per-snapshot guardrail values
@@ -48,6 +49,7 @@ func renderChatSessionSummary(session chat.Session) ChatSessionSummaryItem {
 		Model:           session.Model,
 		Capabilities:    session.Capabilities,
 		AgentPreset:     renderChatAgentPresetSnapshot(session.AgentPreset),
+		WorkspaceSkills: types.WorkspaceSkillMetadata(session.WorkspaceSkills),
 		RTKEnabled:      session.RTKEnabled,
 		Workspace:       session.Workspace,
 		WorkspaceMode:   chat.EffectiveWorkspaceMode(session.WorkspaceMode),
@@ -118,6 +120,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		Model:                session.Model,
 		Capabilities:         session.Capabilities,
 		AgentPreset:          renderChatAgentPresetSnapshot(session.AgentPreset),
+		WorkspaceSkills:      types.WorkspaceSkillMetadata(session.WorkspaceSkills),
 		RTKEnabled:           session.RTKEnabled,
 		Workspace:            session.Workspace,
 		WorkspaceMode:        chat.EffectiveWorkspaceMode(session.WorkspaceMode),

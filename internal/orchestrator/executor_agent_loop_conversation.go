@@ -348,6 +348,10 @@ func conversationMessagesForArtifact(messages []types.Message) []types.Message {
 		}
 		blocks := make([]types.ContentBlock, 0, len(message.ContentBlocks))
 		for _, block := range message.ContentBlocks {
+			if block.WorkspaceSkillInput {
+				blocks = append(blocks, types.ContentBlock{Type: "text", Text: "[Workspace skill instructions omitted; retained in the frozen Task input.]"})
+				continue
+			}
 			if block.AttachmentInput && block.Image == nil {
 				omission := artifactTextAttachmentOmission
 				if message.Role == "tool" {

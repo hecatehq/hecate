@@ -179,14 +179,17 @@ type ContentBlock struct {
 	// AttachmentInput marks transient, Hecate-hydrated attachment content. It
 	// must be replaced with an omission marker before conversation persistence;
 	// it is never accepted from clients or sent on provider wire contracts.
-	AttachmentInput bool            `json:"-"`
-	Type            string          `json:"type"`
-	Text            string          `json:"text,omitempty"`
-	ID              string          `json:"id,omitempty"`            // tool_use
-	Name            string          `json:"name,omitempty"`          // tool_use
-	Input           json.RawMessage `json:"input,omitempty"`         // tool_use
-	ToolUseID       string          `json:"tool_use_id,omitempty"`   // tool_result
-	CacheControl    json.RawMessage `json:"cache_control,omitempty"` // Anthropic prompt caching
+	AttachmentInput bool `json:"-"`
+	// WorkspaceSkillInput marks private frozen instructions added only at the
+	// provider boundary, never accepted from public request JSON.
+	WorkspaceSkillInput bool            `json:"-"`
+	Type                string          `json:"type"`
+	Text                string          `json:"text,omitempty"`
+	ID                  string          `json:"id,omitempty"`            // tool_use
+	Name                string          `json:"name,omitempty"`          // tool_use
+	Input               json.RawMessage `json:"input,omitempty"`         // tool_use
+	ToolUseID           string          `json:"tool_use_id,omitempty"`   // tool_result
+	CacheControl        json.RawMessage `json:"cache_control,omitempty"` // Anthropic prompt caching
 	// Extended thinking fields (Anthropic)
 	Thinking  string `json:"thinking,omitempty"`  // thinking block content
 	Signature string `json:"signature,omitempty"` // thinking block signature (verified by Anthropic)

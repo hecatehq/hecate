@@ -233,6 +233,7 @@ export type RetentionRunPayload = {
 };
 
 export type CreateChatSessionPayload = {
+  workspace_skills?: import("../types/workspace-skill").WorkspaceSkillSelection[];
   title?: string;
   project_id?: string;
   agent_id?: string;
@@ -255,6 +256,17 @@ export type ChatMCPServerPayload = {
   headers?: Record<string, string>;
   approval_policy?: "auto" | "require_approval" | "block";
 };
+
+export function getWorkspaceSkills(workspace: string, signal?: AbortSignal) {
+  return fetchJSON<{
+    object: "workspace_skills";
+    data: import("../types/workspace-skill").WorkspaceSkillInfo[];
+  }>(`${HECATE_API}/workspace-skills`, {
+    method: "POST",
+    body: JSON.stringify({ workspace }),
+    signal,
+  });
+}
 
 export type CreateChatMessagePayload = {
   content: string;
