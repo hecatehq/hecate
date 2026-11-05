@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chromedp/cdproto/accessibility"
 	"github.com/chromedp/cdproto/cdp"
@@ -45,6 +46,51 @@ func TestFlowActionWaitErrorDistinguishesParentCancellation(t *testing.T) {
 	cancel()
 	if err := flowActionWaitError(ctx); !errors.Is(err, ErrInspectionFailed) || errors.Is(err, ErrFlowTargetNotFound) {
 		t.Fatalf("parent cancellation = %v, want generic inspection failure", err)
+	}
+}
+
+func TestWaitForFlowAccessibilityTargetQueryFailure(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name          string
+		cancelParent  bool
+		expireParent  bool
+		protocolError bool
+		want          error
+	}{
+		{name: "action deadline inside query", want: ErrFlowTargetNotFound},
+		{name: "parent cancelled", cancelParent: true, want: ErrInspectionFailed},
+		{name: "parent deadline", expireParent: true, want: ErrInspectionFailed},
+		{name: "protocol failure despite elapsed deadline", protocolError: true, want: ErrInspectionFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if test.cancelParent {
+				cancel()
+			}
+			if test.expireParent {
+				var cancelDeadline context.CancelFunc
+				parent, cancelDeadline = context.WithDeadline(parent, time.Now().Add(-time.Second))
+				defer cancelDeadline()
+			}
+			waitCtx, stop := context.WithDeadline(parent, time.Now().Add(-time.Second))
+			defer stop()
+			calls := 0
+			lookup := func(ctx context.Context, _ FlowAction) (*accessibility.Node, error) {
+				calls++
+				<-ctx.Done()
+				err := ctx.Err()
+				if test.protocolError {
+					err = errors.New("private protocol details")
+				}
+				return nil, flowTargetQueryError(err)
+			}
+			_, err := waitForFlowAccessibilityTarget(parent, waitCtx, FlowAction{Kind: FlowActionWaitFor}, lookup)
+			if err != test.want || calls != 1 {
+				t.Fatalf("query result = %v after %d calls, want %v after one call", err, calls, test.want)
+			}
+		})
 	}
 }
 
