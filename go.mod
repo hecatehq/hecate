@@ -7,7 +7,7 @@ require (
 	github.com/chromedp/chromedp v0.21.1
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
-	github.com/gobwas/ws v1.4.0
+	github.com/gobwas/ws v1.5.0
 	github.com/hecatehq/acp-adapter-kit v0.3.1
 	github.com/hecatehq/cairnline v0.1.0-alpha.6.0.20260719233717-aecf5281e3dd
 	github.com/hecatehq/claude-code-acp-adapter v0.3.1
@@ -47,7 +47,6 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.31.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
