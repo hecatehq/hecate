@@ -90,7 +90,7 @@ func TestWrapperSelectionSnapshotStaysCoherentDuringOverrideChanges(t *testing.T
 		go func() {
 			defer wg.Done()
 			for range iterations {
-				argv := wrappedArgv([]string{"tool", "arg"}, "/workspace", false)
+				argv := wrappedArgv([]string{"tool", "arg"}, "/workspace", false, true)
 				switch argv[0] {
 				case selections[0].path:
 					if len(argv) < 2 || argv[1] != "--ro-bind" {
@@ -202,11 +202,24 @@ func TestApplyWrapper_Bwrap_RewritesArgv(t *testing.T) {
 func TestBwrapOwnershipFlagsApplyToEveryWorkspaceMode(t *testing.T) {
 	for _, readOnly := range []bool{false, true} {
 		for _, network := range []bool{false, true} {
-			argv := bwrapArgvWithWrapperPath([]string{"tool"}, "/workspace", network, readOnly, "/usr/bin/bwrap")
+			argv := bwrapArgvWithWrapperPath([]string{"tool"}, "/workspace", network, readOnly, true, "/usr/bin/bwrap")
 			if !slices.Contains(argv, "--unshare-pid") || !slices.Contains(argv, "--die-with-parent") {
 				t.Fatalf("readOnly=%v network=%v: missing process ownership flags: %v", readOnly, network, argv)
 			}
 		}
+	}
+}
+
+func TestApplyWrapperPreservesTerminalBackgroundLifetime(t *testing.T) {
+	reset := SetWrapperForTesting(WrapperBwrap)
+	defer reset()
+	cmd := exec.Command("sh", "-c", "sleep 60 &")
+	ApplyWrapper(cmd, "/workspace", false)
+	if slices.Contains(cmd.Args, "--die-with-parent") {
+		t.Fatalf("terminal wrapper must defer lifetime to its process-tree owner: %v", cmd.Args)
+	}
+	if !slices.Contains(cmd.Args, "--unshare-pid") || !slices.Contains(cmd.Args, "--unshare-net") {
+		t.Fatalf("terminal isolation flags changed: %v", cmd.Args)
 	}
 }
 

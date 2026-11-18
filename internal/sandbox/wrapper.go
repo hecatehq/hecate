@@ -190,7 +190,7 @@ func sandboxExecProbeCommand(ctx context.Context) *exec.Cmd {
 // network alone and lets the policy validation upstream decide which
 // hosts the command can reach (best-effort, string-match).
 func applyWrapper(cmd *exec.Cmd, workspace string, network bool) {
-	argv := wrappedArgv(cmd.Args, workspace, network)
+	argv := wrappedArgv(cmd.Args, workspace, network, false)
 	if len(argv) == 0 {
 		return
 	}
@@ -204,7 +204,8 @@ func applyWrapper(cmd *exec.Cmd, workspace string, network bool) {
 // ApplyWrapper rewrites cmd in place with the same OS-level sandbox wrapper
 // LocalExecutor uses for one-shot shell execution. Long-lived workspace
 // processes use this to keep terminal and shell execution on the same
-// isolation path when bwrap or sandbox-exec is available.
+// isolation path when bwrap or sandbox-exec is available. Their process-tree
+// owner controls descendant lifetime, including jobs outliving the shell.
 func ApplyWrapper(cmd *exec.Cmd, workspace string, network bool) {
 	applyWrapper(cmd, workspace, network)
 }
@@ -221,11 +222,11 @@ func equalStringSlices(a, b []string) bool {
 	return true
 }
 
-func wrappedArgv(argv []string, workspace string, network bool) []string {
+func wrappedArgv(argv []string, workspace string, network, dieWithParent bool) []string {
 	selection := detectWrapperSelection(context.Background())
 	switch selection.kind {
 	case WrapperBwrap:
-		return bwrapArgvWithWrapperPath(argv, workspace, network, false, selection.path)
+		return bwrapArgvWithWrapperPath(argv, workspace, network, false, dieWithParent, selection.path)
 	case WrapperSandboxExec:
 		return sandboxExecArgvWithWrapperPath(argv, network, selection.path)
 	default:
@@ -243,7 +244,7 @@ func WrapReadOnlyArgv(argv []string, workspace string, network bool, extraReadOn
 	selection := detectWrapperSelection(context.Background())
 	switch selection.kind {
 	case WrapperBwrap:
-		return bwrapArgvWithWrapperPath(argv, workspace, network, true, selection.path, extraReadOnlyPaths...)
+		return bwrapArgvWithWrapperPath(argv, workspace, network, true, false, selection.path, extraReadOnlyPaths...)
 	case WrapperSandboxExec:
 		return sandboxExecArgvWithWrapperPath(argv, network, selection.path)
 	default:
@@ -265,10 +266,10 @@ func bwrapArgv(argv []string, workspace string, network bool) []string {
 }
 
 func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOnly bool, extraReadOnlyPaths ...string) []string {
-	return bwrapArgvWithWrapperPath(argv, workspace, network, readOnly, detectWrapperSelection(context.Background()).path, extraReadOnlyPaths...)
+	return bwrapArgvWithWrapperPath(argv, workspace, network, readOnly, false, detectWrapperSelection(context.Background()).path, extraReadOnlyPaths...)
 }
 
-func bwrapArgvWithWrapperPath(argv []string, workspace string, network, readOnly bool, wrapperPath string, extraReadOnlyPaths ...string) []string {
+func bwrapArgvWithWrapperPath(argv []string, workspace string, network, readOnly, dieWithParent bool, wrapperPath string, extraReadOnlyPaths ...string) []string {
 	args := []string{
 		"--ro-bind", "/", "/",
 		// Procfs and devfs need explicit mounts; bwrap does NOT bind
@@ -281,9 +282,11 @@ func bwrapArgvWithWrapperPath(argv []string, workspace string, network, readOnly
 		// fails on the read-only host bind.
 		"--tmpfs", "/tmp",
 		"--unshare-pid",
-		// Cancellation kills the bwrap supervisor. Its namespace descendants
-		// must die too, or inherited output pipes can keep cmd.Wait blocked.
-		"--die-with-parent",
+	}
+	if dieWithParent {
+		// One-shot cancellation must close descendant-held pipes. Terminals
+		// instead retain background jobs under their own process-tree owner.
+		args = append(args, "--die-with-parent")
 	}
 	if workspace != "" {
 		bindMode := "--bind"

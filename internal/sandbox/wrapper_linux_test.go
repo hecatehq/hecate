@@ -19,7 +19,7 @@ func TestBwrapCancellationClosesInheritedOutput(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// The finite child bounds cleanup even when the regression leaves it alive.
-	argv := wrappedArgv([]string{"sh", "-c", "sleep 5 & printf ready; wait"}, t.TempDir(), false)
+	argv := wrappedArgv([]string{"sh", "-c", "sleep 5 & printf ready; wait"}, t.TempDir(), false, true)
 	ready := make(chan struct{})
 	done := make(chan error, 1)
 	var once sync.Once
