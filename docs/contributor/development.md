@@ -292,6 +292,10 @@ project:
 | `release-delivery.yml`    | Release workflow call and manual recovery                                  | Validate a published manifest and upload a bounded documentation patch for review.                                    |
 | `tauri-build.yml`         | Manual dispatch only                                                       | Explicit desktop bundle rebuild/debug run from the Actions tab.                                                       |
 
+The nightly job installs `ripgrep` explicitly. `just docs-env-check` accepts
+only a successful search with no obsolete variables found; missing tools and
+search errors fail the gate instead of silently passing it.
+
 The main `Test` workflow starts every PR with a path filter. Go, TypeScript,
 Docker, and Tauri Rust jobs run only when their inputs changed, while workflow
 edits force the full matrix so CI changes test themselves. The TypeScript job
