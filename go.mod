@@ -8,10 +8,10 @@ require (
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/go-json-experiment/json v1.27.0
 	github.com/gobwas/ws v1.5.0
-	github.com/hecatehq/acp-adapter-kit v0.3.1
+	github.com/hecatehq/acp-adapter-kit v0.3.2
 	github.com/hecatehq/cairnline v0.1.0-alpha.6.0.20260719233717-aecf5281e3dd
 	github.com/hecatehq/claude-code-acp-adapter v0.3.1
-	github.com/hecatehq/codex-acp-adapter v0.2.1
+	github.com/hecatehq/codex-acp-adapter v0.2.2
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/ncruces/zenity v0.10.15
 	github.com/robfig/cron/v3 v3.0.1
