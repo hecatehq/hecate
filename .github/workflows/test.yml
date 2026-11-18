@@ -54,7 +54,7 @@ jobs:
 
       - name: Validate release workflows
         run: |
-          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts scripts/postgres-workflow.test.ts scripts/updater-workflow.test.ts
+          bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts scripts/postgres-workflow.test.ts scripts/updater-workflow.test.ts scripts/maintenance-workflow.test.ts
           bun scripts/check-release-workflows.ts
 
       - uses: dorny/paths-filter@v4
@@ -553,7 +553,9 @@ jobs:
     # filter we use everywhere else; the `if` matches the unit job.
     needs: [changes, typescript]
     if: needs.changes.outputs.typescript == 'true' || needs.changes.outputs.workflow == 'true'
-    runs-on: ubuntu-latest
+    # Playwright 1.59 does not publish Chromium for Ubuntu 26.04. Keep this
+    # explicit until the UI Playwright dependency supports the newer runner.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ui

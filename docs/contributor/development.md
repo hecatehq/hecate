@@ -296,6 +296,10 @@ The nightly job installs `ripgrep` explicitly. `just docs-env-check` accepts
 only a successful search with no obsolete variables found; missing tools and
 search errors fail the gate instead of silently passing it.
 
+The UI Playwright job uses Ubuntu 24.04 explicitly because its pinned browser
+release does not support Ubuntu 26.04. Upgrade that runner together with
+Playwright after browser installation and e2e checks pass on the new image.
+
 The main `Test` workflow starts every PR with a path filter. Go, TypeScript,
 Docker, and Tauri Rust jobs run only when their inputs changed, while workflow
 edits force the full matrix so CI changes test themselves. The TypeScript job
