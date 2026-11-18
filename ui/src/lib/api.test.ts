@@ -58,6 +58,7 @@ import {
   getProjectWorkRoles,
   getUsageEvents,
   getUsageSummary,
+  getWorkspaceSkills,
   getSession,
   getTaskSchedules,
   getTaskRunContext,
@@ -119,6 +120,22 @@ describe("api client", () => {
     expect(options.method).toBe("POST");
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(options.body).toBe(JSON.stringify({ hello: "world" }));
+  });
+
+  it("posts workspace skill inspection as a JSON object and preserves cancellation", async () => {
+    const response = { object: "workspace_skills", data: [] };
+    fetchMock.mockResolvedValueOnce(jsonResponse(response));
+    const controller = new AbortController();
+
+    await expect(getWorkspaceSkills("/workspace", controller.signal)).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe("/hecate/v1/workspace-skills");
+    expect(options?.method).toBe("POST");
+    expect(new Headers(options?.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(options?.body))).toEqual({ workspace: "/workspace" });
+    expect(options?.signal).toBe(controller.signal);
   });
 
   it("encodes every visible Task ID in the batched schedules request", async () => {
