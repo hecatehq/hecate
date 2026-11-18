@@ -232,7 +232,7 @@ func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
 		"title": "claimed execution cancel e2e",
 		"prompt": "cancel while running",
 		"execution_kind": "shell",
-		"shell_command": "printf ready > command-started; while true; do sleep 1; done",
+		"shell_command": "printf ready > command-started; i=0; while [ \"$i\" -lt 30 ]; do sleep 1; i=$((i + 1)); done",
 		"working_directory": %q,
 		"sandbox_allowed_root": %q,
 		"workspace_mode": "in_place",

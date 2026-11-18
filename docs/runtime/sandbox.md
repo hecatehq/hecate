@@ -242,10 +242,13 @@ difference: it's automatic for Hecate (server context — no user
 sitting at a TTY to decide), and configured per-call in the local-CLI
 case.
 
-Linux `bwrap` uses a private PID namespace and `--die-with-parent`: cancellation
-or timeout of the wrapper also terminates its sandbox descendants, so inherited
-stdout/stderr pipes cannot keep a cancelled Task waiting for executor cleanup.
-This Linux wrapper guarantee does not extend to unwrapped one-shot commands.
+Linux one-shot shell commands use a private PID namespace and
+`--die-with-parent`: cancellation or timeout of the wrapper also terminates its
+sandbox descendants, so inherited stdout/stderr pipes cannot keep a cancelled
+Task waiting for executor cleanup. Long-lived terminals omit that flag: their
+process-tree owner preserves background jobs after the initial shell exits and
+handles graceful Close. Unwrapped one-shot commands do not gain descendant
+supervision.
 
 The official Linux Docker runtime image is a full Hecate runtime image, not a
 distroless binary wrapper. It ships with a POSIX shell, git/ssh, and the

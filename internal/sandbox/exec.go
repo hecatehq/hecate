@@ -194,7 +194,7 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	// Layer 2 — wrap the argv with bwrap (Linux) or sandbox-exec (macOS)
 	// when one is available. No-op on Windows / Linux without bwrap.
 	argv := ShellArgv(command)
-	argv = wrappedArgv(argv, workingDirectory, command.Policy.Network)
+	argv = wrappedArgv(argv, workingDirectory, command.Policy.Network, true)
 
 	collector := newOutputCollector(command.Limits.MaxOutputBytes, cancel, onChunk)
 	processResult, err := e.processRunner().RunStreaming(runCtx, processrunner.Request{
