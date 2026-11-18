@@ -26,6 +26,7 @@ func TestBwrapCancellationClosesInheritedOutput(t *testing.T) {
 	go func() {
 		_, err := processrunner.NewLocalRunner().RunStreaming(ctx, processrunner.Request{
 			Command: argv[0], Args: argv[1:], MaxStdoutBytes: 1024, MaxStderrBytes: 1024,
+			KillProcessGroup: true,
 		}, func(chunk processrunner.Chunk) {
 			if chunk.Stream == "stdout" {
 				once.Do(func() { close(ready) })
@@ -53,5 +54,33 @@ func TestBwrapCancellationClosesInheritedOutput(t *testing.T) {
 		case <-time.After(6 * time.Second):
 		}
 		t.Fatal("cancelled bubblewrap left a descendant holding the output pipe open")
+	}
+}
+
+func TestBwrapCancellationDuringStartup(t *testing.T) {
+	if DetectWrapper(t.Context()) != WrapperBwrap {
+		t.Skip("requires usable bubblewrap")
+	}
+	argv := wrappedArgv([]string{"sh", "-c", "sleep 5"}, t.TempDir(), false, true)
+	for attempt := range 100 {
+		// Vary the deadline across exec, namespace setup, and child startup.
+		ctx, cancel := context.WithTimeout(t.Context(), time.Duration(attempt%10+1)*time.Millisecond)
+		done := make(chan error, 1)
+		go func() {
+			_, err := processrunner.NewLocalRunner().Run(ctx, processrunner.Request{
+				Command: argv[0], Args: argv[1:], KillProcessGroup: true,
+			})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			cancel()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("attempt %d: error = %v, want deadline", attempt, err)
+			}
+		case <-time.After(2 * time.Second):
+			cancel()
+			t.Fatalf("attempt %d: wrapper startup cancellation did not drain", attempt)
+		}
 	}
 }

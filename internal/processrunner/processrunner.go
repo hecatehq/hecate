@@ -20,6 +20,9 @@ type Request struct {
 	Timeout        time.Duration
 	MaxStdoutBytes int64
 	MaxStderrBytes int64
+	// KillProcessGroup opts one-shot Unix commands into group-wide cancellation.
+	// Windows keeps its existing direct-process cancellation behavior.
+	KillProcessGroup bool
 }
 
 // Result is the captured result of a local process invocation.
@@ -68,6 +71,9 @@ func (r *LocalRunner) RunStreaming(ctx context.Context, req Request, onChunk fun
 	}
 
 	cmd := exec.CommandContext(runCtx, command, req.Args...)
+	if req.KillProcessGroup {
+		configureProcessGroupCancellation(cmd)
+	}
 	if strings.TrimSpace(req.Dir) != "" {
 		cmd.Dir = req.Dir
 	}

@@ -99,6 +99,9 @@ func TestLocalExecutorStreamsThroughProcessRunner(t *testing.T) {
 	if process.req.MaxStdoutBytes != 10 || process.req.MaxStderrBytes != 10 {
 		t.Fatalf("process caps = stdout %d stderr %d, want 10/10", process.req.MaxStdoutBytes, process.req.MaxStderrBytes)
 	}
+	if !process.req.KillProcessGroup {
+		t.Fatal("one-shot shell execution must cancel its process group")
+	}
 	if len(chunks) != 1 || chunks[0].Text != "streamed" {
 		t.Fatalf("chunks = %+v, want streamed chunk", chunks)
 	}
