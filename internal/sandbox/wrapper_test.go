@@ -199,6 +199,17 @@ func TestApplyWrapper_Bwrap_RewritesArgv(t *testing.T) {
 	}
 }
 
+func TestBwrapOwnershipFlagsApplyToEveryWorkspaceMode(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		for _, network := range []bool{false, true} {
+			argv := bwrapArgvWithWrapperPath([]string{"tool"}, "/workspace", network, readOnly, "/usr/bin/bwrap")
+			if !slices.Contains(argv, "--unshare-pid") || !slices.Contains(argv, "--die-with-parent") {
+				t.Fatalf("readOnly=%v network=%v: missing process ownership flags: %v", readOnly, network, argv)
+			}
+		}
+	}
+}
+
 // TestApplyWrapper_Bwrap_NetworkAllowedSkipsUnshareNet: when network is
 // allowed the unshare-net flag must be absent.
 func TestApplyWrapper_Bwrap_NetworkAllowedSkipsUnshareNet(t *testing.T) {

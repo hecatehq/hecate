@@ -4,8 +4,12 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -228,7 +232,7 @@ func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
 		"title": "claimed execution cancel e2e",
 		"prompt": "cancel while running",
 		"execution_kind": "shell",
-		"shell_command": "while true; do sleep 1; done",
+		"shell_command": "printf ready > command-started; while true; do sleep 1; done",
 		"working_directory": %q,
 		"sandbox_allowed_root": %q,
 		"workspace_mode": "in_place",
@@ -238,7 +242,37 @@ func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
 	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
 
 	waitForE2ETaskRunStatus(t, baseURL, created.Data.ID, started.Data.ID, "running", 10*time.Second)
-	cancelled := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", `{"reason":"operator stop"}`)
+	// A running row precedes process startup. Wait for the shell itself so
+	// cancellation always exercises wrapper/descendant teardown.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if data, err := os.ReadFile(filepath.Join(workDir, "command-started")); err == nil && string(data) == "ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("shell did not publish its startup marker")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", strings.NewReader(`{"reason":"operator stop"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("cancel running shell: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status=%d: %s", response.StatusCode, readBody(t, response))
+	}
+	var cancelled e2eTaskRunResponse
+	if err := json.NewDecoder(response.Body).Decode(&cancelled); err != nil {
+		t.Fatal(err)
+	}
 	if cancelled.Data.Status != "cancelled" {
 		t.Fatalf("cancel response status = %q last_error=%q, want cancelled", cancelled.Data.Status, cancelled.Data.LastError)
 	}

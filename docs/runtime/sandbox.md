@@ -242,6 +242,11 @@ difference: it's automatic for Hecate (server context — no user
 sitting at a TTY to decide), and configured per-call in the local-CLI
 case.
 
+Linux `bwrap` uses a private PID namespace and `--die-with-parent`: cancellation
+or timeout of the wrapper also terminates its sandbox descendants, so inherited
+stdout/stderr pipes cannot keep a cancelled Task waiting for executor cleanup.
+This Linux wrapper guarantee does not extend to unwrapped one-shot commands.
+
 The official Linux Docker runtime image is a full Hecate runtime image, not a
 distroless binary wrapper. It ships with a POSIX shell, git/ssh, and the
 supported External Agent CLIs/ACP adapters so local/self-host containers and
@@ -277,9 +282,9 @@ runtime knobs (`HECATE_TASK_HTTP_*` and `HECATE_TASK_WEB_SEARCH_*`) — see
 
 - **Not a container.** The subprocess (and its bwrap / sandbox-exec
   wrapping when active) runs as the same OS user as the gateway and
-  shares the host's UID/GID, hostname, PID namespace beyond
-  `--unshare-pid` (which we don't enable — it breaks job control),
-  and any non-restricted resources. For stronger isolation, run the
+  shares the host's UID/GID, hostname, and any non-restricted resources.
+  Linux `bwrap` isolates the PID namespace; unwrapped commands do not.
+  For stronger isolation, run the
   gateway inside a container — this is a deployment-time decision,
   not a sandbox-layer property. seccomp-bpf syscall filtering is
   also not implemented; tracked at
