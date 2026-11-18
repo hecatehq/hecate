@@ -1412,7 +1412,11 @@ func (r *LocalRunner) runLimitedReadOnly(ctx context.Context, workspace string, 
 	if err != nil {
 		return Result{ExitCode: -1}, err
 	}
-	argv := sandbox.WrapReadOnlyArgv(append([]string{command}, args...), workspace, false, r.ReadOnlyPaths...)
+	// Passive Git discovery needs repository ancestors and linked metadata in
+	// /tmp, which bwrap's scratch mount otherwise hides for nested workspaces.
+	// Restore the host view read-only; never grant writes or network access.
+	readOnlyPaths := append([]string{"/tmp"}, r.ReadOnlyPaths...)
+	argv := sandbox.WrapReadOnlyArgv(append([]string{command}, args...), workspace, false, readOnlyPaths...)
 	return r.run(ctx, processrunner.Request{
 		Command:        argv[0],
 		Args:           argv[1:],

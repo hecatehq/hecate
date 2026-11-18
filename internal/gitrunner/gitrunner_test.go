@@ -1859,6 +1859,12 @@ func TestLocalRunner_RunLimitedReadOnlyUsesReadOnlyOfflineWrapper(t *testing.T) 
 	if !strings.Contains(joined, "--ro-bind / /") {
 		t.Fatalf("wrapped argv = %q, want read-only host root", joined)
 	}
+	if temporary := strings.Index(joined, "--tmpfs /tmp"); temporary < 0 || strings.Index(joined, "--ro-bind /tmp /tmp") <= temporary {
+		t.Fatalf("wrapped argv = %q, want repository ancestors in /tmp restored read-only after scratch mount", joined)
+	}
+	if len(runner.ReadOnlyPaths) != 1 || runner.ReadOnlyPaths[0] != extra {
+		t.Fatalf("caller read-only paths changed: %q", runner.ReadOnlyPaths)
+	}
 	if !strings.Contains(joined, "--unshare-net") {
 		t.Fatalf("wrapped argv = %q, want network namespace disabled", joined)
 	}

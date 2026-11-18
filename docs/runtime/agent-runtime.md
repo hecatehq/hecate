@@ -676,6 +676,10 @@ tools remain available. Structured Git reads run as fixed, bounded, passive
 commands: they do not refresh the index, invoke repository fsmonitor helpers,
 load global/system Git configuration or attributes, recurse into submodules, or
 lazily fetch objects, and use the offline/read-only OS wrapper where available.
+On Linux, passive Git commands retain a read-only view of host `/tmp` so nested
+workspaces and linked Git metadata remain discoverable. This does not grant
+writes or network access, and does not change the scratch `/tmp` used by shell
+or code-intelligence subprocesses.
 The actual status/diff process reads an immutable temporary gitdir containing a
 safe core-config allowlist plus snapshotted HEAD/ref/info metadata, so a source
 config change cannot introduce an executable helper between validation and
