@@ -1409,7 +1409,7 @@ export function ChatComposer(props: ChatComposerProps) {
                   disabled={
                     sendDisabled || steeringSending || chat.state.pendingChatAttachments.length > 0
                   }
-                  title="Add text guidance to the current run at its next safe boundary. The current operation continues; files must be queued instead."
+                  title="Add text guidance to the current run at its next safe boundary. The current operation continues; send files after this run finishes."
                   onClick={async () => {
                     if (steeringSending || !activeHecateTaskID || !activeHecateRunID) return;
                     setSteeringSending(true);

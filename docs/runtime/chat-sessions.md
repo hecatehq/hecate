@@ -300,7 +300,11 @@ the browser queue unless the operator chooses the separate **Send now** action.
 Send now posts idempotent text guidance to the active queued/running native Run,
 not a chat turn. The composer keeps text until acknowledgment; a same-tab retry
 after an uncertain response retains its request identity in session storage
-(only a fingerprint and random id, not guidance text). Pending/applied/not-applied
+(only fingerprints and a random id, not guidance text). This bookkeeping is
+bounded per run, so retained deliveries from older runs do not block new work.
+If a run reaches that local bound, retry the original text to check delivery,
+or stop the run and send a follow-up; uncertain identities are never evicted.
+Pending/applied/not-applied
 status is projected from durable run artifacts into the transcript. Awaiting
 approval, direct-model, External Agent, and QA turns do not accept live guidance.
 Normal submission still enters
