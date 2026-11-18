@@ -281,6 +281,9 @@ func bwrapArgvWithWrapperPath(argv []string, workspace string, network, readOnly
 		// fails on the read-only host bind.
 		"--tmpfs", "/tmp",
 		"--unshare-pid",
+		// Cancellation kills the bwrap supervisor. Its namespace descendants
+		// must die too, or inherited output pipes can keep cmd.Wait blocked.
+		"--die-with-parent",
 	}
 	if workspace != "" {
 		bindMode := "--bind"
