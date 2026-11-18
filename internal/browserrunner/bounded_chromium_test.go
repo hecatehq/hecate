@@ -3,6 +3,7 @@ package browserrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -13,6 +14,34 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
+
+func TestBoundedWebSocketMaskedClientPayloads(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{1, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 125, 126, 127, 65535, 65536, 65537} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			if err := server.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			payload := make([]byte, size)
+			for i := range payload {
+				payload[i] = byte(i % 251)
+			}
+			done := make(chan error, 1)
+			go func() {
+				endpoint := &boundedWebSocketConn{Conn: client}
+				done <- endpoint.writeMessage(ws.StateClientSide, ws.OpBinary, payload)
+			}()
+			got, op, err := readBoundedWebSocketMessage(server, ws.StateServerSide, 128<<10)
+			if err != nil || op != ws.OpBinary || string(got) != string(payload) {
+				t.Fatalf("masked payload size %d: bytes=%d opcode=%v err=%v", size, len(got), op, err)
+			}
+			awaitTestWrite(t, done)
+		})
+	}
+}
 
 func TestReadChromiumDevToolsURLRequiresBoundedLoopbackBrowserEndpoint(t *testing.T) {
 	t.Parallel()
