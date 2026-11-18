@@ -41,6 +41,8 @@ jobs:
 
       - name: Install maintenance tools
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
           command -v just >/dev/null 2>&1 || cargo install just --locked --version 1.50.0
           command -v lychee >/dev/null 2>&1 || cargo install lychee --locked --version 0.24.2
 

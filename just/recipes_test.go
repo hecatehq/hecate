@@ -3,9 +3,47 @@ package just_test
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestDocsEnvRecipeFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX rg fixture")
+	}
+	just, err := exec.LookPath("just")
+	if err != nil {
+		t.Skip("just binary not available")
+	}
+	for _, tc := range []struct {
+		name        string
+		status      string
+		wantSuccess bool
+	}{
+		{"no matches", "1", true},
+		{"obsolete variables found", "0", false},
+		{"search error", "2", false},
+		{"missing executable", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin := t.TempDir()
+			if tc.status != "" {
+				if err := os.WriteFile(filepath.Join(bin, "rg"), []byte("#!/bin/sh\nexit "+tc.status+"\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command(just, "--shell", "/bin/sh", "docs-env-check")
+			cmd.Dir = ".."
+			cmd.Env = append(os.Environ(), "PATH="+bin)
+			out, err := cmd.CombinedOutput()
+			if (err == nil) != tc.wantSuccess {
+				t.Fatalf("success=%v, want %v: %s", err == nil, tc.wantSuccess, out)
+			}
+		})
+	}
+}
 
 func TestPostgresRecipeRequiresDatabase(t *testing.T) {
 	if _, err := exec.LookPath("just"); err != nil {
