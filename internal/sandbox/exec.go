@@ -198,11 +198,12 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 
 	collector := newOutputCollector(command.Limits.MaxOutputBytes, cancel, onChunk)
 	processResult, err := e.processRunner().RunStreaming(runCtx, processrunner.Request{
-		Command:        argv[0],
-		Args:           argv[1:],
-		Dir:            workingDirectory,
-		MaxStdoutBytes: command.Limits.MaxOutputBytes,
-		MaxStderrBytes: command.Limits.MaxOutputBytes,
+		Command:          argv[0],
+		Args:             argv[1:],
+		Dir:              workingDirectory,
+		MaxStdoutBytes:   command.Limits.MaxOutputBytes,
+		MaxStderrBytes:   command.Limits.MaxOutputBytes,
+		KillProcessGroup: true,
 		// Sanitised environment — gateway secrets stay out of scope. See
 		// sanitisedEnv() for the allowlist and the reasoning.
 		Env: sanitisedEnv(),
