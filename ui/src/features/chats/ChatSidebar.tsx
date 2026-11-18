@@ -215,6 +215,13 @@ export function ChatSidebar({
     : chat.state.agentWorkspace.trim();
   const selectedSkills =
     skillSelection.workspace === workspaceForNewChat ? skillSelection.skills : [];
+  useEffect(() => {
+    setSkillSelection((current) =>
+      current.workspace === workspaceForNewChat
+        ? current
+        : { workspace: workspaceForNewChat, skills: [] },
+    );
+  }, [workspaceForNewChat]);
   const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate";
   const workspaceRequiredForNewChat =
     isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;

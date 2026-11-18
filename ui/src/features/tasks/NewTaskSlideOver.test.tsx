@@ -160,6 +160,45 @@ describe("NewTaskSlideOver work policies", () => {
     );
   });
 
+  it("clears selected skills when leaving a workspace and returning to it", async () => {
+    vi.mocked(getWorkspaceSkills)
+      .mockReset()
+      .mockResolvedValue({
+        object: "workspace_skills",
+        data: [
+          {
+            path: ".agents/skills/review/SKILL.md",
+            name: "review",
+            sha256: "a".repeat(64),
+            bytes: 42,
+          },
+        ],
+      });
+    const { render, user, props } = setup({
+      models: agentLoopModelFixtures.map((model) => ({
+        ...model,
+        metadata: { ...model.metadata, default: true },
+      })),
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    const workspace = screen.getByPlaceholderText("/Users/alice/dev/project");
+    await user.type(workspace, "/workspace");
+    await user.click(screen.getByRole("button", { name: "Choose skills" }));
+    await user.click(await screen.findByRole("checkbox", { name: /review/ }));
+    expect(screen.getByText(/1 skills selected/)).toBeVisible();
+    await user.clear(workspace);
+    await user.type(workspace, "/other");
+    await user.clear(workspace);
+    await user.type(workspace, "/workspace");
+    expect(screen.queryByText(/skills selected/)).toBeNull();
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "Review this workspace");
+    await user.click(screen.getByRole("button", { name: /^create task/i }));
+    expect(props.onCreate).toHaveBeenCalledOnce();
+    expect(vi.mocked(props.onCreate).mock.calls[0][0]).not.toHaveProperty("workspace_skills");
+    expect(getWorkspaceSkills).toHaveBeenCalledOnce();
+  });
+
   it("offers compatible policies only for standard native agent-loop Tasks", async () => {
     const { render, user } = setup({
       agentPresets: [

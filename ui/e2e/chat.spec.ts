@@ -571,6 +571,57 @@ test("New chat creates an external-agent session with controls before the first 
   );
 });
 
+test("New Hecate chat uses only explicitly selected workspace skill fingerprints", async ({
+  page,
+}) => {
+  const skill = {
+    path: ".agents/skills/review/SKILL.md",
+    name: "review",
+    sha256: "a".repeat(64),
+    bytes: 42,
+  };
+  const inspections: unknown[] = [];
+  const creations: Record<string, unknown>[] = [];
+  await page.route("/hecate/v1/workspace-skills", async (route) => {
+    inspections.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "workspace_skills", data: [skill] }),
+    });
+  });
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "POST") {
+      creations.push(route.request().postDataJSON());
+    }
+    await route.fallback();
+  });
+
+  await startHecateChat(page);
+  await expect.poll(() => creations.length).toBe(1);
+  expect(inspections).toEqual([]);
+  expect(creations[0]).not.toHaveProperty("workspace_skills");
+
+  await page.getByRole("button", { name: "Choose skills" }).click();
+  const checkbox = page.getByRole("checkbox", { name: /review/ });
+  await expect(checkbox).not.toBeChecked();
+  expect(inspections).toEqual([{ workspace: "/tmp/hecate-e2e" }]);
+  await checkbox.focus();
+  await page.keyboard.press("Space");
+  await expect(checkbox).toBeChecked();
+  await expect(page.getByText(/1 skills selected/)).toBeVisible();
+
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect.poll(() => creations.length).toBe(2);
+  expect(creations[1]).toMatchObject({
+    agent_id: "hecate",
+    workspace: "/tmp/hecate-e2e",
+    workspace_skills: [{ path: skill.path, sha256: skill.sha256 }],
+  });
+  expect(creations[1].workspace_skills).toEqual([{ path: skill.path, sha256: skill.sha256 }]);
+  expect(inspections).toHaveLength(1);
+});
+
 test("New Hecate chat can start without workspace and shows tools workspace guidance", async ({
   page,
 }) => {
