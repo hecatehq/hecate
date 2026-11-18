@@ -9,7 +9,7 @@ import { ProjectsProvider } from "../projects";
 import { SettingsProvider } from "../settings";
 import { ApprovalsProvider } from "../approvals";
 import { UsageProvider } from "../usage";
-import { steerTaskRun } from "../../../lib/api";
+import { ApiError, steerTaskRun } from "../../../lib/api";
 
 vi.mock("../../../lib/api", async (original) => ({
   ...(await original<typeof import("../../../lib/api")>()),
@@ -90,6 +90,80 @@ describe("live guidance coordinator", () => {
     expect(vi.mocked(steerTaskRun).mock.calls[0][3]).toBe(vi.mocked(steerTaskRun).mock.calls[1][3]);
     expect(result.current.runtime.state.message).toBe("");
   });
+  it.each([
+    [429, "task.steering_full"],
+    [409, "task.steering_unavailable"],
+  ])(
+    "retires a typed non-admission response %s/%s without losing the draft",
+    async (status, code) => {
+      vi.mocked(steerTaskRun).mockRejectedValue(new ApiError("Not admitted", status, code));
+      const { result } = setup();
+      await act(async () => {
+        expect(await result.current.actions.steerActiveRun("task", "run")).toBe(false);
+      });
+      expect(result.current.runtime.state.message).toBe("Inspect first");
+      expect(sessionStorage.length).toBe(0);
+      await act(async () => {
+        expect(await result.current.actions.steerActiveRun("task", "run")).toBe(false);
+      });
+      expect(vi.mocked(steerTaskRun).mock.calls[0][3]).not.toBe(
+        vi.mocked(steerTaskRun).mock.calls[1][3],
+      );
+    },
+  );
+  it.each([
+    [500, "gateway_error"],
+    [429, ""],
+    [409, "task.steering_request_conflict"],
+    [500, "task.steering_full"],
+    [429, "task.steering_unavailable"],
+  ])("keeps retry identity for an unproven failure %s/%s", async (status, code) => {
+    vi.mocked(steerTaskRun).mockRejectedValue(new ApiError("Unknown outcome", status, code));
+    const { result } = setup();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await act(async () => {
+        expect(await result.current.actions.steerActiveRun("task", "run")).toBe(false);
+      });
+    }
+    expect(result.current.runtime.state.message).toBe("Inspect first");
+    expect(vi.mocked(steerTaskRun).mock.calls[0][3]).toBe(vi.mocked(steerTaskRun).mock.calls[1][3]);
+  });
+  it.each([
+    {
+      object: "unknown",
+      data: { id: "guidance", content: "Inspect first", status: "pending", replay: false },
+    },
+    {
+      object: "task.run.steering",
+      data: { id: "guidance", content: "Inspect first", status: "unknown", replay: false },
+    },
+    {
+      object: "task.run.steering",
+      data: { id: "guidance", content: "Different text", status: "pending", replay: false },
+    },
+    { object: "task.run.steering", data: {} },
+    {
+      object: "task.run.steering",
+      data: { id: 123, content: "Inspect first", status: "pending", replay: true },
+    },
+  ])(
+    "preserves the draft and retry identity for malformed acknowledgments %#",
+    async (response) => {
+      vi.mocked(steerTaskRun).mockResolvedValue(
+        response as unknown as Awaited<ReturnType<typeof steerTaskRun>>,
+      );
+      const { result } = setup();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await act(async () => {
+          expect(await result.current.actions.steerActiveRun("task", "run")).toBe(false);
+        });
+      }
+      expect(result.current.runtime.state.message).toBe("Inspect first");
+      expect(vi.mocked(steerTaskRun).mock.calls[0][3]).toBe(
+        vi.mocked(steerTaskRun).mock.calls[1][3],
+      );
+    },
+  );
   it("preserves edits made while a delivery acknowledgment is pending", async () => {
     let acknowledge!: (value: Awaited<ReturnType<typeof steerTaskRun>>) => void;
     vi.mocked(steerTaskRun).mockImplementation(

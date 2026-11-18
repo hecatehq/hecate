@@ -182,7 +182,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   may submit bounded text guidance to a queued/running native Run; preserve all
   ownership/deletion/attachment/workspace fences, keep the draft until an
   authoritative reply, and reuse persisted request identity after ambiguous
-  delivery. Never pass files or silently turn failed guidance into a new turn.
+  delivery. Scope retry-bookkeeping limits to the exact session/task/run so
+  retained identities from older runs cannot block new work. Retire rejected
+  reservations only for explicit typed non-admission responses; transport,
+  unknown, and server failures must preserve replay identity. Never pass files
+  or silently turn failed guidance into a new turn.
   Show durable guidance status without claiming that applied means followed.
   Approval pauses remain unsupported. Keep
   provider/model controls locked to the segment snapshot. If the operator

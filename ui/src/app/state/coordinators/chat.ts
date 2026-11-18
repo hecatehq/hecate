@@ -1458,8 +1458,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       currentChatResetGeneration() === generation &&
       !isChatSessionDeleted(sessionID) &&
       currentChatCancellationEpoch(sessionID) === cancellationEpoch;
+    let reservation: ReturnType<typeof reserveRunSteeringRequest> | undefined;
     try {
-      const reservation = reserveRunSteeringRequest(
+      reservation = reserveRunSteeringRequest(
         window.sessionStorage,
         sessionID,
         taskID,
@@ -1467,6 +1468,16 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         snapshot.content,
       );
       const payload = await steerTaskRun(taskID, runID, snapshot.content, reservation.id);
+      if (
+        payload.object !== "task.run.steering" ||
+        typeof payload.data?.id !== "string" ||
+        !payload.data.id ||
+        payload.data.content !== snapshot.content ||
+        typeof payload.data.replay !== "boolean" ||
+        !["pending", "applied", "not_applied"].includes(payload.data.status)
+      ) {
+        throw new Error("Could not confirm guidance delivery.");
+      }
       if (!isCurrent()) return true;
       if (payload.data.status === "not_applied") {
         setChatErrorState(
@@ -1496,6 +1507,20 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       );
       return true;
     } catch (error) {
+      if (
+        reservation &&
+        error instanceof ApiError &&
+        ((error.status === 429 && error.code === "task.steering_full") ||
+          (error.status === 409 && error.code === "task.steering_unavailable"))
+      ) {
+        // These typed store outcomes prove that this identity was not admitted.
+        // Unknown responses and transport/5xx failures retain replay identity.
+        try {
+          settleRunSteeringRequest(window.sessionStorage, reservation);
+        } catch {
+          /* Retain replay identity. */
+        }
+      }
       if (isCurrent())
         setChatErrorState(
           new Error(
