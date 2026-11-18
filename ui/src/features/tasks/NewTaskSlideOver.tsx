@@ -166,6 +166,12 @@ export function NewTaskSlideOver({
   }>({ workspace: "", skills: [] });
   const selectedSkills =
     skillSelection.workspace === taskWorkingDir.trim() ? skillSelection.skills : [];
+  useEffect(() => {
+    const workspace = taskWorkingDir.trim();
+    setSkillSelection((current) =>
+      current.workspace === workspace ? current : { workspace, skills: [] },
+    );
+  }, [taskWorkingDir]);
   // In-place mode: run inside the source directory rather than an
   // isolated clone. Toggling this on tells the gateway to use
   // working_directory as the sandbox root, so writes hit the real

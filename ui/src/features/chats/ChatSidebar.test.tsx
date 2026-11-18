@@ -92,6 +92,40 @@ describe("ChatSidebar new-chat creation", () => {
       { path: skill.path, sha256: skill.sha256 },
     ]);
   });
+  it("clears selected skills when leaving a workspace and returning to it", async () => {
+    const skill = {
+      path: ".agents/skills/review/SKILL.md",
+      name: "review",
+      sha256: "a".repeat(64),
+      bytes: 42,
+    };
+    vi.mocked(getWorkspaceSkills).mockResolvedValue({ object: "workspace_skills", data: [skill] });
+    const onCreateChat = vi.fn();
+    const actions = createRuntimeConsoleActions();
+    const sidebarForWorkspace = (agentWorkspace: string) =>
+      withRuntimeConsole(
+        <ChatSidebar
+          isAgentChat
+          onSelectSession={async () => true}
+          onCreateChat={onCreateChat}
+          onChooseWorkspace={() => undefined}
+          onOpenAgentSetup={() => undefined}
+        />,
+        { state: createRuntimeConsoleFixture({ agentWorkspace }), actions },
+      );
+    const { rerender } = render(sidebarForWorkspace("/workspace"));
+    fireEvent.click(screen.getByRole("button", { name: "Choose skills" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /review/ }));
+    expect(screen.getByText(/1 skills selected/)).toBeVisible();
+    rerender(sidebarForWorkspace("/other"));
+    expect(screen.queryByRole("checkbox", { name: /review/ })).toBeNull();
+    expect(screen.queryByText(/skills selected/)).toBeNull();
+    rerender(sidebarForWorkspace("/workspace"));
+    expect(screen.queryByText(/skills selected/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New Hecate chat" }));
+    expect(onCreateChat).toHaveBeenCalledWith("hecate", "");
+    expect(getWorkspaceSkills).toHaveBeenCalledOnce();
+  });
   it("atomically ignores a second same-tick creation intent before deselecting", () => {
     const onCreateChat = vi.fn();
     const onSelectSession = vi.fn();
