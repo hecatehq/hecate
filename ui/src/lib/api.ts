@@ -264,7 +264,7 @@ export function getWorkspaceSkills(workspace: string, signal?: AbortSignal) {
     data: import("../types/workspace-skill").WorkspaceSkillInfo[];
   }>(`${HECATE_API}/workspace-skills`, {
     method: "POST",
-    body: JSON.stringify({ workspace }),
+    body: { workspace },
     signal,
   });
 }
