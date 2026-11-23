@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/chromedp/cdproto v0.159.2
 	github.com/chromedp/chromedp v0.23.0
-	github.com/coder/acp-go-sdk v0.13.5
+	github.com/coder/acp-go-sdk v0.20.0
 	github.com/go-json-experiment/json v1.27.0
 	github.com/gobwas/ws v1.5.0
 	github.com/hecatehq/acp-adapter-kit v0.3.2
