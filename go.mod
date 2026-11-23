@@ -3,8 +3,8 @@ module github.com/hecatehq/hecate
 go 1.26.5
 
 require (
-	github.com/chromedp/cdproto v0.159.2
-	github.com/chromedp/chromedp v0.23.0
+	github.com/chromedp/cdproto v0.160.7
+	github.com/chromedp/chromedp v0.24.0
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/go-json-experiment/json v1.27.0
 	github.com/gobwas/ws v1.5.0
